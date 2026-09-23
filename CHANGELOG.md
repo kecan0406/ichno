@@ -4,8 +4,6 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
-- `packageManager` is pinned in `package.json` (pnpm 10.33.2).
-
 ## 0.1.0 — 2026-09-24
 
 First release.
