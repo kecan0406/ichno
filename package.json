@@ -21,7 +21,8 @@
   "packageManager": "pnpm@10.33.2",
   "sideEffects": false,
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./dist/index.js",
@@ -35,9 +36,12 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "prepublishOnly": "pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:compiler": "node scripts/check-compiler.mjs",
+    "check:pkg": "publint && attw --pack . --profile esm-only",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm check:compiler && pnpm build && pnpm check:pkg",
+    "prepublishOnly": "pnpm check"
   },
   "peerDependencies": {
     "konva": "^10.0.0",
@@ -60,6 +64,7 @@
     }
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@babel/core": "^7.29.7",
     "@rolldown/plugin-babel": "^0.2.4",
     "@types/node": "^26.6.2",
@@ -67,6 +72,7 @@
     "babel-plugin-react-compiler": "^1.0.0",
     "konva": "^10.7.0",
     "prettier": "^3.9.9",
+    "publint": "^0.3.24",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-konva": "^19.3.0",

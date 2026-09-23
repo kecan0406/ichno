@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Workflow actions only — library dependencies are peers/devDeps bumped deliberately with a release.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

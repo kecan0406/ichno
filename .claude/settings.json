@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(pnpm check)",
+      "Bash(pnpm check:*)",
+      "Bash(pnpm test)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm build)",
+      "Bash(pnpm format)",
+      "Bash(pnpm format:*)",
+      "Bash(pnpm exec vitest:*)",
+      "Bash(pnpm pack)"
+    ],
+    "ask": ["Bash(npm publish:*)", "Bash(pnpm publish:*)", "Bash(git push:*)", "Bash(git tag:*)"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; pnpm exec prettier --write --ignore-unknown \"$f\"; } 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "prettier --write"
+          }
+        ]
+      }
+    ]
+  }
+}
