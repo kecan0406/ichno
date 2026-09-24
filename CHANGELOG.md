@@ -32,6 +32,12 @@ Breaking — document version 2, and the canvas renderers are gone (see `docs/di
   `zoomView`, `centerZoom`, `fitScaleOf`, `SeatMapView` and `ViewportSize`. New `PlanTarget` and `PlanDrag` types.
 - `ichno/editor`: `viewportProps` (tap to select, drag to move with snapping), `displayPlan` (the drag in
   progress) and `selectedPlaceIds`.
+- `ichno/editor`: row, table, booth and area tools, `setSeatCount`, labeling, multi-selection (`selection` is now
+  a list; shift/⌘ taps add), group drags, `alignSelected`, `distributeSelected`, `duplicateSelected`, undo/redo
+  (`⌘Z`, `⇧⌘Z`, `⌘D` in the shortcuts hook) and `lockedIds`. `removeObject` became `removeObjects`, which returns
+  the ids it refused. The operations are exported as pure functions in `planEdits`.
+- `ichno`: `labeling.numbers`, `labeling.letters` (skipped letters, AA after Z) and `labeling.custom`.
+- `ichno/react`: `onTap` also reports the plan point and whether the tap was additive.
 - Removed `ichno/svg` and `ichno/konva` (replaced by `ichno/react`), the `konva` / `react-konva` peer
   dependencies and the `--ichno-occupied-tint` variable.
 

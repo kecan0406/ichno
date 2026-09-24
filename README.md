@@ -163,29 +163,43 @@ For narrow screens, `seatPlan.sectionPlansOf(plan)` returns one crop per section
 
 ```tsx
 'use client'
+import { labeling } from 'ichno'
 import { useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
-
 import { SeatMap } from 'ichno/react'
 
-const editor = useSeatPlanEditor({ initialPlan })
-useSeatPlanEditorShortcuts(editor) // Delete/Backspace removes, R turns the chair
+const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds })
+useSeatPlanEditorShortcuts(editor) // Delete, R (turn chair), ⌘Z / ⇧⌘Z, ⌘D (duplicate)
 
 <SeatMap.Viewport {...editor.viewportProps}>
   <SeatMap.Grid plan={editor.displayPlan} />
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} />
 </SeatMap.Viewport>
+
 <button onClick={() => editor.addDesk('A') ?? alert('No free 2×2 spot')}>Add desk</button>
+<button onClick={() => editor.addRow('B', { start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, seats: 10, curve: 0.2 })}>
+  Add row
+</button>
+<button onClick={() => editor.labelSeats(rowId, labeling.numbers({ reverse: true }))}>Number right to left</button>
+<button disabled={!editor.canUndo} onClick={editor.undo}>Undo</button>
 <button disabled={!editor.dirty} onClick={() => save(editor.plan)}>Save</button>
 ```
 
-Tapping selects (a seat selects its row or table), dragging moves with the snapping the commit will use, and
-dragging empty floor pans. `displayPlan` is the plan with the drag in progress; `plan` is what you save.
+Tapping selects (a seat selects its row or table; shift/⌘ adds to the selection), dragging moves the selection
+with the snapping the commit will use, and dragging empty floor pans. `displayPlan` is the plan with the drag in
+progress; `plan` is what you save. `onTap` also reports the plan point, for tools that place things where you click.
 
-The hook exposes `plan`, `displayPlan`, `dirty`, `selection`, `selectedObject`, `selectedSection`,
-`selectedPlaceIds`, `addDesk`, `addFixture`,
-`updateObject`, `moveObject`, `moveSection`, `reshapeSection`, `removeObject`, `renameObject`, `rotateDesk` and
-`reset`. The plan is grid-normalized on open. To adopt a new baseline after saving, remount the editor (key it by
-the saved version).
+- **Create:** `addDesk`, `addFixture(role, size)`, `addRow`, `addTable`, `addBooth`, `addArea`,
+  `duplicateSelected` — each returns the new id (or null) and selects it. New places continue the section numbering.
+- **Change:** `moveObject`, `moveSection`, `reshapeSection`, `rotateDesk`, `setSeatCount` (a row keeps its length),
+  `labelSeats` / `labelObjects` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or `labeling.custom`,
+  `alignSelected`, `distributeSelected`, `renameObject`, `updateObject`.
+- **Remove:** `removeObjects`, `removeSelected` — return the ids they refused.
+- **History:** `undo`, `redo`, `canUndo`, `canRedo`, `reset`.
+
+`lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or shrunk past it,
+while labels stay free. Every operation is also available as a pure function in `planEdits` (plan in, plan out) for
+imports and scripts. The plan is grid-normalized on open. To adopt a new baseline after saving, remount the editor
+(key it by the saved version).
 
 ## Theme
 

@@ -122,7 +122,7 @@ its drag and click handlers.
 
 ## Roadmap
 
-Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; phases 1–3 are built on the
+Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; phases 1–4 are built on the
 `redesign/headless` branch and ship together as 0.2.
 
 1. ✅ **Interaction core** — spatial index and hit-testing, pointer gesture state machine (tap, drag, pan, pinch),
@@ -131,8 +131,10 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
    Removes `ichno/svg` and `ichno/konva` (and the Konva peer dependencies).
 3. ✅ **Headless SVG components** — `ichno/react`: `SeatMap.Root`, `Viewport`, `Section`, `Place`, `Fixture`,
    `Grid`; viewBox view math.
-4. **Editor v2** — row, table, booth and area tools, curve, labeling combinators, multi-select, align and
+4. ✅ **Editor v2** — row, table, booth and area tools, curve, labeling combinators, multi-select, align and
    distribute, undo/redo, `lockedIds`.
+   Still open: marquee (rubber-band) selection, on-plan handles (resize, curve, section vertices, rotation) and
+   a row-label part — the operations exist, the pointer affordances do not.
 5. **Scale** — viewport culling and level of detail; measure 1k, 5k and 20k seats before considering a canvas
    seat layer.
 

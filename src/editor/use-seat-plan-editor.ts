@@ -2,153 +2,218 @@
 
 import { useEffect, useEffectEvent, useState } from 'react'
 import { seatPlan } from '../core/geometry'
-import { DEFAULT_SEAT_CELLS, GRID_CELL, seatGrid } from '../core/grid'
-import type { PlanDrag, PlanObject, PlanPoint, PlanSize, PlanTarget, SeatPlan, Section } from '../core/types'
+import { seatGrid } from '../core/grid'
+import type { LabelSequence } from '../core/labeling'
+import type {
+  AreaShape,
+  PlanDrag,
+  PlanObject,
+  PlanPoint,
+  PlanRect,
+  PlanSize,
+  PlanTarget,
+  SeatPlan,
+  TableShape,
+} from '../core/types'
+import { planEdits, type AlignEdge } from './operations'
 import type { EditorSelection } from './selection'
 
 export type SeatPlanEditor<S extends string> = ReturnType<typeof useSeatPlanEditor<S>>
 
-// Headless seat plan editor — document state, selection and every edit operation; no UI. Spread
+type Options<S extends string> = {
+  initialPlan: SeatPlan<S>
+  // Ids your other records reference (booked seats, active sessions). Objects holding one cannot be removed,
+  // renamed or shrunk past it; labels stay free to change.
+  lockedIds?: Iterable<string>
+}
+
+type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; future: SeatPlan<S>[] }
+
+// Undo depth — plenty for an editing session, bounded so a long one does not hold every version.
+const HISTORY_LIMIT = 100
+
+// Headless seat plan editor — document state, selection, undo history and every edit operation; no UI. Spread
 // `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select and drag-to-move, draw `displayPlan`
 // (the plan with the drag in progress), and build panels, buttons and saving yourself. Edits stay local until you
 // save `plan`. The plan is grid-normalized on open, so a pre-grid plan starts dirty. To adopt a new baseline after
 // saving, remount (e.g. key the component by the saved version).
-export function useSeatPlanEditor<S extends string>({ initialPlan }: { initialPlan: SeatPlan<S> }) {
+export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: Options<S>) {
   const [normalizedInitial] = useState(() => seatGrid.normalize(initialPlan))
-  const [plan, setPlan] = useState(normalizedInitial)
-  const [selection, setSelection] = useState<EditorSelection<S> | null>(null)
+  const [history, setHistory] = useState<History<S>>({ past: [], present: normalizedInitial, future: [] })
+  const [selection, setSelection] = useState<EditorSelection<S>[]>([])
   const [drag, setDrag] = useState<PlanDrag<S> | null>(null)
+  const locked = new Set(lockedIds)
 
+  const plan = history.present
   const dirty = JSON.stringify(plan) !== JSON.stringify(initialPlan)
-  const selectedObject = selection?.kind === 'object' ? seatPlan.objectById(plan, selection.id) : undefined
-  const selectedSection = selection?.kind === 'section' ? seatPlan.sectionOf(plan, selection.id) : undefined
-  // The places of the selected object — pass them to the renderer as selected.
-  const selectedPlaceIds = selectedObject
-    ? seatPlan.placesOf({ objects: [selectedObject] }).map((place) => place.id)
-    : []
+  const selectedObjectIds = selection.flatMap((item) => (item.kind === 'object' ? [item.id] : []))
+  const selectedObjects = plan.objects.filter((object) => selectedObjectIds.includes(object.id))
+  const selectedSectionId = selection.find((item) => item.kind === 'section')?.id as S | undefined
+  // The places of the selected objects — pass them to the renderer as selected.
+  const selectedPlaceIds = seatPlan.placesOf({ objects: selectedObjects }).map((place) => place.id)
   // The plan as drawn — the drag in progress applied with the snapping it will commit with.
-  const displayPlan = drag === null || drag.phase === 'end' ? plan : draggedPlan(plan, drag)
+  const displayPlan = drag === null ? plan : planEdits.applyDrag(plan, drag, selectedObjectIds)
 
-  function updateObject(id: string, update: (object: PlanObject<S>) => PlanObject<S>) {
-    setPlan((prev) => ({ ...prev, objects: prev.objects.map((o) => (o.id === id ? update(o) : o)) }))
+  // Every change goes through here: one undo step each, and the redo branch is dropped.
+  function apply(update: (current: SeatPlan<S>) => SeatPlan<S> | null) {
+    setHistory((h) => {
+      const next = update(h.present)
+      if (next === null || next === h.present) return h
+      return { past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [] }
+    })
   }
 
-  // Adds a standard desk (2×2 cells) at the section's first free cell and selects it.
-  // Returns the new desk id, or null when the section has no free 2×2 spot.
-  function addDesk(section: S): string | null {
-    const pos = seatPlan.findFreeDeskPos(plan, section)
-    if (!pos) return null
-    const span = seatGrid.seatSpanPxOf(DEFAULT_SEAT_CELLS)
-    const id = seatPlan.nextPlaceId(plan, section)
-    const desk = { kind: 'desk' as const, id, section, ...pos, w: span, h: span, chairSide: 'down' as const }
-    setPlan((prev) => ({ ...prev, objects: [...prev.objects, desk] }))
-    setSelection({ kind: 'object', id })
-    return id
+  // Runs an operation that creates an object, commits it and selects the result.
+  function create(result: { plan: SeatPlan<S>; id: string } | null): string | null {
+    if (!result) return null
+    apply(() => result.plan)
+    setSelection([{ kind: 'object', id: result.id }])
+    return result.id
   }
 
-  // Adds a fixture of the consumer's `role` in the first spot clear of every object, and selects it.
-  // Returns the new fixture id, or null when the plan has no room.
-  function addFixture(role: string, size: PlanSize): string | null {
-    const pos = seatPlan.findFreeFixturePos(plan, size)
-    if (!pos) return null
-    const id = seatPlan.nextObjectId(plan, role)
-    const fixture = { kind: 'fixture' as const, id, role, ...pos, ...size }
-    // Fixtures go under everything else — object order is drawing order.
-    setPlan((prev) => ({ ...prev, objects: [fixture, ...prev.objects] }))
-    setSelection({ kind: 'object', id })
-    return id
+  function undo() {
+    setHistory((h) => {
+      const previous = h.past.at(-1)
+      if (!previous) return h
+      return { past: h.past.slice(0, -1), present: previous, future: [h.present, ...h.future] }
+    })
   }
 
-  function removeObject(id: string) {
-    setPlan((prev) => ({ ...prev, objects: prev.objects.filter((o) => o.id !== id) }))
-    setSelection(null)
+  function redo() {
+    setHistory((h) => {
+      const [next, ...future] = h.future
+      if (!next) return h
+      return { past: [...h.past, h.present], present: next, future }
+    })
   }
 
-  // Changes an object id (for places, the key other records reference). Validate uniqueness/length first.
-  function renameObject(id: string, nextId: string) {
-    updateObject(id, (o) => ({ ...o, id: nextId }))
-    setSelection({ kind: 'object', id: nextId })
+  // Selects what a target points at — a seat selects its row or table. `additive` toggles it in the selection
+  // (shift/⌘-click); otherwise it replaces the selection. null clears it.
+  function select(target: PlanTarget<S> | EditorSelection<S> | null, additive?: boolean) {
+    const item = target === null ? null : selectionOf(target)
+    if (!additive) {
+      setSelection(item ? [item] : [])
+      return
+    }
+    if (!item) return
+    setSelection((current) =>
+      current.some((other) => sameSelection(other, item))
+        ? current.filter((other) => !sameSelection(other, item))
+        : [...current, item],
+    )
   }
 
-  // Turns a desk's chair one edge clockwise.
-  function rotateDesk(id: string) {
-    updateObject(id, (o) => (o.kind === 'desk' ? { ...o, chairSide: seatPlan.nextChairSide(o.chairSide) } : o))
-  }
-
-  // Moves an object so its top-left (a row: its start point) lands on `to`, snapped to its grid and kept inside
-  // the plan. A desk also moves to the section its centre lands in.
-  function moveObject(id: string, to: PlanPoint) {
-    updateObject(id, (o) => movedObject(plan, o, to))
-  }
-
-  // Moves a section outline by whole cells (the delta is rounded to cells).
-  function moveSection(id: S, delta: PlanPoint) {
-    setPlan((prev) => ({
-      ...prev,
-      sections: prev.sections.map((s) => (s.id === id ? movedSection(prev, s, delta) : s)),
-    }))
-  }
-
-  // Replaces a section outline (e.g. after resizing), snapped to cell corners.
-  function reshapeSection(id: S, points: PlanPoint[]) {
-    setPlan((prev) => ({
-      ...prev,
-      sections: prev.sections.map((s) =>
-        s.id === id ? { ...s, points: points.map((p) => seatGrid.snapPoint(prev, p)) } : s,
-      ),
-    }))
-  }
-
-  // Removes the selected object (sections are fixed and cannot be removed).
-  function removeSelected() {
-    if (selection?.kind === 'object') removeObject(selection.id)
-  }
-
-  function rotateSelected() {
-    if (selection?.kind === 'object') rotateDesk(selection.id)
-  }
-
-  function reset() {
-    setPlan(normalizedInitial)
-    setSelection(null)
-  }
-
-  // A tap selects what it landed on — a seat selects its row or table — and empty floor clears the selection.
-  function handleTap(target: PlanTarget<S> | null) {
-    setSelection(selectionOf(target))
+  function handleTap(target: PlanTarget<S> | null, info: { additive: boolean }) {
+    select(target, info.additive)
   }
 
   function handleDrag(next: PlanDrag<S>) {
-    if (next.phase === 'start') setSelection(selectionOf(next.target))
+    if (next.phase === 'start') {
+      const item = selectionOf(next.target)
+      // Dragging something outside the selection selects it alone; dragging a selected object moves the group.
+      if (!selection.some((other) => sameSelection(other, item))) setSelection([item])
+    }
     if (next.phase !== 'end') {
       setDrag(next)
       return
     }
     setDrag(null)
-    setPlan((prev) => draggedPlan(prev, next))
+    apply((current) => planEdits.applyDrag(current, next, selectedObjectIds))
+  }
+
+  // Removes objects; returns the ids refused because they hold a locked id.
+  function removeObjects(ids: readonly string[]): string[] {
+    const { plan: next, refused } = planEdits.remove(plan, ids, locked)
+    apply(() => next)
+    setSelection((current) => current.filter((item) => item.kind !== 'object' || refused.includes(item.id)))
+    return refused
+  }
+
+  // Changes an object id. false when the id is locked or already taken.
+  function renameObject(id: string, nextId: string): boolean {
+    const next = planEdits.rename(plan, id, nextId, locked)
+    if (!next) return false
+    apply(() => next)
+    setSelection((current) =>
+      current.map((item) => (item.kind === 'object' && item.id === id ? { ...item, id: nextId } : item)),
+    )
+    return true
+  }
+
+  // Grows or shrinks a row or table. false when a seat to remove is locked.
+  function setSeatCount(id: string, count: number): boolean {
+    const next = planEdits.setSeatCount(plan, id, count, locked)
+    if (!next) return false
+    apply(() => next)
+    return true
+  }
+
+  // Copies the selected objects next to themselves and selects the copies.
+  function duplicateSelected(): string[] {
+    const result = planEdits.duplicate(plan, selectedObjectIds)
+    if (result.ids.length === 0) return []
+    apply(() => result.plan)
+    setSelection(result.ids.map((id) => ({ kind: 'object' as const, id })))
+    return result.ids
+  }
+
+  function reset() {
+    setHistory({ past: [], present: normalizedInitial, future: [] })
+    setSelection([])
   }
 
   return {
     plan,
+    displayPlan,
     dirty,
     selection,
-    select: setSelection,
-    selectedObject,
-    selectedSection,
+    selectedObjects,
+    selectedSection: selectedSectionId === undefined ? undefined : seatPlan.sectionOf(plan, selectedSectionId),
     selectedPlaceIds,
-    displayPlan,
-    addDesk,
-    addFixture,
-    updateObject,
-    removeObject,
-    renameObject,
-    rotateDesk,
-    moveObject,
-    moveSection,
-    reshapeSection,
-    removeSelected,
-    rotateSelected,
+    select,
+    isLocked: (object: PlanObject<S>) => planEdits.isLocked(object, locked),
+    canUndo: history.past.length > 0,
+    canRedo: history.future.length > 0,
+    undo,
+    redo,
     reset,
+
+    // Creating — each returns the new object's id and selects it (null when there is no room).
+    addDesk: (section: S) => create(planEdits.addDesk(plan, section)),
+    addFixture: (role: string, size: PlanSize) => create(planEdits.addFixture(plan, role, size)),
+    addRow: (section: S, row: { start: PlanPoint; end: PlanPoint; seats: number; curve?: number; seatSize?: number }) =>
+      create(planEdits.addRow(plan, section, row)),
+    addTable: (
+      section: S,
+      table: { center: PlanPoint; seats: number; shape?: TableShape; size?: PlanSize; seatSize?: number },
+    ) => create(planEdits.addTable(plan, section, table)),
+    addBooth: (section: S, rect: PlanRect) => create(planEdits.addBooth(plan, section, rect)),
+    addArea: (section: S, area: { rect: PlanRect; capacity: number; shape?: AreaShape }) =>
+      create(planEdits.addArea(plan, section, area)),
+    duplicateSelected,
+
+    // Changing.
+    updateObject: (id: string, update: (object: PlanObject<S>) => PlanObject<S>) =>
+      apply((current) => ({ ...current, objects: current.objects.map((o) => (o.id === id ? update(o) : o)) })),
+    moveObject: (id: string, to: PlanPoint) => apply((current) => planEdits.move(current, id, to)),
+    moveSection: (id: S, delta: PlanPoint) => apply((current) => planEdits.moveSection(current, id, delta)),
+    reshapeSection: (id: S, points: PlanPoint[]) => apply((current) => planEdits.reshapeSection(current, id, points)),
+    rotateDesk: (id: string) => apply((current) => planEdits.rotateDesk(current, id)),
+    setSeatCount,
+    labelSeats: (id: string, sequence: LabelSequence) =>
+      apply((current) => planEdits.labelSeats(current, id, sequence)),
+    labelObjects: (ids: readonly string[], sequence: LabelSequence) =>
+      apply((current) => planEdits.labelObjects(current, ids, sequence)),
+    alignSelected: (edge: AlignEdge) => apply((current) => planEdits.align(current, selectedObjectIds, edge)),
+    distributeSelected: (axis: 'x' | 'y') => apply((current) => planEdits.distribute(current, selectedObjectIds, axis)),
+    renameObject,
+    rotateSelected: () =>
+      apply((current) => selectedObjectIds.reduce((next, id) => planEdits.rotateDesk(next, id), current)),
+
+    // Removing — returns the ids refused because they are locked.
+    removeObjects,
+    removeSelected: () => removeObjects(selectedObjectIds),
+
     // Spread into <SeatMap.Viewport> (ichno/react).
     viewportProps: {
       plan: displayPlan,
@@ -159,60 +224,31 @@ export function useSeatPlanEditor<S extends string>({ initialPlan }: { initialPl
   }
 }
 
-function selectionOf<S extends string>(target: PlanTarget<S> | null): EditorSelection<S> | null {
-  if (target === null) return null
-  if (target.kind === 'section') return { kind: 'section', id: target.id }
-  return { kind: 'object', id: target.kind === 'place' ? target.objectId : target.id }
-}
-
-function canDragTarget(): boolean {
-  return true
-}
-
-// The plan with a drag applied — objects move by the drag total from where they are, sections by whole cells.
-function draggedPlan<S extends string>(plan: SeatPlan<S>, drag: PlanDrag<S>): SeatPlan<S> {
-  const { target, total } = drag
-  if (target.kind === 'section') {
-    return { ...plan, sections: plan.sections.map((s) => (s.id === target.id ? movedSection(plan, s, total) : s)) }
-  }
-  const id = target.kind === 'place' ? target.objectId : target.id
-  return {
-    ...plan,
-    objects: plan.objects.map((o) => {
-      if (o.id !== id) return o
-      const from = o.kind === 'row' ? o.start : o
-      return movedObject(plan, o, { x: from.x + total.x, y: from.y + total.y })
-    }),
-  }
-}
-
-// An object moved so its top-left (a row: its start point) lands on `to`, snapped to its grid and kept inside
-// the plan. A desk also moves to the section its centre lands in.
-function movedObject<S extends string>(plan: SeatPlan<S>, object: PlanObject<S>, to: PlanPoint): PlanObject<S> {
-  if (object.kind === 'desk') {
-    const pos = seatGrid.placeSeat(plan, object, to)
-    const section = seatPlan.sectionAt(plan, { x: pos.x + object.w / 2, y: pos.y + object.h / 2 }) ?? object.section
-    return { ...object, ...pos, section }
-  }
-  if (object.kind === 'fixture') return { ...object, ...seatGrid.placeFixture(plan, object, to) }
-  const from = object.kind === 'row' ? object.start : object
-  const snapped = seatGrid.placeFixture(plan, { w: 0, h: 0 }, to)
-  return seatPlan.translate(object, snapped.x - from.x, snapped.y - from.y)
-}
-
-function movedSection<S extends string>(plan: SeatPlan<S>, section: Section<S>, delta: PlanPoint): Section<S> {
-  const dx = Math.round(delta.x / GRID_CELL) * GRID_CELL
-  const dy = Math.round(delta.y / GRID_CELL) * GRID_CELL
-  return { ...section, points: section.points.map((p) => seatGrid.snapPoint(plan, { x: p.x + dx, y: p.y + dy })) }
-}
-
-// Keyboard shortcuts — Delete/Backspace removes the selected object, R turns the selected desk's chair.
-// Ignored while typing in an input, textarea, select or contenteditable.
+// Keyboard shortcuts — Delete/Backspace removes the selection, R turns selected desks' chairs, ⌘/Ctrl+Z undoes,
+// ⇧⌘Z / Ctrl+Y redoes, ⌘/Ctrl+D duplicates. Ignored while typing in an input, textarea, select or contenteditable.
 export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEditor<S>) {
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
     if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]')) return
-    // Physical key — with a non-Latin input method active `e.key` is not 'r'. Modifier combos belong to the browser.
-    if (e.code === 'KeyR' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const command = e.metaKey || e.ctrlKey
+    // Physical keys — with a non-Latin input method active `e.key` is not a Latin letter.
+    if (command && e.code === 'KeyZ') {
+      e.preventDefault()
+      if (e.shiftKey) editor.redo()
+      else editor.undo()
+      return
+    }
+    if (command && e.code === 'KeyY') {
+      e.preventDefault()
+      editor.redo()
+      return
+    }
+    if (command && e.code === 'KeyD') {
+      e.preventDefault()
+      editor.duplicateSelected()
+      return
+    }
+    if (command || e.altKey) return
+    if (e.code === 'KeyR') {
       editor.rotateSelected()
       return
     }
@@ -224,4 +260,18 @@ export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEdi
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
   }, [])
+}
+
+function selectionOf<S extends string>(target: PlanTarget<S> | EditorSelection<S>): EditorSelection<S> {
+  if (target.kind === 'section') return { kind: 'section', id: target.id }
+  if (target.kind === 'place') return { kind: 'object', id: target.objectId }
+  return { kind: 'object', id: target.id }
+}
+
+function sameSelection<S extends string>(a: EditorSelection<S>, b: EditorSelection<S>): boolean {
+  return a.kind === b.kind && a.id === b.id
+}
+
+function canDragTarget(): boolean {
+  return true
 }

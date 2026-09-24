@@ -41,8 +41,9 @@ type ViewportProps<S extends string> = Omit<
   onPlaceClick?(place: Place<S>): void
   // Pointer entering and leaving places.
   onPlaceHover?(place: Place<S> | null): void
-  // Any tap — a place, a non-place object, a section, or empty floor (null). The editor selects with it.
-  onTap?(target: PlanTarget<S> | null): void
+  // Any tap — a place, a non-place object, a section, or empty floor (null) — with the plan point and whether
+  // shift, ⌘ or Ctrl was held (additive selection). The editor selects with it; tools place things at `point`.
+  onTap?(target: PlanTarget<S> | null, info: { point: PlanPoint | null; additive: boolean }): void
   // Which targets move instead of panning, and what happens while they do (the editor passes both).
   canDrag?(target: PlanTarget<S>): boolean
   onTargetDrag?(drag: PlanDrag<S>): void
@@ -73,7 +74,7 @@ export function Viewport<S extends string>({
   const svgRef = useRef<SVGSVGElement>(null)
   const gestureRef = useRef<GestureState>(IDLE_GESTURE)
   // What the current press started on, and whether it drags that target or pans.
-  const pressRef = useRef<{ target: PlanTarget<S> | null; drags: boolean }>({ target: null, drags: false })
+  const pressRef = useRef<{ target: PlanTarget<S> | null; drags: boolean; additive: boolean }>(IDLE_PRESS)
   const hoverRef = useRef<string | null>(null)
   const idPrefix = useId()
 
@@ -120,7 +121,10 @@ export function Viewport<S extends string>({
       switch (event.type) {
         case 'tap': {
           const target = press.target
-          onTap?.(target)
+          const point = clientOrigin
+            ? toPlan(clientOrigin.left + event.point.x, clientOrigin.top + event.point.y)
+            : null
+          onTap?.(target, { point, additive: press.additive })
           if (target?.kind === 'place') {
             const place = placeById(target.id)
             if (place) {
@@ -154,7 +158,7 @@ export function Viewport<S extends string>({
             })
           }
           // After a pinch the remaining finger pans — it never drags the target the gesture began on.
-          pressRef.current = { target: null, drags: false }
+          pressRef.current = IDLE_PRESS
           break
         case 'pinch': {
           if (!zoomable || !clientOrigin) break
@@ -180,7 +184,11 @@ export function Viewport<S extends string>({
     const { pointer, box } = pointerOf(e)
     if (gestureRef.current.kind === 'idle') {
       const target = targetOf<S>(e.target)
-      pressRef.current = { target, drags: target !== null && (canDrag?.(target) ?? false) }
+      pressRef.current = {
+        target,
+        drags: target !== null && (canDrag?.(target) ?? false),
+        additive: e.shiftKey || e.metaKey || e.ctrlKey,
+      }
     }
     e.currentTarget.setPointerCapture(e.pointerId)
     const result = gesture.down(gestureRef.current, pointer, pressRef.current.target ? 'target' : null)
@@ -245,7 +253,10 @@ export function Viewport<S extends string>({
     }
     if ((e.key === 'Enter' || e.key === ' ') && active) {
       e.preventDefault()
-      onTap?.({ kind: 'place', id: active.id, objectId: active.parent?.id ?? active.id })
+      onTap?.(
+        { kind: 'place', id: active.id, objectId: active.parent?.id ?? active.id },
+        { point: active.center, additive: e.shiftKey },
+      )
       onPlaceClick?.(active)
     }
   }
@@ -369,3 +380,4 @@ const ARROW_KEYS: Partial<Record<string, NavigationDirection>> = {
 }
 
 const FOCUS_RING_GAP = 6
+const IDLE_PRESS = { target: null, drags: false, additive: false }
