@@ -115,3 +115,16 @@ export type Place<S extends string = string> = {
 
 // A plan cropped to one section — the same shape, translated so the crop's bounding box starts at the origin.
 export type SectionPlan<S extends string = string> = { id: S; plan: SeatPlan<S> }
+
+// What a pointer or key landed on — a place, a non-place object (fixture, table top, a row as a whole) or a
+// section outline. Viewports report it; the editor acts on it.
+export type PlanTarget<S extends string = string> =
+  { kind: 'place'; id: string; objectId: string } | { kind: 'object'; id: string } | { kind: 'section'; id: S }
+
+// A drag of a target, reported by viewports while it moves. `total` is the movement since the drag started, in
+// plan units.
+export type PlanDrag<S extends string = string> = {
+  target: PlanTarget<S>
+  phase: 'start' | 'move' | 'end'
+  total: PlanPoint
+}

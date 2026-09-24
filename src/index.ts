@@ -16,6 +16,8 @@ export {
   type PlanPoint,
   type PlanRect,
   type PlanSize,
+  type PlanDrag,
+  type PlanTarget,
   type Row,
   type RowSeat,
   type SeatChairSide,
@@ -46,7 +48,7 @@ export {
   type LintSeverity,
 } from './core/lint'
 export { validateSelection, type SelectionIssue, type SelectionRules } from './core/selection'
-export { ZOOM_STEP, centerZoom, fitScaleOf, fitView, zoomView, type SeatMapView, type ViewportSize } from './core/view'
+export { ZOOM_STEP, planView, type PlanView } from './core/view'
 export { spatialIndex, type SpatialIndex, type SpatialItem } from './core/spatial'
 export {
   DRAG_THRESHOLD_PX,

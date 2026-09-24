@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { transformSync } from '@babel/core'
 
-const DIRS = ['src/editor'] // keep in step with the babel `include` in tsdown.config.ts
+const DIRS = ['src/editor', 'src/react/client'] // keep in step with the babel `include` in tsdown.config.ts
 
 const failures = []
 let compiled = 0

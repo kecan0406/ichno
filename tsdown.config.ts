@@ -5,6 +5,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'schema/index': 'src/schema/index.ts',
+    'react/index': 'src/react/index.ts',
     'editor/index': 'src/editor/index.ts',
   },
   format: 'esm',
@@ -22,9 +23,10 @@ export default defineConfig({
   },
   plugins: [
     // Ship React Compiler output for the client code — it is written without manual memoization, and consumers
-    // do not compile node_modules.
+    // do not compile node_modules. The server-safe parts (src/react outside client/) stay uncompiled: compiled
+    // output calls a hook, which a Server Component cannot.
     babel({
-      include: /\/src\/editor\/.*\.tsx?$/,
+      include: /\/src\/(editor|react\/client)\/.*\.tsx?$/,
       plugins: [['babel-plugin-react-compiler', { target: '19' }]],
     }),
   ],

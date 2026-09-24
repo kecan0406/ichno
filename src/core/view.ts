@@ -1,50 +1,59 @@
 import { seatPlan } from './geometry'
-import type { SeatPlan } from './types'
+import type { PlanPoint, PlanRect, SeatPlan } from './types'
 
-// Canvas view (scale + translation) math — konva-free so code that lazy-loads a canvas can share it without
-// the canvas chunk riding along in the first bundle.
+// View math — a view is the SVG viewBox: the rectangle of the plan (in plan units) that fills the viewport.
+// Working in plan units means rendering never measures the container; only gestures convert screen pixels, at
+// the moment they happen.
 
-export type SeatMapView = { scale: number; x: number; y: number }
-export type ViewportSize = { width: number; height: number }
-type PlanExtent = Pick<SeatPlan, 'width' | 'height' | 'sections'>
+export type PlanView = PlanRect
 
-// One wheel tick, and the zoom range relative to fit — shared by the viewer canvas and the editor.
+// One wheel tick, and the zoom range relative to the home view (the whole drawing).
 export const ZOOM_STEP = 1.1
 const ZOOM_MIN_FACTOR = 0.9
 const ZOOM_MAX_FACTOR = 6
 
-// The view that fits the whole drawing into the container — the default of a stage without pan/zoom and the
-// reset target. It fits the drawn extent, not the document size (walls and the name band reach outside).
-export function fitView(plan: PlanExtent, size: ViewportSize, padding: number): SeatMapView {
-  const bounds = seatPlan.drawingBoundsOf(plan)
-  const scale = Math.min((size.width - padding * 2) / bounds.w, (size.height - padding * 2) / bounds.h)
+export const planView = {
+  home,
+  zoom,
+  pan,
+  fitTo,
+}
+
+// The view that shows the whole drawing — the default and the reset target. It covers the drawn extent, not
+// the document size (walls and the name band reach outside).
+function home(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>): PlanView {
+  return seatPlan.drawingBoundsOf(plan)
+}
+
+// Zoom by `factor` (> 1 zooms in) keeping `center` (a plan point, e.g. under the cursor) fixed, within
+// 0.9×–6× of `homeView`.
+function zoom(view: PlanView, factor: number, center: PlanPoint, homeView: PlanView): PlanView {
+  const w = clamp(view.w / factor, homeView.w / ZOOM_MAX_FACTOR, homeView.w / ZOOM_MIN_FACTOR)
+  const applied = view.w / w
   return {
-    scale,
-    x: (size.width - bounds.w * scale) / 2 - bounds.x * scale,
-    y: (size.height - bounds.h * scale) / 2 - bounds.y * scale,
+    x: center.x - (center.x - view.x) / applied,
+    y: center.y - (center.y - view.y) / applied,
+    w,
+    h: view.h / applied,
   }
 }
 
-// Fit scale for a container — the reference for zoom clamping.
-export function fitScaleOf(plan: PlanExtent, size: ViewportSize): number {
-  const bounds = seatPlan.drawingBoundsOf(plan)
-  return Math.min(size.width / bounds.w, size.height / bounds.h)
+// Move the view by `delta` plan units (a pan drags the plan, so callers pass the negated pointer movement).
+function pan(view: PlanView, delta: PlanPoint): PlanView {
+  return { ...view, x: view.x + delta.x, y: view.y + delta.y }
 }
 
-// Change scale while keeping `center` fixed on screen — wheel, pinch and zoom buttons share this.
-export function zoomView(
-  view: SeatMapView,
-  args: { factor: number; center: { x: number; y: number }; fitScale: number },
-): SeatMapView {
-  const scale = clamp(view.scale * args.factor, args.fitScale * ZOOM_MIN_FACTOR, args.fitScale * ZOOM_MAX_FACTOR)
-  const planX = (args.center.x - view.x) / view.scale
-  const planY = (args.center.y - view.y) / view.scale
-  return { scale, x: args.center.x - planX * scale, y: args.center.y - planY * scale }
-}
-
-// Zoom around the viewport centre — for zoom buttons.
-export function centerZoom(view: SeatMapView, factor: number, size: ViewportSize, plan: PlanExtent): SeatMapView {
-  return zoomView(view, { factor, center: { x: size.width / 2, y: size.height / 2 }, fitScale: fitScaleOf(plan, size) })
+// The view that frames the given rectangles (e.g. the places to zoom to) with `padding` plan units around them,
+// never closer than the maximum zoom of `homeView`. null when there is nothing to frame.
+function fitTo(rects: readonly PlanRect[], padding: number, homeView: PlanView): PlanView | null {
+  if (rects.length === 0) return null
+  const x0 = Math.min(...rects.map((r) => r.x)) - padding
+  const y0 = Math.min(...rects.map((r) => r.y)) - padding
+  const x1 = Math.max(...rects.map((r) => r.x + r.w)) + padding
+  const y1 = Math.max(...rects.map((r) => r.y + r.h)) + padding
+  const w = Math.max(x1 - x0, homeView.w / ZOOM_MAX_FACTOR)
+  const h = Math.max(y1 - y0, homeView.h / ZOOM_MAX_FACTOR)
+  return { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h }
 }
 
 function clamp(value: number, min: number, max: number) {

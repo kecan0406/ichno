@@ -1,7 +1,7 @@
 {
   "name": "ichno",
   "version": "0.1.0",
-  "description": "Seat floor plans for React: a Seats.io-level JSON document with a zod schema, geometry, a renderer-independent interaction core and a headless editor hook.",
+  "description": "Seat plans for React: a Seats.io-level JSON document with a zod schema, geometry, headless SVG components that render on the server, and a headless editor hook.",
   "keywords": [
     "seat-map",
     "floor-plan",
@@ -26,6 +26,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./schema": "./dist/schema/index.js",
+    "./react": "./dist/react/index.js",
     "./editor": "./dist/editor/index.js",
     "./package.json": "./package.json"
   },

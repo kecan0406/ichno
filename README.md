@@ -7,16 +7,18 @@ Seat plans for React — one JSON document, headless primitives around it.
   keyboard movement)
 - **`ichno/schema`** — `createSeatPlanSchema({ sectionIds })`: zod validation with structured issue codes; upgrades
   documents stored by ichno 0.1
+- **`ichno/react`** — `SeatMap.*`: headless SVG components. The parts render as React Server Components; the
+  `Viewport` adds pan, zoom, taps, drags and keyboard movement on the client
 - **`ichno/editor`** — `useSeatPlanEditor`: headless editor state and operations; you build the panels
 
-The library ships **no copy**. Section names, category names and every message come from you. Where the project is
-heading — headless SVG components, a Seats.io-level document — is in [`docs/direction.md`](docs/direction.md).
+The library ships **no copy** and **no canvas**. Section names, category names and every message come from you;
+everything is SVG you can style with CSS. Where the project is heading is in [`docs/direction.md`](docs/direction.md).
 
 ```sh
 pnpm add ichno zod   # core + schema
 ```
 
-Peer dependencies: `react ^19.2` (editor), `zod ^4` (schema). Client code ships already compiled with React
+Peer dependencies: `react ^19.2` (components, editor), `zod ^4` (schema). Client code ships already compiled with React
 Compiler.
 
 ## The document
@@ -105,7 +107,55 @@ Pure building blocks any renderer can share:
 - `gesture.down/move/up/cancel` — a pointer state machine that turns pointer events into `tap`, `drag`
   (`target: null` means pan) and `pinch`
 - `placeNavigation.next(items, fromId, 'left')` — arrow-key movement between places
-- `fitView`, `zoomView`, `centerZoom` — view math
+
+## Draw
+
+```tsx
+import { SeatMap } from 'ichno/react'
+
+// Read-only — a Server Component; no JavaScript ships for it.
+;<SeatMap.Root plan={plan} aria-label="Floor plan">
+  <SeatMap.Content
+    plan={plan}
+    status={{ A2: 'booked' }} // your words — exposed as data-status; places with a status are disabled
+    selected={['B4']}
+    sectionLabel={(section) => names[section.id]}
+    fixtureVariant={(fixture) => (fixture.role === 'wall' ? 'wall' : 'box')}
+  />
+</SeatMap.Root>
+```
+
+```tsx
+'use client'
+// Interactive — pan, wheel/pinch zoom, taps, arrow keys (Enter/Space picks), the same children.
+<SeatMap.Viewport plan={plan} view={view} onViewChange={setView} onPlaceClick={(place) => toggle(place.id)}
+  className="h-[480px]">
+  <SeatMap.Content plan={plan} selected={picked} />
+</SeatMap.Viewport>
+```
+
+`SeatMap.Content` is a convenience; compose the parts yourself when you need something else —
+`SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Table` and `SeatMap.Grid`, fed by
+`seatPlan.placesOf(plan)`. `renderPlace` swaps one place's drawing while keeping the rest.
+
+**Styling.** Parts paint with presentation attributes that read the theme variables, so any class overrides them.
+State is on the element: `data-kind`, `data-status`, `data-selected`, `data-disabled`, `data-highlighted`,
+`data-dimmed`, `data-category`, `data-chair-side`; pieces are named by `data-part` (`shape`, `chair`, `label`,
+`floor`, `wall`, `top`, `focus-ring`).
+
+```tsx
+<SeatMap.Place
+  place={place}
+  status={status[place.id]}
+  className="[&_[data-part=shape]]:fill-muted data-[status=held]:[&_[data-part=shape]]:fill-amber-200"
+/>
+```
+
+**Views** are viewBoxes in plan units (`planView.home(plan)`, `planView.zoom`, `planView.pan`, `planView.fitTo`
+for zoom-to-places), so nothing is measured while rendering. Leave `view` out and the viewport keeps its own.
+
+**Accessibility.** The viewport is a listbox: places are options with `aria-selected`; arrow keys move a focus ring
+to the nearest place in that direction and `aria-activedescendant` follows it.
 
 For narrow screens, `seatPlan.sectionPlansOf(plan)` returns one crop per section at a shared scale — stack them.
 
@@ -115,22 +165,32 @@ For narrow screens, `seatPlan.sectionPlansOf(plan)` returns one crop per section
 'use client'
 import { useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
 
+import { SeatMap } from 'ichno/react'
+
 const editor = useSeatPlanEditor({ initialPlan })
 useSeatPlanEditorShortcuts(editor) // Delete/Backspace removes, R turns the chair
 
+<SeatMap.Viewport {...editor.viewportProps}>
+  <SeatMap.Grid plan={editor.displayPlan} />
+  <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} />
+</SeatMap.Viewport>
 <button onClick={() => editor.addDesk('A') ?? alert('No free 2×2 spot')}>Add desk</button>
 <button disabled={!editor.dirty} onClick={() => save(editor.plan)}>Save</button>
 ```
 
-The hook exposes `plan`, `dirty`, `selection`, `selectedObject`, `selectedSection`, `addDesk`, `addFixture`,
+Tapping selects (a seat selects its row or table), dragging moves with the snapping the commit will use, and
+dragging empty floor pans. `displayPlan` is the plan with the drag in progress; `plan` is what you save.
+
+The hook exposes `plan`, `displayPlan`, `dirty`, `selection`, `selectedObject`, `selectedSection`,
+`selectedPlaceIds`, `addDesk`, `addFixture`,
 `updateObject`, `moveObject`, `moveSection`, `reshapeSection`, `removeObject`, `renameObject`, `rotateDesk` and
 `reset`. The plan is grid-normalized on open. To adopt a new baseline after saving, remount the editor (key it by
 the saved version).
 
 ## Theme
 
-Renderers read CSS custom properties; set them on `:root` (and again for dark mode). Unset ones fall back to neutral
-defaults (`themeVars` lists them).
+Parts read CSS custom properties; set them on `:root` (and again for dark mode). Unset ones fall back to neutral
+defaults (`themeVars` lists them). Classes on parts override them outright.
 
 | Variable                    | Role                                            |
 | --------------------------- | ----------------------------------------------- |

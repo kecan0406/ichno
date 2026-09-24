@@ -113,7 +113,7 @@ overlapping footprints). Softer rules come from `lint(plan, severities)` as warn
   any `className` overrides it.
 - State is exposed as attributes: `data-kind`, `data-status`, `data-selected`, `data-highlighted`, `data-dimmed`,
   `data-category`, `data-part` (desk, chair, label, …).
-- The view is a viewBox in plan units, so rendering never needs to measure the container.
+- The view is a viewBox in plan units (`planView`), so rendering never needs to measure the container.
 - Events are delegated at the viewport (`data-ichno-id`), so place components carry no handlers and stay
   server-safe.
 
@@ -122,13 +122,14 @@ its drag and click handlers.
 
 ## Roadmap
 
-Each phase is one pre-1.0 minor release. Mark a phase done here when it ships.
+Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; phases 1–3 are built on the
+`redesign/headless` branch and ship together as 0.2.
 
-1. **Interaction core** — spatial index and hit-testing, pointer gesture state machine (tap, drag, pan, pinch),
+1. ✅ **Interaction core** — spatial index and hit-testing, pointer gesture state machine (tap, drag, pan, pinch),
    keyboard movement between places. Pure, no UI.
-2. **Document v2** — types, schema, v1 upgrade, places, row and table geometry, `lint`, `validateSelection`.
+2. ✅ **Document v2** — types, schema, v1 upgrade, places, row and table geometry, `lint`, `validateSelection`.
    Removes `ichno/svg` and `ichno/konva` (and the Konva peer dependencies).
-3. **Headless SVG components** — `ichno/react`: `SeatMap.Root`, `Viewport`, `Section`, `Place`, `Fixture`,
+3. ✅ **Headless SVG components** — `ichno/react`: `SeatMap.Root`, `Viewport`, `Section`, `Place`, `Fixture`,
    `Grid`; viewBox view math.
 4. **Editor v2** — row, table, booth and area tools, curve, labeling combinators, multi-select, align and
    distribute, undo/redo, `lockedIds`.

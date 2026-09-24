@@ -25,8 +25,15 @@ Breaking — document version 2, and the canvas renderers are gone (see `docs/di
 - `ichno/editor`: works on v2 — `addDesk`, `addFixture(role, size)`, `updateObject`, `moveObject`, `moveSection`,
   `reshapeSection`, `removeObject`, `renameObject`, `rotateDesk`; selection is `{ kind: 'object' | 'section' }`.
   `stageProps` is gone with the canvas.
-- Removed `ichno/svg` and `ichno/konva`, and the `konva` / `react-konva` peer dependencies. Headless SVG components
-  replace them in the next phase.
+- `ichno/react` (new): headless SVG components — `SeatMap.Root`, `Content`, `Section`, `Place`, `Fixture`,
+  `Table` and `Grid` render as React Server Components and expose state as `data-*` attributes; `SeatMap.Viewport`
+  adds pan, wheel/pinch zoom, taps, target drags and arrow-key focus (listbox semantics) on the client.
+- `ichno`: views are viewBoxes in plan units — `planView.home/zoom/pan/fitTo` and `PlanView` replace `fitView`,
+  `zoomView`, `centerZoom`, `fitScaleOf`, `SeatMapView` and `ViewportSize`. New `PlanTarget` and `PlanDrag` types.
+- `ichno/editor`: `viewportProps` (tap to select, drag to move with snapping), `displayPlan` (the drag in
+  progress) and `selectedPlaceIds`.
+- Removed `ichno/svg` and `ichno/konva` (replaced by `ichno/react`), the `konva` / `react-konva` peer
+  dependencies and the `--ichno-occupied-tint` variable.
 
 ## 0.1.0 — 2026-09-24
 
