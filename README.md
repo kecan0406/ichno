@@ -152,6 +152,16 @@ State is on the element: `data-kind`, `data-status`, `data-selected`, `data-disa
 />
 ```
 
+**Large plans.** Give the viewport a function child and pass the frame on — objects outside the view (plus a
+margin) are skipped and labels too small to read are left out. Content redraws only when a pan leaves the margin
+or the zoom crosses a step, so 20,000 seats pan at 60fps.
+
+```tsx
+<SeatMap.Viewport plan={plan}>
+  {(frame) => <SeatMap.Content plan={plan} region={frame.region} scale={frame.scale} />}
+</SeatMap.Viewport>
+```
+
 **Views** are viewBoxes in plan units (`planView.home(plan)`, `planView.zoom`, `planView.pan`, `planView.fitTo`
 for zoom-to-places), so nothing is measured while rendering. Leave `view` out and the viewport keeps its own.
 

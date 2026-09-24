@@ -122,7 +122,7 @@ its drag and click handlers.
 
 ## Roadmap
 
-Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; phases 1–4 are built on the
+Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; phases 1–5 are built on the
 `redesign/headless` branch and ship together as 0.2.
 
 1. ✅ **Interaction core** — spatial index and hit-testing, pointer gesture state machine (tap, drag, pan, pinch),
@@ -136,8 +136,19 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
    Marquee selection, on-plan handles (corner resize, row ends and curve, section vertices) and row labels are
    in. Rotating tables, booths and areas needs a `rotation` field (overlap and bounds would change with it) and is
    left for a later minor.
-5. **Scale** — viewport culling and level of detail; measure 1k, 5k and 20k seats before considering a canvas
-   seat layer.
+5. ✅ **Scale** — measured on a 900×600 viewport (Chrome, production build, two-frame steps so 33 ms = 60fps):
+
+   | Seats  | Pan, whole plan | Zoom  | Pan, zoomed in | Without LOD (pan / zoom / zoomed pan) |
+   | ------ | --------------- | ----- | -------------- | ------------------------------------- |
+   | 1,000  | 33 ms           | 33 ms | 33 ms          | same                                  |
+   | 5,000  | 33 ms           | 35 ms | 33 ms          | 37 / 38 ms (p95 60)                   |
+   | 20,000 | 38 ms           | 58 ms | 33 ms          | 169 / 154 / 129 ms                    |
+
+   The cost was the browser, not React: SVG text (labels) and forced layouts. So the viewport never reads
+   layout during a gesture (`planView.toPlan` with a ResizeObserver size), labels below 9 screen pixels are left
+   out, and objects outside the view plus half its size are not drawn — redrawn only when a pan leaves that
+   region or the zoom crosses a quarter-octave step. **Decision: no canvas seat layer.** Revisit only for plans
+   well past 20,000 seats.
 
 ## Out of scope
 

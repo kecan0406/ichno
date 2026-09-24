@@ -9,6 +9,7 @@ import {
   type ComponentProps,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from 'react'
 import { seatPlan } from '../../core/geometry'
 import {
@@ -20,14 +21,21 @@ import {
 } from '../../core/gesture'
 import { placeNavigation, type NavigationDirection } from '../../core/navigation'
 import type { Place, PlanDrag, PlanPoint, PlanRect, PlanTarget, SeatPlan } from '../../core/types'
-import { ZOOM_STEP, planView, type PlanView } from '../../core/view'
+import { ZOOM_STEP, planView, type PlanView, type ViewportSize } from '../../core/view'
 import { FONT_VAR, cssVar } from '../../theme/vars'
+
+// What a render-function child gets to draw with: the area worth drawing (the view plus a margin — cull what lies
+// outside it) and the screen scale in quarter-octave steps (drop detail that would be too small to read). Both
+// change only when a pan leaves the area or the zoom crosses a step, so the children redraw rarely.
+export type ViewportFrame = { region: PlanRect; scale: number }
 
 type ViewportProps<S extends string> = Omit<
   ComponentProps<'svg'>,
-  'viewBox' | 'onDrag' | 'onDragStart' | 'onDragEnd' | 'onKeyDown'
+  'viewBox' | 'onDrag' | 'onDragStart' | 'onDragEnd' | 'onKeyDown' | 'children'
 > & {
   plan: SeatPlan<S>
+  // The parts to draw, or a function of the frame for large plans (pass it on to <SeatMap.Content>).
+  children?: ReactNode | ((frame: ViewportFrame) => ReactNode)
   // Controlled view (plan units). Omit it to let the viewport keep its own, starting at `defaultView`.
   view?: PlanView
   defaultView?: PlanView
@@ -100,6 +108,17 @@ export function Viewport<S extends string>({
     viewRef.current = current
   })
 
+  // The viewport size, kept by a ResizeObserver — gesture math uses it instead of reading layout, which would
+  // force the browser to lay out every node of the plan.
+  const [size, setSize] = useState<ViewportSize | null>(null)
+  const sizeRef = useRef<ViewportSize | null>(null)
+  // The viewport's page position, read once per gesture (and when stale for the wheel).
+  const originRef = useRef<{ left: number; top: number; at: number } | null>(null)
+  const [frame, setFrame] = useState<ViewportFrame>(() => ({
+    region: planView.region(current, REGION_MARGIN),
+    scale: 1,
+  }))
+
   const [activeId, setActiveId] = useState<string | null>(null)
   const [keyboardFocus, setKeyboardFocus] = useState(false)
   const places = seatPlan.placesOf(plan)
@@ -111,33 +130,41 @@ export function Viewport<S extends string>({
     onViewChange?.(next)
   }
 
-  function toPlan(clientX: number, clientY: number): PlanPoint | null {
-    const matrix = svgRef.current?.getScreenCTM()
-    if (!matrix) return null
-    const point = new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse())
-    return { x: point.x, y: point.y }
+  // The viewport's top-left on the page. Reading it forces a layout, so it is cached for the length of a gesture.
+  function originOf(refresh: boolean): { left: number; top: number } | null {
+    const svg = svgRef.current
+    if (!svg) return null
+    const cached = originRef.current
+    if (!refresh && cached && performance.now() - cached.at < ORIGIN_TTL_MS) return cached
+    const box = svg.getBoundingClientRect()
+    originRef.current = { left: box.left, top: box.top, at: performance.now() }
+    return originRef.current
   }
 
-  // Plan units per screen pixel — the viewBox scales uniformly (preserveAspectRatio meet).
+  // The plan point under a viewport point (CSS pixels from its top-left).
+  function toPlan(point: { x: number; y: number }): PlanPoint | null {
+    const viewport = sizeRef.current
+    return viewport ? planView.toPlan(viewRef.current, viewport, point) : null
+  }
+
+  // Plan units per screen pixel.
   function unitsPerPixel(): number {
-    const matrix = svgRef.current?.getScreenCTM()
-    return matrix && matrix.a !== 0 ? 1 / matrix.a : 1
+    const viewport = sizeRef.current
+    return viewport ? 1 / planView.scaleOf(viewRef.current, viewport) : 1
   }
 
   function placeById(id: string) {
     return places.find((place) => place.id === id)
   }
 
-  function handle(events: GestureEvent[], clientOrigin: DOMRect | undefined) {
+  function handle(events: GestureEvent[]) {
     for (const event of events) {
       // Read per event — a marquee sets its anchor on dragstart, and the drag in the same batch needs it.
       const press = pressRef.current
       switch (event.type) {
         case 'tap': {
           const target = press.target
-          const point = clientOrigin
-            ? toPlan(clientOrigin.left + event.point.x, clientOrigin.top + event.point.y)
-            : null
+          const point = toPlan(event.point)
           onTap?.(target, { point, additive: press.additive })
           if (target?.kind === 'place') {
             const place = placeById(target.id)
@@ -151,8 +178,8 @@ export function Viewport<S extends string>({
         case 'dragstart':
           if (press.mode === 'drag' && press.target) {
             onTargetDrag?.({ target: press.target, phase: 'start', total: { x: 0, y: 0 } })
-          } else if (press.mode === 'marquee' && clientOrigin) {
-            const anchor = toPlan(clientOrigin.left + event.point.x, clientOrigin.top + event.point.y)
+          } else if (press.mode === 'marquee') {
+            const anchor = toPlan(event.point)
             pressRef.current = { ...press, anchor }
             if (anchor) onMarquee?.({ ...anchor, w: 0, h: 0 }, { phase: 'start', additive: press.additive })
           }
@@ -163,7 +190,7 @@ export function Viewport<S extends string>({
             const total = { x: event.total.x * scale, y: event.total.y * scale }
             onTargetDrag?.({ target: press.target, phase: 'move', total })
           } else if (press.mode === 'marquee') {
-            const rect = marqueeRect(press.anchor, event.point, clientOrigin)
+            const rect = marqueeRect(press.anchor, event.point)
             if (rect) onMarquee?.(rect, { phase: 'move', additive: press.additive })
           } else if (pannable) {
             changeView(planView.pan(viewRef.current, { x: -event.delta.x * scale, y: -event.delta.y * scale }))
@@ -179,15 +206,15 @@ export function Viewport<S extends string>({
               total: { x: event.total.x * scale, y: event.total.y * scale },
             })
           } else if (press.mode === 'marquee') {
-            const rect = marqueeRect(press.anchor, event.point, clientOrigin)
+            const rect = marqueeRect(press.anchor, event.point)
             if (rect) onMarquee?.(rect, { phase: 'end', additive: press.additive })
           }
           // After a pinch the remaining finger pans — it never drags the target the gesture began on.
           pressRef.current = IDLE_PRESS
           break
         case 'pinch': {
-          if (!zoomable || !clientOrigin) break
-          const center = toPlan(clientOrigin.left + event.center.x, clientOrigin.top + event.center.y)
+          if (!zoomable) break
+          const center = toPlan(event.center)
           if (!center) break
           const scale = unitsPerPixel()
           const panned = planView.pan(viewRef.current, { x: -event.delta.x * scale, y: -event.delta.y * scale })
@@ -199,9 +226,9 @@ export function Viewport<S extends string>({
   }
 
   // The rectangle between the marquee anchor and the pointer (screen point relative to the viewport box).
-  function marqueeRect(anchor: PlanPoint | null, point: { x: number; y: number }, origin: DOMRect | undefined) {
-    if (!anchor || !origin) return null
-    const to = toPlan(origin.left + point.x, origin.top + point.y)
+  function marqueeRect(anchor: PlanPoint | null, point: { x: number; y: number }) {
+    if (!anchor) return null
+    const to = toPlan(point)
     if (!to) return null
     return {
       x: Math.min(anchor.x, to.x),
@@ -211,9 +238,9 @@ export function Viewport<S extends string>({
     }
   }
 
-  function pointerOf(e: PointerEvent<SVGSVGElement>) {
-    const box = e.currentTarget.getBoundingClientRect()
-    return { pointer: { id: e.pointerId, x: e.clientX - box.left, y: e.clientY - box.top }, box }
+  function pointerOf(e: PointerEvent<SVGSVGElement>, refresh = false) {
+    const origin = originOf(refresh) ?? { left: 0, top: 0 }
+    return { id: e.pointerId, x: e.clientX - origin.left, y: e.clientY - origin.top }
   }
 
   function handlePointerDown(e: PointerEvent<SVGSVGElement>) {
@@ -221,7 +248,7 @@ export function Viewport<S extends string>({
     if (e.pointerType === 'mouse' && e.button !== 0 && !middle) return
     if (middle) e.preventDefault() // no autoscroll
     setKeyboardFocus(false)
-    const { pointer, box } = pointerOf(e)
+    const pointer = pointerOf(e, gestureRef.current.kind === 'idle')
     if (gestureRef.current.kind === 'idle') {
       const target = middle ? null : targetOf<S>(e.target)
       const additive = e.shiftKey || e.metaKey || e.ctrlKey
@@ -236,7 +263,7 @@ export function Viewport<S extends string>({
     e.currentTarget.setPointerCapture(e.pointerId)
     const result = gesture.down(gestureRef.current, pointer, pressRef.current.target ? 'target' : null)
     gestureRef.current = result.state
-    handle(result.events, box)
+    handle(result.events)
   }
 
   function handlePointerMove(e: PointerEvent<SVGSVGElement>) {
@@ -248,24 +275,22 @@ export function Viewport<S extends string>({
       }
       return
     }
-    const { pointer, box } = pointerOf(e)
     const threshold = e.pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD_PX : undefined
-    const result = gesture.move(gestureRef.current, pointer, threshold)
+    const result = gesture.move(gestureRef.current, pointerOf(e), threshold)
     gestureRef.current = result.state
-    handle(result.events, box)
+    handle(result.events)
   }
 
   function handlePointerUp(e: PointerEvent<SVGSVGElement>) {
-    const { pointer, box } = pointerOf(e)
-    const result = gesture.up(gestureRef.current, pointer)
+    const result = gesture.up(gestureRef.current, pointerOf(e))
     gestureRef.current = result.state
-    handle(result.events, box)
+    handle(result.events)
   }
 
   function handlePointerCancel() {
     const result = gesture.cancel(gestureRef.current)
     gestureRef.current = result.state
-    handle(result.events, undefined)
+    handle(result.events)
   }
 
   function handlePointerLeave() {
@@ -318,7 +343,8 @@ export function Viewport<S extends string>({
   const onWheel = useEffectEvent((e: WheelEvent) => {
     if (!zoomable) return
     e.preventDefault()
-    const center = toPlan(e.clientX, e.clientY)
+    const origin = originOf(false)
+    const center = origin ? toPlan({ x: e.clientX - origin.left, y: e.clientY - origin.top }) : null
     if (!center) return
     changeView(planView.zoom(viewRef.current, e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP, center, homeView))
   })
@@ -329,6 +355,37 @@ export function Viewport<S extends string>({
     svg.addEventListener('wheel', listener, { passive: false })
     return () => svg.removeEventListener('wheel', listener)
   }, [])
+
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return
+      const next = { width: entry.contentRect.width, height: entry.contentRect.height }
+      sizeRef.current = next
+      setSize(next)
+    })
+    observer.observe(svg)
+    // A scrolled page moves the viewport — the cached position is stale from then on.
+    const forget = () => {
+      originRef.current = null
+    }
+    window.addEventListener('scroll', forget, { capture: true, passive: true })
+    window.addEventListener('resize', forget)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('scroll', forget, { capture: true })
+      window.removeEventListener('resize', forget)
+    }
+  }, [])
+
+  // Move the frame only when the view leaves its region or the zoom crosses a scale step.
+  useEffect(() => {
+    if (!size) return
+    const scale = planView.scaleStep(planView.scaleOf(current, size))
+    if (scale === frame.scale && planView.contains(frame.region, current)) return
+    setFrame({ region: planView.region(current, REGION_MARGIN), scale })
+  }, [current, size, frame])
 
   // Screen readers follow the focused place through aria-activedescendant, which needs an element id. Parts are
   // server-safe and carry none, so the viewport names the active one.
@@ -380,7 +437,7 @@ export function Viewport<S extends string>({
       }}
       {...rest}
     >
-      {children}
+      {typeof children === 'function' ? children(frame) : children}
       {ring && (
         <rect
           data-part="focus-ring"
@@ -432,4 +489,8 @@ const ARROW_KEYS: Partial<Record<string, NavigationDirection>> = {
 }
 
 const FOCUS_RING_GAP = 6
+// How far beyond the view the frame region reaches, as a share of the view size on each side.
+const REGION_MARGIN = 0.5
+// How long a cached viewport position stays trusted for wheel events between gestures.
+const ORIGIN_TTL_MS = 1000
 const IDLE_PRESS: Press<never> = { target: null, mode: 'pan', additive: false, anchor: null }

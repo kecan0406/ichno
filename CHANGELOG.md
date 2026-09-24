@@ -44,6 +44,10 @@ Breaking — document version 2, and the canvas renderers are gone (see `docs/di
 - `ichno/editor`: `handles` for a single selected item — corners resize, row ends and the curve handle reshape a
   row, section vertices reshape the outline — and `marquee`. A section moves only once selected. The handle rules
   are pure functions in `planHandles`.
+- `ichno/react`: large plans — `SeatMap.Viewport` accepts a function child that gets a `ViewportFrame`
+  (`region`, `scale`), and `SeatMap.Content` takes `region` (cull), `scale` and `minLabelPx` (label level of
+  detail). The viewport no longer reads layout during gestures; it keeps its size with a ResizeObserver.
+- `ichno`: `planView.scaleOf`, `toPlan`, `region`, `contains` and `scaleStep`; `ViewportSize`.
 - `ichno`: `PlanHandle`, `HandleOwner` and a `handle` kind in `PlanTarget`; `seatPlan.objectsInRect`,
   `seatPlan.rowApexOf` and `seatPlan.rowLabelAnchorsOf`.
 - Removed `ichno/svg` and `ichno/konva` (replaced by `ichno/react`), the `konva` / `react-konva` peer

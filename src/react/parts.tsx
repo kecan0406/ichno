@@ -280,7 +280,7 @@ export function RowLabelPart({ row, label, ends = 'both', ...rest }: RowLabelPro
   if (text == null || text === false || text === '') return null
   const anchors = seatPlan.rowLabelAnchorsOf(row)
   const points = ends === 'both' ? [anchors.start, anchors.end] : [anchors[ends]]
-  const fontSize = Math.min(SEAT_LABEL_FONT, Math.max(10, row.seatSize * 0.5))
+  const fontSize = rowLabelFont(row)
   return (
     <g data-ichno-object={row.id} data-kind="row" data-part="row-label" {...rest}>
       {points.map((point, i) => (
@@ -387,7 +387,7 @@ function PlaceLabel({ place, fill, children }: { place: Place; fill: string; chi
     place.kind === 'desk' && place.chairSide
       ? centerOf(seatPlan.furnitureOf({ w, h, chairSide: place.chairSide }).desk)
       : { x: w / 2, y: h / 2 }
-  const fontSize = place.shape === 'circle' ? Math.min(SEAT_LABEL_FONT, Math.max(8, w * 0.42)) : SEAT_LABEL_FONT
+  const fontSize = placeLabelFont(place)
   return (
     <text
       data-part="label"
@@ -403,6 +403,16 @@ function PlaceLabel({ place, fill, children }: { place: Place; fill: string; chi
       {children}
     </text>
   )
+}
+
+// A place label's font size in plan units — small seats get a smaller number.
+export function placeLabelFont(place: Pick<Place, 'shape' | 'bounds'>): number {
+  return place.shape === 'circle' ? Math.min(SEAT_LABEL_FONT, Math.max(8, place.bounds.w * 0.42)) : SEAT_LABEL_FONT
+}
+
+// A row label's font size in plan units.
+export function rowLabelFont(row: Pick<Row, 'seatSize'>): number {
+  return Math.min(SEAT_LABEL_FONT, Math.max(10, row.seatSize * 0.5))
 }
 
 type Tone = { fill: string; chair: string; stroke: string; label: string }

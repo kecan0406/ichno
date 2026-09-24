@@ -6,6 +6,8 @@ import type { PlanPoint, PlanRect, SeatPlan } from './types'
 // the moment they happen.
 
 export type PlanView = PlanRect
+// The viewport's size in CSS pixels.
+export type ViewportSize = { width: number; height: number }
 
 // One wheel tick, and the zoom range relative to the home view (the whole drawing).
 export const ZOOM_STEP = 1.1
@@ -17,6 +19,11 @@ export const planView = {
   zoom,
   pan,
   fitTo,
+  scaleOf,
+  toPlan,
+  region,
+  contains,
+  scaleStep,
 }
 
 // The view that shows the whole drawing — the default and the reset target. It covers the drawn extent, not
@@ -58,4 +65,45 @@ function fitTo(rects: readonly PlanRect[], padding: number, homeView: PlanView):
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
+}
+
+// Screen pixels per plan unit — the viewBox scales uniformly to fit the viewport (preserveAspectRatio meet).
+function scaleOf(view: PlanView, size: ViewportSize): number {
+  if (view.w <= 0 || view.h <= 0) return 1
+  return Math.min(size.width / view.w, size.height / view.h)
+}
+
+// The plan point under a viewport point (CSS pixels from the viewport's top-left). The drawing is centred in
+// the leftover space (xMidYMid), like the browser does. Pure arithmetic — reading the SVG's screen matrix would
+// force a layout of every node, which costs tens of milliseconds on large plans.
+function toPlan(view: PlanView, size: ViewportSize, point: { x: number; y: number }): PlanPoint {
+  const scale = scaleOf(view, size)
+  const offsetX = (size.width - view.w * scale) / 2
+  const offsetY = (size.height - view.h * scale) / 2
+  return { x: view.x + (point.x - offsetX) / scale, y: view.y + (point.y - offsetY) / scale }
+}
+
+// The view grown by `margin` of its size on every side — the area worth drawing, so small pans stay inside it.
+function region(view: PlanView, margin: number): PlanRect {
+  return {
+    x: view.x - view.w * margin,
+    y: view.y - view.h * margin,
+    w: view.w * (1 + 2 * margin),
+    h: view.h * (1 + 2 * margin),
+  }
+}
+
+function contains(outer: PlanRect, inner: PlanRect): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y + inner.h <= outer.y + outer.h
+  )
+}
+
+// A scale rounded to quarter octaves (~19% apart) — level-of-detail decisions change in steps, not on every
+// wheel tick, so zooming does not redraw the plan each time.
+function scaleStep(scale: number): number {
+  return 2 ** (Math.round(Math.log2(scale) * 4) / 4)
 }

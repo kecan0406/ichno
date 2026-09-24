@@ -28,3 +28,4 @@ export const SeatMap = {
 }
 
 export type { PlaceProps } from './parts'
+export type { ViewportFrame } from './client/viewport'

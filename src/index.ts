@@ -51,7 +51,7 @@ export {
 } from './core/lint'
 export { labeling, type LabelSequence } from './core/labeling'
 export { validateSelection, type SelectionIssue, type SelectionRules } from './core/selection'
-export { ZOOM_STEP, planView, type PlanView } from './core/view'
+export { ZOOM_STEP, planView, type PlanView, type ViewportSize } from './core/view'
 export { spatialIndex, type SpatialIndex, type SpatialItem } from './core/spatial'
 export {
   DRAG_THRESHOLD_PX,
