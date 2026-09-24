@@ -56,6 +56,12 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
   const selectedPlaceIds = seatPlan.placesOf({ objects: selectedObjects }).map((place) => place.id)
   // The plan as drawn — the drag in progress applied with the snapping it will commit with.
   const displayPlan = drag === null ? plan : planEdits.applyDrag(plan, drag, selectedObjectIds)
+  // Objects in conflict on the plan as drawn — overlapping footprints and fixtures on places. The schema refuses
+  // to save them; pass them to <SeatMap.Content invalid> to mark them while arranging.
+  const conflicts = seatPlan.conflictsOf(displayPlan)
+  const conflictIds = [
+    ...new Set([...conflicts.overlaps.flat(), ...conflicts.fixtures.flatMap((c) => [c.fixtureId, c.id])]),
+  ]
   // Handles for a single selected item, placed on the plan as drawn so they follow a drag.
   const handles: PlanHandle<S>[] = planHandles.of(displayPlan, selection)
   // The rubber band being dragged, in plan units — draw it with <SeatMap.Marquee>.
@@ -198,6 +204,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
     selectedPlaceIds,
     handles,
     marquee,
+    conflictIds,
     select,
     isLocked: (object: PlanObject<S>) => planEdits.isLocked(object, locked),
     canUndo: history.past.length > 0,

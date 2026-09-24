@@ -72,6 +72,7 @@ export const seatPlan = {
   innerWallOf,
   footprintOf,
   boundsOf,
+  conflictsOf,
   translate,
   showsSectionLabels,
   drawingBoundsOf,
@@ -444,6 +445,30 @@ function innerWallOf(fixture: Pick<Fixture, 'w' | 'h'>): PlanRect {
 function footprintOf(object: PlanObject): PlanRect {
   if (object.kind === 'row') return rowBounds(object)
   return rectOf(object)
+}
+
+// Footprints that overlap (touching edges do not), and fixtures standing on a place — the rules the schema
+// refuses to save and the editor marks while you drag. Pairs are in document order; a fixture reports the first
+// object it covers.
+function conflictsOf(plan: Pick<SeatPlan, 'objects'>): {
+  overlaps: [string, string][]
+  fixtures: { fixtureId: string; role: string; id: string }[]
+} {
+  const claimed = plan.objects.filter((object) => object.kind !== 'fixture')
+  const footprints = claimed.map((object) => footprintOf(object))
+  const overlaps: [string, string][] = []
+  for (let j = 0; j < claimed.length; j++) {
+    for (let i = 0; i < j; i++) {
+      if (seatGrid.rectsOverlap(footprints[i]!, footprints[j]!)) overlaps.push([claimed[i]!.id, claimed[j]!.id])
+    }
+  }
+  const fixtures: { fixtureId: string; role: string; id: string }[] = []
+  for (const fixture of plan.objects) {
+    if (fixture.kind !== 'fixture') continue
+    const hit = claimed.findIndex((_, i) => seatGrid.rectsOverlap(footprints[i]!, fixture))
+    if (hit >= 0) fixtures.push({ fixtureId: fixture.id, role: fixture.role, id: claimed[hit]!.id })
+  }
+  return { overlaps, fixtures }
 }
 
 // Everything an object draws — a table's seats included.

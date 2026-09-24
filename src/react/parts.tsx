@@ -81,6 +81,8 @@ export type PlaceProps = GProps & {
   highlighted?: boolean
   // Pushed back (filtered out, spotlight elsewhere).
   dimmed?: boolean
+  // In conflict — overlapping another object (the editor's `conflictIds`).
+  invalid?: boolean
   // What to write on the place. Defaults to its label; null draws none.
   label?: ReactNode
   // Extra drawing in the place's local coordinates (origin at the top-left of `place.bounds`).
@@ -96,13 +98,14 @@ export function PlacePart({
   disabled,
   highlighted,
   dimmed,
+  invalid,
   label,
   children,
   ...rest
 }: PlaceProps) {
   const { w, h } = place.bounds
   const tone = selected ? TONES.selected : disabled ? TONES.disabled : TONES.idle
-  const stroke = highlighted && !selected ? cssVar('accent') : tone.stroke
+  const stroke = invalid ? cssVar('warning') : highlighted && !selected ? cssVar('accent') : tone.stroke
   const text = label === undefined ? place.label : label
   const shapeProps = {
     'data-part': 'shape',
@@ -124,6 +127,7 @@ export function PlacePart({
       data-disabled={disabled ? '' : undefined}
       data-highlighted={highlighted ? '' : undefined}
       data-dimmed={dimmed ? '' : undefined}
+      data-invalid={invalid ? '' : undefined}
       role="option"
       aria-selected={selected ?? false}
       aria-disabled={disabled || undefined}
@@ -156,10 +160,12 @@ type FixtureProps = GProps & {
   variant?: 'box' | 'wall'
   // Name written along the long edge (box only) — dropped when it does not fit.
   label?: string | null
+  // In conflict — standing on a place (the editor's `conflictIds`).
+  invalid?: boolean
 }
 
 // A non-bookable element (wall, TV, counter, stage, …) — its role is exposed as data-role.
-export function FixturePart({ fixture, variant = 'box', label, ...rest }: FixtureProps) {
+export function FixturePart({ fixture, variant = 'box', label, invalid, ...rest }: FixtureProps) {
   const layout = variant === 'box' ? seatPlan.fixtureLabelOf(fixture, label) : null
   const cx = fixture.w / 2
   const cy = fixture.h / 2
@@ -169,13 +175,18 @@ export function FixturePart({ fixture, variant = 'box', label, ...rest }: Fixtur
       data-ichno-object={fixture.id}
       data-kind="fixture"
       data-role={fixture.role}
+      data-invalid={invalid ? '' : undefined}
       {...rest}
     >
       {variant === 'wall' ? (
         <>
           {/* The wall paints only a band — the whole rectangle stays grabbable. */}
           <rect data-part="hit" width={fixture.w} height={fixture.h} fill="transparent" />
-          <rect data-part="shape" {...rectOf(seatPlan.innerWallOf(fixture))} fill={cssVar('ink')} />
+          <rect
+            data-part="shape"
+            {...rectOf(seatPlan.innerWallOf(fixture))}
+            fill={invalid ? cssVar('warning') : cssVar('ink')}
+          />
         </>
       ) : (
         <rect
@@ -184,7 +195,7 @@ export function FixturePart({ fixture, variant = 'box', label, ...rest }: Fixtur
           height={fixture.h}
           rx={2}
           fill={cssVar('fixture')}
-          stroke={cssVar('label')}
+          stroke={invalid ? cssVar('warning') : cssVar('label')}
           strokeWidth={LINE_WIDTH}
           vectorEffect="non-scaling-stroke"
         />

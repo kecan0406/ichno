@@ -30,9 +30,11 @@ function handlesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edit
   if (!object) return []
   const owner = { kind: 'object' as const, id: object.id }
   if (object.kind === 'row') {
+    // The end handles sit beside the end seats (where the row label goes), so they never cover a seat.
+    const ends = seatPlan.rowLabelAnchorsOf(object)
     return [
-      { owner, name: 'start', point: object.start },
-      { owner, name: 'end', point: object.end },
+      { owner, name: 'start', point: ends.start },
+      { owner, name: 'end', point: ends.end },
       { owner, name: 'curve', point: seatPlan.rowApexOf(object) },
     ]
   }

@@ -47,6 +47,9 @@ Breaking — document version 2, and the canvas renderers are gone (see `docs/di
 - `ichno/react`: large plans — `SeatMap.Viewport` accepts a function child that gets a `ViewportFrame`
   (`region`, `scale`), and `SeatMap.Content` takes `region` (cull), `scale` and `minLabelPx` (label level of
   detail). The viewport no longer reads layout during gestures; it keeps its size with a ResizeObserver.
+- `ichno`: `seatPlan.conflictsOf` (overlapping footprints, fixtures on places) — the schema and the editor share
+  it. `ichno/editor` exposes `conflictIds`; `SeatMap.Content` / `Place` / `Fixture` take `invalid` and mark it
+  with `data-invalid` and the warning colour. Row end handles sit beside the end seats instead of on them.
 - `ichno`: `planView.scaleOf`, `toPlan`, `region`, `contains` and `scaleStep`; `ViewportSize`.
 - `ichno`: `PlanHandle`, `HandleOwner` and a `handle` kind in `PlanTarget`; `seatPlan.objectsInRect`,
   `seatPlan.rowApexOf` and `seatPlan.rowLabelAnchorsOf`.

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { MIN_SEAT_SIZE, seatPlan } from '../core/geometry'
-import { HALF_CELL, seatGrid } from '../core/grid'
+import { HALF_CELL } from '../core/grid'
 import { AREA_SHAPES, SEAT_CHAIR_SIDES, TABLE_SHAPES, type PlanRect } from '../core/types'
 import { upgradeSeatPlan } from '../core/v1'
 
@@ -151,25 +151,13 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
         if (!inside(seatPlan.boundsOf(object), plan)) report(path, { code: 'out_of_bounds', id: object.id })
       }
 
-      // Footprints may touch but not overlap — the same definition editor placement uses (seatGrid.rectsOverlap).
-      const claimed = plan.objects.flatMap((object, i) => (object.kind === 'fixture' ? [] : [{ object, i }]))
-      for (const [j, b] of claimed.entries()) {
-        for (const a of claimed.slice(0, j)) {
-          if (seatGrid.rectsOverlap(seatPlan.footprintOf(a.object), seatPlan.footprintOf(b.object)))
-            report(['objects', b.i], { code: 'overlap', ids: [a.object.id, b.object.id] })
-        }
-      }
-      // A fixture on a place is a placement mistake; fixtures may overlap each other (a TV hung on a wall).
-      for (const [i, fixture] of plan.objects.entries()) {
-        if (fixture.kind !== 'fixture') continue
-        const hit = claimed.find(({ object }) => seatGrid.rectsOverlap(seatPlan.footprintOf(object), fixture))
-        if (hit)
-          report(['objects', i], {
-            code: 'fixture_overlap',
-            fixtureId: fixture.id,
-            role: fixture.role,
-            id: hit.object.id,
-          })
+      // Footprints may touch but not overlap; a fixture on a place is a placement mistake, while fixtures may
+      // overlap each other (a TV hung on a wall). The editor marks the same conflicts (seatPlan.conflictsOf).
+      const indexOf = new Map(plan.objects.map((object, i) => [object.id, i]))
+      const conflicts = seatPlan.conflictsOf(plan)
+      for (const [a, b] of conflicts.overlaps) report(['objects', indexOf.get(b)!], { code: 'overlap', ids: [a, b] })
+      for (const hit of conflicts.fixtures) {
+        report(['objects', indexOf.get(hit.fixtureId)!], { code: 'fixture_overlap', ...hit })
       }
     })
 

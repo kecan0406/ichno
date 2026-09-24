@@ -19,6 +19,8 @@ type ContentProps<S extends string> = {
   selected?: readonly string[]
   highlighted?: readonly string[]
   dimmed?: readonly string[]
+  // Object ids in conflict (the editor's `conflictIds`) — their places and fixtures are marked.
+  invalid?: readonly string[]
   // Places that cannot be picked. Defaults to every place with a status.
   isDisabled?(place: Place<S>, status: string | undefined): boolean
   // Name above each section. Defaults to the section id on plans with more than one section, none otherwise.
@@ -43,6 +45,7 @@ export function Content<S extends string>({
   selected,
   highlighted,
   dimmed,
+  invalid,
   isDisabled = hasStatus,
   sectionLabel,
   fixtureLabel,
@@ -56,6 +59,7 @@ export function Content<S extends string>({
   const selectedSet = new Set(selected)
   const highlightedSet = new Set(highlighted)
   const dimmedSet = new Set(dimmed)
+  const invalidSet = new Set(invalid)
   const labeled = seatPlan.showsSectionLabels(plan)
 
   const placesByObject = new Map<string, Place<S>[]>()
@@ -75,6 +79,7 @@ export function Content<S extends string>({
           disabled: isDisabled(place, placeStatus),
           highlighted: highlightedSet.has(place.id),
           dimmed: dimmedSet.has(place.id),
+          invalid: invalidSet.has(place.parent?.id ?? place.id),
           ...(readable(placeLabelFont(place)) ? {} : { label: null }),
         })}
       </Fragment>
@@ -98,6 +103,7 @@ export function Content<S extends string>({
               key={object.id}
               fixture={object}
               variant={fixtureVariant?.(object) ?? 'box'}
+              invalid={invalidSet.has(object.id)}
               label={readable(Math.min(object.w, object.h) * 0.6) ? (fixtureLabel?.(object) ?? null) : null}
             />
           )
