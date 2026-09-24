@@ -6,7 +6,7 @@ import type { SeatPlan } from './types'
 
 export type SeatMapView = { scale: number; x: number; y: number }
 export type ViewportSize = { width: number; height: number }
-type PlanExtent = Pick<SeatPlan, 'width' | 'height' | 'zones'>
+type PlanExtent = Pick<SeatPlan, 'width' | 'height' | 'sections'>
 
 // One wheel tick, and the zoom range relative to fit — shared by the viewer canvas and the editor.
 export const ZOOM_STEP = 1.1

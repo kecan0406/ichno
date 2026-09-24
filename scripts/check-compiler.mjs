@@ -1,11 +1,10 @@
 // Fails when React Compiler bails out of any client component or hook.
-// A bailout is silent at build time: the component ships uncompiled and re-renders every Konva node on each
-// parent render. The build runs the same compiler (tsdown.config.ts), so this checks exactly what ships.
+// A bailout is silent at build time: the component ships uncompiled and re-renders on every parent render. The build runs the same compiler (tsdown.config.ts), so this checks exactly what ships.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { transformSync } from '@babel/core'
 
-const DIRS = ['src/konva', 'src/editor'] // keep in step with the babel `include` in tsdown.config.ts
+const DIRS = ['src/editor'] // keep in step with the babel `include` in tsdown.config.ts
 
 const failures = []
 let compiled = 0

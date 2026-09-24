@@ -1,96 +1,209 @@
 import { DEFAULT_SEAT_CELLS, GRID_CELL, HALF_CELL, seatGrid } from './grid'
+import { arcPoints, boundsOfPoints, offsetPolygon, polygonContains, unionBounds } from './math'
 import type {
+  Desk,
   Fixture,
-  FixtureKind,
+  Place,
+  PlanObject,
   PlanPoint,
   PlanRect,
   PlanSize,
-  Seat,
+  Row,
+  RowSeat,
   SeatChairSide,
   SeatPlan,
-  ZonePlan,
-  ZoneSeatPlan,
+  Section,
+  SectionPlan,
+  Table,
+  TableSeat,
 } from './types'
 
-// Floor plan geometry — zod-free so client bundles (seat pickers, canvases) never pull the schema in.
+// Seat plan geometry — zod-free so client bundles (seat pickers, viewers) never pull the schema in.
 
-// Editor lower bound — the smallest seat whose number still reads.
+// Editor lower bound for desks — the smallest desk whose number still reads.
 export const MIN_SEAT_SIZE = 40
 
-// Drawing dimensions (plan units) — the canvas, the editor and the SVG draw with the same values.
-// The outer wall wraps outside the zone rectangle: seats sit up to 2 units from the room corner, so an
-// inside wall would cover them.
+// Drawing dimensions (plan units) — every renderer draws with the same values.
+// The outer wall wraps outside the section outline: places sit up to 2 units from the room corner, so an inside
+// wall would cover them.
 export const WALL_THICKNESS = 5
 // Wall fixtures sit on the half-cell (23) grid, but painting their full thickness blocks the aisle — only a
 // centre band is painted.
 export const INNER_WALL_THICKNESS = 8
-// Zone name — written above each room's outer wall when a plan holds more than one zone. The band is one
-// line of text plus breathing room above the wall.
-export const ZONE_LABEL_FONT = 28
-export const ZONE_LABEL_BAND = 64
+// Section name — written above each section's outer wall when a plan holds more than one section. The band is
+// one line of text plus breathing room above the wall.
+export const SECTION_LABEL_FONT = 28
+export const SECTION_LABEL_BAND = 64
+// Gap between a table top and the seats around it.
+export const TABLE_SEAT_GAP = 6
 // Margin around the drawing — holds the outer wall plus a little air.
 const DRAWING_MARGIN = 8
-// One person's chair — independent of seat size. The chair band (depth) never exceeds 32% of the seat.
+// One person's chair at a desk — independent of desk size. The chair band (depth) never exceeds 32% of the desk.
 const CHAIR_BAND = 28
 const CHAIR_LENGTH = 38
-// Crop padding — breathing room between the crop edge and the outermost seat (before grid snapping).
-const ZONE_PLAN_PADDING = 20
+// Crop padding — breathing room between the crop edge and the outermost object (before grid snapping).
+const SECTION_PLAN_PADDING = 20
 
 const FIXTURE_LABEL_MAX_FONT = 20
 const FIXTURE_LABEL_MIN_FONT = 10
 
-// Default size of a newly added fixture — walls/TVs are half-cell-thick horizontal bars, a counter is two cells deep.
-export const FIXTURE_DEFAULT_SIZE: Record<FixtureKind, PlanSize> = {
-  wall: { w: 8 * HALF_CELL, h: HALF_CELL },
-  tv: { w: 6 * HALF_CELL, h: HALF_CELL },
-  counter: { w: 8 * HALF_CELL, h: 4 * HALF_CELL },
-}
-
 export const seatPlan = {
-  byId,
-  zoneAt,
-  nextSeatId,
-  nextFixtureId,
+  objectById,
+  placesOf,
+  idsOf,
+  sectionAt,
+  sectionOf,
+  sectionBoundsOf,
+  sectionWallOf,
+  nextPlaceId,
+  nextObjectId,
   nextChairSide,
-  findFreeSeatPos,
+  findFreeDeskPos,
   findFreeFixturePos,
   fixtureLabelOf,
-  zonePlanOf,
-  zonePlansOf,
+  sectionPlanOf,
+  sectionPlansOf,
+  rowSeatsOf,
+  tableSeatsOf,
   furnitureOf,
   innerWallOf,
-  showsZoneLabels,
+  footprintOf,
+  boundsOf,
+  translate,
+  showsSectionLabels,
   drawingBoundsOf,
 }
 
-function byId<Z extends string>(plan: Pick<SeatPlan<Z>, 'seats'>, id: string): Seat<Z> | undefined {
-  return plan.seats.find((seat) => seat.id === id)
+function objectById<S extends string>(plan: Pick<SeatPlan<S>, 'objects'>, id: string): PlanObject<S> | undefined {
+  return plan.objects.find((object) => object.id === id)
 }
 
-// The zone containing a point — the editor re-homes a dragged seat to the zone its centre lands in.
-function zoneAt<Z extends string>(plan: Pick<SeatPlan<Z>, 'zones'>, point: PlanPoint): Z | null {
-  const zone = plan.zones.find((z) => containsPoint(z, point))
-  return zone?.id ?? null
+// Every bookable unit with its geometry, in drawing order: desks, row seats (row order), table seats (clockwise
+// from the top) or whole tables, booths and areas. Fixtures are not places.
+function placesOf<S extends string>(plan: Pick<SeatPlan<S>, 'objects'>): Place<S>[] {
+  const places: Place<S>[] = []
+  for (const object of plan.objects) {
+    switch (object.kind) {
+      case 'desk':
+        places.push({
+          ...bookableOf(object),
+          kind: 'desk',
+          section: object.section,
+          center: centerOf(object),
+          bounds: rectOf(object),
+          shape: 'rect',
+          capacity: 1,
+          chairSide: object.chairSide,
+        })
+        break
+      case 'row':
+        for (const [index, { seat, center }] of rowSeatsOf(object).entries()) {
+          places.push({
+            ...bookableOf(seat),
+            kind: 'row-seat',
+            section: object.section,
+            parent: { id: object.id, kind: 'row', index },
+            center,
+            bounds: circleBounds(center, object.seatSize),
+            shape: 'circle',
+            capacity: 1,
+          })
+        }
+        break
+      case 'table':
+        if (object.wholeBooking) {
+          places.push({
+            ...bookableOf(object),
+            kind: 'table',
+            section: object.section,
+            center: centerOf(object),
+            bounds: rectOf(object),
+            shape: object.shape === 'round' ? 'ellipse' : 'rect',
+            capacity: object.seats.length,
+          })
+          break
+        }
+        for (const [index, { seat, center }] of tableSeatsOf(object).entries()) {
+          places.push({
+            ...bookableOf(seat),
+            kind: 'table-seat',
+            section: object.section,
+            parent: { id: object.id, kind: 'table', index },
+            center,
+            bounds: circleBounds(center, object.seatSize),
+            shape: 'circle',
+            capacity: 1,
+          })
+        }
+        break
+      case 'booth':
+        places.push({
+          ...bookableOf(object),
+          kind: 'booth',
+          section: object.section,
+          center: centerOf(object),
+          bounds: rectOf(object),
+          shape: 'rect',
+          capacity: 1,
+        })
+        break
+      case 'area':
+        places.push({
+          ...bookableOf(object),
+          kind: 'area',
+          section: object.section,
+          center: centerOf(object),
+          bounds: rectOf(object),
+          shape: object.shape === 'ellipse' ? 'ellipse' : 'rect',
+          capacity: object.capacity,
+        })
+        break
+      case 'fixture':
+        break
+    }
+  }
+  return places
 }
 
-// Next seat id — `<zone><n>` with n = the zone's highest number + 1. Deleted numbers are never reused, so
-// "delete then add" in one editing session cannot silently reconnect to records that referenced the old id.
-function nextSeatId<Z extends string>(plan: Pick<SeatPlan<Z>, 'seats'>, zone: Z): string {
-  const pattern = new RegExp(`^${escapeRegExp(zone)}(\\d+)$`)
-  const max = plan.seats.reduce((acc, seat) => {
-    const match = pattern.exec(seat.id)
-    return match ? Math.max(acc, Number(match[1])) : acc
-  }, 0)
-  return `${zone}${max + 1}`
+// Every id in the document — objects and the seats inside rows and tables. They share one namespace.
+function idsOf(plan: Pick<SeatPlan, 'objects'>): string[] {
+  const ids: string[] = []
+  for (const object of plan.objects) {
+    ids.push(object.id)
+    if (object.kind === 'row' || object.kind === 'table') for (const seat of object.seats) ids.push(seat.id)
+  }
+  return ids
 }
 
-// Next fixture id — `<kind>-<n>` with n = the kind's highest number + 1.
-function nextFixtureId(plan: Pick<SeatPlan, 'fixtures'>, kind: FixtureKind): string {
-  const max = plan.fixtures.reduce((acc, fixture) => {
-    const match = new RegExp(`^${kind}-(\\d+)$`).exec(fixture.id)
-    return match ? Math.max(acc, Number(match[1])) : acc
-  }, 0)
-  return `${kind}-${max + 1}`
+// The section containing a point — the editor re-homes a dragged desk to the section its centre lands in.
+function sectionAt<S extends string>(plan: Pick<SeatPlan<S>, 'sections'>, point: PlanPoint): S | null {
+  return plan.sections.find((section) => polygonContains(section.points, point))?.id ?? null
+}
+
+function sectionOf<S extends string>(plan: Pick<SeatPlan<S>, 'sections'>, id: S): Section<S> | undefined {
+  return plan.sections.find((section) => section.id === id)
+}
+
+function sectionBoundsOf(section: Pick<Section, 'points'>): PlanRect {
+  return boundsOfPoints(section.points)
+}
+
+// The outline the outer wall is stroked on — the section pushed out by half the wall, so the wall's inner edge
+// runs exactly on the section edge.
+function sectionWallOf(section: Pick<Section, 'points'>): PlanPoint[] {
+  return offsetPolygon(section.points, WALL_THICKNESS / 2)
+}
+
+// Next place id — `<section><n>` with n = the highest number any id with that prefix carries + 1. Deleted numbers
+// are never reused, so "delete then add" in one editing session cannot silently reconnect to records that
+// referenced the old id.
+function nextPlaceId(plan: Pick<SeatPlan, 'objects'>, section: string): string {
+  return `${section}${maxSuffix(plan, new RegExp(`^${escapeRegExp(section)}(\\d+)$`)) + 1}`
+}
+
+// Next non-place id — `<prefix>-<n>` (rows, fixtures).
+function nextObjectId(plan: Pick<SeatPlan, 'objects'>, prefix: string): string {
+  return `${prefix}-${maxSuffix(plan, new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`)) + 1}`
 }
 
 // Editor rotation — one edge clockwise.
@@ -100,32 +213,32 @@ function nextChairSide(side: SeatChairSide): SeatChairSide {
   return NEXT_CHAIR_SIDE[side]
 }
 
-// Where a new standard seat (2×2 cells) goes — scans the zone's cell origins row-major and returns the first
-// one that overlaps no seat. null when the zone is full (or missing).
-function findFreeSeatPos<Z extends string>(plan: Pick<SeatPlan<Z>, 'zones' | 'seats'>, zoneId: Z): PlanPoint | null {
-  const zone = plan.zones.find((z) => z.id === zoneId)
-  if (!zone) return null
+// Where a new standard desk (2×2 cells) goes — scans the section's cell origins row-major and returns the first
+// one inside the section that overlaps no place footprint. null when the section is full (or missing).
+function findFreeDeskPos<S extends string>(plan: Pick<SeatPlan<S>, 'sections' | 'objects'>, id: S): PlanPoint | null {
+  const section = sectionOf(plan, id)
+  if (!section) return null
+  const box = sectionBoundsOf(section)
   const span = seatGrid.seatSpanPxOf(DEFAULT_SEAT_CELLS)
-  // Start from the first cell whose origin is at or past the zone origin — the cell just inside the corner
-  // when the zone is grid-aligned.
-  const startX = seatGrid.seatPxOf(Math.ceil((zone.x - 2) / GRID_CELL))
-  const startY = seatGrid.seatPxOf(Math.ceil((zone.y - 2) / GRID_CELL))
-  for (let y = startY; y + span <= zone.y + zone.h; y += GRID_CELL) {
-    for (let x = startX; x + span <= zone.x + zone.w; x += GRID_CELL) {
+  const taken = plan.objects.filter((o) => o.kind !== 'fixture').map(footprintOf)
+  // Start from the first cell whose origin is at or past the section origin — the cell just inside the corner
+  // when the section is grid-aligned.
+  const startX = seatGrid.seatPxOf(Math.ceil((box.x - 2) / GRID_CELL))
+  const startY = seatGrid.seatPxOf(Math.ceil((box.y - 2) / GRID_CELL))
+  for (let y = startY; y + span <= box.y + box.h; y += GRID_CELL) {
+    for (let x = startX; x + span <= box.x + box.w; x += GRID_CELL) {
       const rect = { x, y, w: span, h: span }
-      if (!plan.seats.some((seat) => seatGrid.rectsOverlap(seat, rect))) return { x, y }
+      if (!cornersOf(rect).every((corner) => polygonContains(section.points, corner))) continue
+      if (!taken.some((other) => seatGrid.rectsOverlap(other, rect))) return { x, y }
     }
   }
   return null
 }
 
-// Where a new fixture goes — scans the whole plan by half cells row-major for a spot overlapping no seat or
-// fixture. Fixtures may overlap each other, but a freshly added one should not hide under an existing one.
-function findFreeFixturePos(
-  plan: Pick<SeatPlan, 'width' | 'height' | 'seats' | 'fixtures'>,
-  size: PlanSize,
-): PlanPoint | null {
-  const taken = [...plan.seats, ...plan.fixtures]
+// Where a new fixture goes — scans the whole plan by half cells row-major for a spot overlapping no object.
+// Fixtures may overlap each other, but a freshly added one should not hide under an existing one.
+function findFreeFixturePos(plan: Pick<SeatPlan, 'width' | 'height' | 'objects'>, size: PlanSize): PlanPoint | null {
+  const taken = plan.objects.map(footprintOf)
   for (let y = 0; y + size.h <= plan.height; y += HALF_CELL) {
     for (let x = 0; x + size.w <= plan.width; x += HALF_CELL) {
       const rect = { x, y, ...size }
@@ -135,10 +248,9 @@ function findFreeFixturePos(
   return null
 }
 
-// Fixture label layout — the canvas and the SVG share the decision. Text runs along the long edge (tall
-// fixtures read bottom-to-top), the font follows the short edge. Glyph width is estimated from the font size;
-// when the text would not fit or the font would fall below the minimum, no label is drawn — the shape still
-// reads. `text` is the consumer's name for the fixture (the library ships no copy).
+// Fixture label layout — text runs along the long edge (tall fixtures read bottom-to-top), the font follows the
+// short edge. Glyph width is estimated from the font size; when the text would not fit or the font would fall
+// below the minimum, no label is drawn — the shape still reads. `text` is the consumer's name for the fixture.
 function fixtureLabelOf(
   fixture: Pick<Fixture, 'w' | 'h'>,
   text: string | null | undefined,
@@ -152,101 +264,129 @@ function fixtureLabelOf(
   return { text, fontSize, vertical }
 }
 
-// Zone crop — bounded by the zone's seats and fixtures rather than the room rectangle, because rooms keep wide
-// seatless floor that would become empty crop height when crops are stacked on a narrow screen. The outer wall
-// may be clipped by the frame; a heading above the crop names the room.
-// Fixtures have no zone, so those whose centre lies in the room belong to it (and extend the bounds so a TV on
-// the wall is not cut off). Bounds snap to GRID_CELL so seats stay on grid lines after translation.
-// null when the zone does not exist (defensive — callers draw an empty state).
-function zonePlanOf<Z extends string>(plan: ZoneSeatPlan<Z>, zoneId: Z): ZoneSeatPlan<Z> | null {
-  const zone = plan.zones.find((z) => z.id === zoneId)
-  if (!zone) return null
-  const seats = plan.seats.filter((s) => s.zone === zoneId)
-  const fixtures = plan.fixtures.filter((f) => containsPoint(zone, { x: f.x + f.w / 2, y: f.y + f.h / 2 }))
-  const items = [...seats, ...fixtures]
-
-  // A zone with nothing in it has nothing to crop to — the room rectangle is the bound.
-  let minX = items.length > 0 ? Infinity : zone.x
-  let minY = items.length > 0 ? Infinity : zone.y
-  let maxX = items.length > 0 ? -Infinity : zone.x + zone.w
-  let maxY = items.length > 0 ? -Infinity : zone.y + zone.h
-  for (const item of items) {
-    minX = Math.min(minX, item.x)
-    minY = Math.min(minY, item.y)
-    maxX = Math.max(maxX, item.x + item.w)
-    maxY = Math.max(maxY, item.y + item.h)
-  }
-
-  const x0 = Math.floor((minX - ZONE_PLAN_PADDING) / GRID_CELL) * GRID_CELL
-  const y0 = Math.floor((minY - ZONE_PLAN_PADDING) / GRID_CELL) * GRID_CELL
+// Section crop — bounded by the section's objects rather than its outline, because rooms keep wide empty floor
+// that would become empty crop height when crops are stacked on a narrow screen. The outer wall may be clipped
+// by the frame; a heading above the crop names the section.
+// Fixtures have no section, so those whose centre lies in the section belong to it (and extend the bounds so a
+// TV on the wall is not cut off). Bounds snap to GRID_CELL so desks stay on grid lines after translation.
+// null when the section does not exist (defensive — callers draw an empty state).
+function sectionPlanOf<S extends string>(plan: SeatPlan<S>, id: S): SeatPlan<S> | null {
+  const section = sectionOf(plan, id)
+  if (!section) return null
+  const objects = plan.objects.filter((object) =>
+    object.kind === 'fixture' ? polygonContains(section.points, centerOf(object)) : object.section === id,
+  )
+  // A section with nothing in it has nothing to crop to — its outline is the bound.
+  const bounds = unionBounds(objects.map(boundsOf)) ?? sectionBoundsOf(section)
+  const x0 = Math.floor((bounds.x - SECTION_PLAN_PADDING) / GRID_CELL) * GRID_CELL
+  const y0 = Math.floor((bounds.y - SECTION_PLAN_PADDING) / GRID_CELL) * GRID_CELL
   return {
-    width: Math.ceil((maxX + ZONE_PLAN_PADDING - x0) / GRID_CELL) * GRID_CELL,
-    height: Math.ceil((maxY + ZONE_PLAN_PADDING - y0) / GRID_CELL) * GRID_CELL,
-    zones: [{ ...zone, x: zone.x - x0, y: zone.y - y0 }],
-    seats: seats.map((s) => ({ ...s, x: s.x - x0, y: s.y - y0 })),
-    fixtures: fixtures.map((f) => ({ ...f, x: f.x - x0, y: f.y - y0 })),
+    version: 2,
+    width: Math.ceil((bounds.x + bounds.w + SECTION_PLAN_PADDING - x0) / GRID_CELL) * GRID_CELL,
+    height: Math.ceil((bounds.y + bounds.h + SECTION_PLAN_PADDING - y0) / GRID_CELL) * GRID_CELL,
+    sections: [{ ...section, points: section.points.map((p) => ({ x: p.x - x0, y: p.y - y0 })) }],
+    categories: plan.categories,
+    objects: objects.map((object) => translate(object, -x0, -y0)),
   }
 }
 
-// One crop per zone in left-to-right plan order, all padded to the widest crop. Renderers fill their width, so
-// equal widths mean equal scale — otherwise a narrow room would be stretched to a wide room's width and seat
-// sizes would differ between crops. Padding is added on both sides in GRID_CELL steps only.
-function zonePlansOf<Z extends string>(plan: ZoneSeatPlan<Z>): ZonePlan<Z>[] {
-  const cropped: ZonePlan<Z>[] = []
-  for (const zone of [...plan.zones].sort((a, b) => a.x - b.x)) {
-    const zonePlan = zonePlanOf(plan, zone.id)
-    if (zonePlan) cropped.push({ id: zone.id, plan: zonePlan })
+// One crop per section in left-to-right plan order, all padded to the widest crop. Renderers fill their width,
+// so equal widths mean equal scale — otherwise a narrow section would be stretched to a wide one's width and
+// seat sizes would differ between crops. Padding is added on both sides in GRID_CELL steps only.
+function sectionPlansOf<S extends string>(plan: SeatPlan<S>): SectionPlan<S>[] {
+  const cropped: SectionPlan<S>[] = []
+  const ordered = [...plan.sections].sort((a, b) => sectionBoundsOf(a).x - sectionBoundsOf(b).x)
+  for (const section of ordered) {
+    const sectionPlan = sectionPlanOf(plan, section.id)
+    if (sectionPlan) cropped.push({ id: section.id, plan: sectionPlan })
   }
   if (cropped.length === 0) return []
 
   const width = Math.max(...cropped.map((entry) => entry.plan.width))
-  return cropped.map(({ id, plan: zonePlan }) => {
-    const left = Math.floor((width - zonePlan.width) / 2 / GRID_CELL) * GRID_CELL
+  return cropped.map(({ id, plan: sectionPlan }) => {
+    const left = Math.floor((width - sectionPlan.width) / 2 / GRID_CELL) * GRID_CELL
     return {
       id,
       plan: {
+        ...sectionPlan,
         width,
-        height: zonePlan.height,
-        zones: zonePlan.zones.map((zone) => ({ ...zone, x: zone.x + left })),
-        seats: zonePlan.seats.map((seat) => ({ ...seat, x: seat.x + left })),
-        fixtures: zonePlan.fixtures.map((fixture) => ({ ...fixture, x: fixture.x + left })),
+        sections: sectionPlan.sections.map((s) => ({ ...s, points: s.points.map((p) => ({ x: p.x + left, y: p.y })) })),
+        objects: sectionPlan.objects.map((object) => translate(object, left, 0)),
       },
     }
   })
 }
 
-// The furniture of one seat — the chair in the band on its chair side, the desk in the rest (local coordinates,
-// seat origin). The chair lies with its long edge along the desk.
-function furnitureOf(seat: Pick<Seat, 'w' | 'h' | 'chairSide'>): { desk: PlanRect; chair: PlanRect } {
-  const sideways = seat.chairSide === 'left' || seat.chairSide === 'right'
-  const depth = sideways ? seat.w : seat.h
-  const span = sideways ? seat.h : seat.w
+// Seat centres along a row — spread evenly over the arc from start to end.
+function rowSeatsOf(row: Pick<Row, 'start' | 'end' | 'curve' | 'seats'>): { seat: RowSeat; center: PlanPoint }[] {
+  const centers = arcPoints(row.start, row.end, row.curve, row.seats.length)
+  return row.seats.map((seat, i) => ({ seat, center: centers[i]! }))
+}
+
+// Seat centres around a table. Round tables spread seats evenly clockwise from the top; rectangular tables split
+// them over the two long sides (the first side takes the odd one), left to right / top to bottom.
+function tableSeatsOf(
+  table: Pick<Table, 'x' | 'y' | 'w' | 'h' | 'shape' | 'seatSize' | 'seats'>,
+): { seat: TableSeat; center: PlanPoint }[] {
+  const n = table.seats.length
+  const center = centerOf(table)
+  const reach = table.seatSize / 2 + TABLE_SEAT_GAP
+  if (table.shape === 'round') {
+    const rx = table.w / 2 + reach
+    const ry = table.h / 2 + reach
+    return table.seats.map((seat, i) => {
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n
+      return { seat, center: { x: center.x + rx * Math.cos(angle), y: center.y + ry * Math.sin(angle) } }
+    })
+  }
+  const wide = table.w >= table.h
+  const firstCount = Math.ceil(n / 2)
+  return table.seats.map((seat, i) => {
+    const first = i < firstCount
+    const count = first ? firstCount : n - firstCount
+    const k = first ? i : i - firstCount
+    const along = (k + 0.5) / count
+    if (wide) {
+      const x = table.x + table.w * along
+      return { seat, center: { x, y: first ? table.y - reach : table.y + table.h + reach } }
+    }
+    const y = table.y + table.h * along
+    return { seat, center: { x: first ? table.x + table.w + reach : table.x - reach, y } }
+  })
+}
+
+// The furniture of one desk — the chair in the band on its chair side, the desk top in the rest (local
+// coordinates, desk origin). The chair lies with its long edge along the desk.
+function furnitureOf(desk: Pick<Desk, 'w' | 'h' | 'chairSide'>): { desk: PlanRect; chair: PlanRect } {
+  const sideways = desk.chairSide === 'left' || desk.chairSide === 'right'
+  const depth = sideways ? desk.w : desk.h
+  const span = sideways ? desk.h : desk.w
   const band = Math.min(CHAIR_BAND, depth * 0.32)
   const gap = band * 0.2 // between desk and chair
-  const inset = band * 0.15 // between chair and the seat's outer edge
+  const inset = band * 0.15 // between chair and the desk's outer edge
   const thickness = band - gap - inset
   const length = Math.min(CHAIR_LENGTH, span - 8)
   const along = (span - length) / 2
-  switch (seat.chairSide) {
+  switch (desk.chairSide) {
     case 'up':
       return {
-        desk: { x: 0, y: band, w: seat.w, h: seat.h - band },
+        desk: { x: 0, y: band, w: desk.w, h: desk.h - band },
         chair: { x: along, y: inset, w: length, h: thickness },
       }
     case 'down':
       return {
-        desk: { x: 0, y: 0, w: seat.w, h: seat.h - band },
-        chair: { x: along, y: seat.h - band + gap, w: length, h: thickness },
+        desk: { x: 0, y: 0, w: desk.w, h: desk.h - band },
+        chair: { x: along, y: desk.h - band + gap, w: length, h: thickness },
       }
     case 'left':
       return {
-        desk: { x: band, y: 0, w: seat.w - band, h: seat.h },
+        desk: { x: band, y: 0, w: desk.w - band, h: desk.h },
         chair: { x: inset, y: along, w: thickness, h: length },
       }
     case 'right':
       return {
-        desk: { x: 0, y: 0, w: seat.w - band, h: seat.h },
-        chair: { x: seat.w - band + gap, y: along, w: thickness, h: length },
+        desk: { x: 0, y: 0, w: desk.w - band, h: desk.h },
+        chair: { x: desk.w - band + gap, y: along, w: thickness, h: length },
       }
   }
 }
@@ -259,21 +399,88 @@ function innerWallOf(fixture: Pick<Fixture, 'w' | 'h'>): PlanRect {
     : { x: (fixture.w - thickness) / 2, y: 0, w: thickness, h: fixture.h }
 }
 
-// Whether zone names are drawn on the plan — not on a single-zone crop, where there is nothing to tell apart
-// and a heading outside the drawing says it louder.
-function showsZoneLabels(plan: Pick<SeatPlan, 'zones'>): boolean {
-  return plan.zones.length > 1
+// The floor an object claims — overlap rules and free-spot search use it. A table claims its top (seats around
+// it may share the aisle), a row the extent of its seats.
+function footprintOf(object: PlanObject): PlanRect {
+  if (object.kind === 'row') return rowBounds(object)
+  return rectOf(object)
+}
+
+// Everything an object draws — a table's seats included.
+function boundsOf(object: PlanObject): PlanRect {
+  if (object.kind === 'row') return rowBounds(object)
+  if (object.kind === 'table') {
+    const seats = tableSeatsOf(object).map(({ center }) => circleBounds(center, object.seatSize))
+    return unionBounds([rectOf(object), ...seats])!
+  }
+  return rectOf(object)
+}
+
+// The same object moved by (dx, dy).
+function translate<O extends PlanObject<string>>(object: O, dx: number, dy: number): O {
+  if (object.kind === 'row') {
+    return {
+      ...object,
+      start: { x: object.start.x + dx, y: object.start.y + dy },
+      end: { x: object.end.x + dx, y: object.end.y + dy },
+    }
+  }
+  return { ...object, x: (object as PlanRect).x + dx, y: (object as PlanRect).y + dy }
+}
+
+// Whether section names are drawn on the plan — not on a single-section crop, where there is nothing to tell
+// apart and a heading outside the drawing says it louder.
+function showsSectionLabels(plan: Pick<SeatPlan, 'sections'>): boolean {
+  return plan.sections.length > 1
 }
 
 // The drawn extent — the outer wall reaches past the document size, and labelled plans gain the name band on
-// top. Fit views and the SVG viewBox use this; seat coordinates are unchanged.
-function drawingBoundsOf(plan: Pick<SeatPlan, 'width' | 'height' | 'zones'>): PlanRect {
-  const top = showsZoneLabels(plan) ? ZONE_LABEL_BAND : DRAWING_MARGIN
+// top. Fit views and the SVG viewBox use this; object coordinates are unchanged.
+function drawingBoundsOf(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>): PlanRect {
+  const top = showsSectionLabels(plan) ? SECTION_LABEL_BAND : DRAWING_MARGIN
   return { x: -DRAWING_MARGIN, y: -top, w: plan.width + DRAWING_MARGIN * 2, h: plan.height + top + DRAWING_MARGIN }
 }
 
-function containsPoint(box: PlanRect, point: PlanPoint): boolean {
-  return point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h
+function bookableOf(item: { id: string; label?: string; category?: string; tags?: string[] }) {
+  return {
+    id: item.id,
+    label: item.label ?? item.id,
+    ...(item.category === undefined ? {} : { category: item.category }),
+    tags: item.tags ?? [],
+  }
+}
+
+function rowBounds(row: Row): PlanRect {
+  const seats = rowSeatsOf(row).map(({ center }) => circleBounds(center, row.seatSize))
+  return unionBounds(seats) ?? boundsOfPoints([row.start, row.end])
+}
+
+function circleBounds(center: PlanPoint, size: number): PlanRect {
+  return { x: center.x - size / 2, y: center.y - size / 2, w: size, h: size }
+}
+
+function rectOf(rect: PlanRect): PlanRect {
+  return { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
+}
+
+function centerOf(rect: PlanRect): PlanPoint {
+  return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 }
+}
+
+function cornersOf(rect: PlanRect): PlanPoint[] {
+  return [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.w, y: rect.y },
+    { x: rect.x + rect.w, y: rect.y + rect.h },
+    { x: rect.x, y: rect.y + rect.h },
+  ]
+}
+
+function maxSuffix(plan: Pick<SeatPlan, 'objects'>, pattern: RegExp): number {
+  return idsOf(plan).reduce((acc, id) => {
+    const match = pattern.exec(id)
+    return match ? Math.max(acc, Number(match[1])) : acc
+  }, 0)
 }
 
 function escapeRegExp(value: string): string {

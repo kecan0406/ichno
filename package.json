@@ -1,12 +1,11 @@
 {
   "name": "ichno",
   "version": "0.1.0",
-  "description": "Seat floor plans for React: a zod document schema, grid geometry, a server SVG renderer, Konva viewer/editor canvases and a headless editor hook.",
+  "description": "Seat floor plans for React: a Seats.io-level JSON document with a zod schema, geometry, a renderer-independent interaction core and a headless editor hook.",
   "keywords": [
     "seat-map",
     "floor-plan",
     "seating",
-    "konva",
     "react",
     "svg",
     "editor"
@@ -27,8 +26,6 @@
   "exports": {
     ".": "./dist/index.js",
     "./schema": "./dist/schema/index.js",
-    "./svg": "./dist/svg/index.js",
-    "./konva": "./dist/konva/index.js",
     "./editor": "./dist/editor/index.js",
     "./package.json": "./package.json"
   },
@@ -44,19 +41,11 @@
     "prepublishOnly": "pnpm check"
   },
   "peerDependencies": {
-    "konva": "^10.0.0",
     "react": "^19.2.0",
-    "react-konva": "^19.0.0",
     "zod": "^4.0.0"
   },
   "peerDependenciesMeta": {
-    "konva": {
-      "optional": true
-    },
     "react": {
-      "optional": true
-    },
-    "react-konva": {
       "optional": true
     },
     "zod": {
@@ -70,12 +59,10 @@
     "@types/node": "^26.6.2",
     "@types/react": "^19.2.17",
     "babel-plugin-react-compiler": "^1.0.0",
-    "konva": "^10.7.0",
     "prettier": "^3.9.9",
     "publint": "^0.3.24",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-konva": "^19.3.0",
     "tsdown": "^0.23.0",
     "typescript": "^6.0.3",
     "vitest": "^5.0.1",

@@ -4,9 +4,29 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+Breaking — document version 2, and the canvas renderers are gone (see `docs/direction.md`).
+
+- `ichno`: document v2 — `sections` (polygons) replace `zones`, and `objects` hold desks (the 0.1 seats), curved
+  rows, tables, booths, general-admission areas and fixtures (`role` replaces `kind`). Places carry an optional
+  `label` separate from the booking `id`, plus `category` and `tags`; plans list their `categories`.
+- `ichno`: `seatPlan.placesOf`, `rowSeatsOf`, `tableSeatsOf`, `sectionAt`, `sectionWallOf`, `sectionPlanOf(s)`,
+  `nextPlaceId`, `nextObjectId`, `footprintOf`, `boundsOf` and `translate`. Renamed: `zonePlanOf(s)` →
+  `sectionPlanOf(s)`, `nextSeatId` → `nextPlaceId`, `findFreeSeatPos` → `findFreeDeskPos`, `showsZoneLabels` →
+  `showsSectionLabels`, `ZONE_LABEL_*` → `SECTION_LABEL_*`, `seatGrid.*Zone*` → `seatGrid.*Section*`. Removed:
+  `byId`, `zoneAt`, `FIXTURE_KINDS`, `FIXTURE_DEFAULT_SIZE`.
+- `ichno`: `lintSeatPlan` (soft rules with consumer severities), `validateSelection` (count limits, consecutive
+  seats, orphan seats) and `upgradeSeatPlan` (0.1 → 2).
 - `ichno`: interaction core, independent of any renderer — `spatialIndex` (bucket-grid index for hit-testing and
   area queries), `gesture` (a pure pointer state machine for tap, drag, pan and pinch) and `placeNavigation`
   (arrow-key movement between places).
+- `ichno/schema`: `createSeatPlanSchema({ sectionIds })` validates v2 and upgrades 0.1 documents while parsing.
+  Issue codes are now `duplicate_section`, `duplicate_category`, `duplicate_id`, `unknown_category`,
+  `out_of_bounds`, `overlap` and `fixture_overlap`.
+- `ichno/editor`: works on v2 — `addDesk`, `addFixture(role, size)`, `updateObject`, `moveObject`, `moveSection`,
+  `reshapeSection`, `removeObject`, `renameObject`, `rotateDesk`; selection is `{ kind: 'object' | 'section' }`.
+  `stageProps` is gone with the canvas.
+- Removed `ichno/svg` and `ichno/konva`, and the `konva` / `react-konva` peer dependencies. Headless SVG components
+  replace them in the next phase.
 
 ## 0.1.0 — 2026-09-24
 

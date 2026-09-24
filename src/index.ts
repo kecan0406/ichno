@@ -1,30 +1,52 @@
 export {
-  FIXTURE_KINDS,
+  AREA_SHAPES,
+  OBJECT_KINDS,
   SEAT_CHAIR_SIDES,
+  TABLE_SHAPES,
+  type Area,
+  type AreaShape,
+  type Booth,
+  type Category,
+  type Desk,
   type Fixture,
-  type FixtureKind,
+  type ObjectKind,
+  type Place,
+  type PlaceKind,
+  type PlanObject,
   type PlanPoint,
   type PlanRect,
   type PlanSize,
-  type Seat,
+  type Row,
+  type RowSeat,
   type SeatChairSide,
   type SeatPlan,
-  type Zone,
-  type ZonePlan,
-  type ZoneSeatPlan,
+  type Section,
+  type SectionPlan,
+  type Table,
+  type TableSeat,
+  type TableShape,
 } from './core/types'
+export { upgradeSeatPlan, type SeatPlanV1 } from './core/v1'
 export { DEFAULT_SEAT_CELLS, GRID_CELL, HALF_CELL, seatGrid } from './core/grid'
 export {
-  FIXTURE_DEFAULT_SIZE,
   INNER_WALL_THICKNESS,
   MIN_SEAT_SIZE,
+  SECTION_LABEL_BAND,
+  SECTION_LABEL_FONT,
+  TABLE_SEAT_GAP,
   WALL_THICKNESS,
-  ZONE_LABEL_BAND,
-  ZONE_LABEL_FONT,
   seatPlan,
 } from './core/geometry'
+export {
+  DEFAULT_LINT_SEVERITY,
+  lintSeatPlan,
+  type LintCode,
+  type LintIssue,
+  type LintResult,
+  type LintSeverity,
+} from './core/lint'
+export { validateSelection, type SelectionIssue, type SelectionRules } from './core/selection'
 export { ZOOM_STEP, centerZoom, fitScaleOf, fitView, zoomView, type SeatMapView, type ViewportSize } from './core/view'
-export { themeVars, type ThemeVar } from './theme/vars'
 export { spatialIndex, type SpatialIndex, type SpatialItem } from './core/spatial'
 export {
   DRAG_THRESHOLD_PX,
@@ -38,3 +60,4 @@ export {
   type ScreenPoint,
 } from './core/gesture'
 export { placeNavigation, type NavigationDirection, type NavigationItem } from './core/navigation'
+export { themeVars, type ThemeVar } from './theme/vars'

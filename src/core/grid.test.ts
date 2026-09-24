@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createSeatPlanSchema } from '../schema/index'
 import { DEFAULT_SEAT_CELLS, GRID_CELL, HALF_CELL, seatGrid } from './grid'
-import type { Seat } from './types'
 
-const { SeatPlan } = createSeatPlanSchema({ zoneIds: ['A', 'B'] })
+const { SeatPlan } = createSeatPlanSchema({ sectionIds: ['A', 'B'] })
 
 describe('seatGrid conversions', () => {
   it('a standard seat (88) is 2×2 cells — cells ↔ units round-trips', () => {
@@ -44,9 +43,13 @@ describe('seatGrid.normalize', () => {
   it('a traced pre-grid plan stays valid after alignment — no overlap, bounds or duplicate issues', () => {
     const normalized = seatGrid.normalize(tracedPlan())
     expect(() => SeatPlan.parse(normalized)).not.toThrow()
-    for (const seat of normalized.seats) {
-      expect((seat.x - 2) % GRID_CELL, seat.id).toBe(0)
-      expect((seat.w + 4) % GRID_CELL, seat.id).toBe(0)
+    for (const desk of normalized.objects) {
+      if (desk.kind !== 'desk') continue
+      expect((desk.x - 2) % GRID_CELL, desk.id).toBe(0)
+      expect((desk.w + 4) % GRID_CELL, desk.id).toBe(0)
+    }
+    for (const section of normalized.sections) {
+      for (const point of section.points) expect(point.x % GRID_CELL, section.id).toBe(0)
     }
   })
 
@@ -56,11 +59,14 @@ describe('seatGrid.normalize', () => {
   })
 })
 
-// A real traced plan from before the grid existed (92-unit rhythm, a few odd sizes).
+// A real traced plan from before the grid existed (92-unit rhythm, a few odd sizes), stored in the 0.1 format —
+// parsing upgrades it.
+type V1Seat = { id: string; zone: 'A' | 'B'; x: number; y: number; w: number; h: number; chairSide: 'down' }
+
 function tracedPlan() {
   const S = 88
   const STEP = 92
-  const vstack = (zone: 'A' | 'B', from: number, count: number, x: number, y: number): Seat<'A' | 'B'>[] =>
+  const vstack = (zone: 'A' | 'B', from: number, count: number, x: number, y: number): V1Seat[] =>
     Array.from({ length: count }, (_, i) => ({
       id: `${zone}${from + i}`,
       zone,
@@ -70,7 +76,7 @@ function tracedPlan() {
       h: S,
       chairSide: 'down',
     }))
-  const hrow = (zone: 'A' | 'B', from: number, count: number, x: number, y: number): Seat<'A' | 'B'>[] =>
+  const hrow = (zone: 'A' | 'B', from: number, count: number, x: number, y: number): V1Seat[] =>
     Array.from({ length: count }, (_, i) => ({
       id: `${zone}${from + i}`,
       zone,

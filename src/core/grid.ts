@@ -1,11 +1,12 @@
 import type { PlanPoint, PlanSize, SeatPlan } from './types'
 
 // Grid policy — the editor treats the plan as a 46-unit cell occupancy model (storage stays in plan units).
-// Seats sit 2 units inside their cell origin (size = cells × 46 − 4) so neighbouring seats keep a 4-unit gap:
-// a standard seat (88 + 4 gap = 92) is exactly 2×2 cells.
-// Zones align to cell edges with no inset (position/size = cells × 46).
-// Fixtures (wall/TV/counter) use a half-cell grid so thin elements can stand half a seat cell thick and sit on
-// cell edges. Like zones they have no inset (position/size = half cells × 23).
+// Desks sit 2 units inside their cell origin (size = cells × 46 − 4) so neighbouring desks keep a 4-unit gap:
+// a standard desk (88 + 4 gap = 92) is exactly 2×2 cells.
+// Section outlines run on cell edges with no inset (points = cells × 46).
+// Fixtures (wall/TV/counter) use a half-cell grid so thin elements can stand half a desk cell thick and sit on
+// cell edges. Like sections they have no inset (position/size = half cells × 23).
+// Rows, tables, booths and areas are free-standing; the editor snaps them to half cells.
 
 export const GRID_CELL = 46
 export const HALF_CELL = GRID_CELL / 2
@@ -21,22 +22,23 @@ export const seatGrid = {
   seatPxOf,
   seatSpanCellsOf,
   seatSpanPxOf,
-  zoneCellOf,
-  zonePxOf,
-  zoneSpanCellsOf,
-  zoneSpanPxOf,
+  sectionCellOf,
+  sectionPxOf,
+  sectionSpanCellsOf,
+  sectionSpanPxOf,
   maxSeatCell,
   maxSeatSpanCells,
-  maxZoneCell,
-  maxZoneSpanCells,
+  maxSectionCell,
+  maxSectionSpanCells,
   fixtureHalfCellOf,
   fixtureSpanHalfCellsOf,
   fixturePxOf,
   maxFixtureHalfCell,
   maxFixtureSpanHalfCells,
   cellOriginAt,
+  snapPoint,
   placeSeat,
-  placeZone,
+  placeSection,
   placeFixture,
   normalize,
   rectsOverlap,
@@ -60,20 +62,20 @@ function seatSpanPxOf(cells: number): number {
   return cells * GRID_CELL - SEAT_GAP
 }
 
-// Zone position/size units ↔ cells
-function zoneCellOf(px: number): number {
+// Section position/size units ↔ cells
+function sectionCellOf(px: number): number {
   return Math.round(px / GRID_CELL)
 }
 
-function zonePxOf(cell: number): number {
+function sectionPxOf(cell: number): number {
   return cell * GRID_CELL
 }
 
-function zoneSpanCellsOf(px: number): number {
+function sectionSpanCellsOf(px: number): number {
   return Math.max(DEFAULT_SEAT_CELLS, Math.round(px / GRID_CELL))
 }
 
-function zoneSpanPxOf(cells: number): number {
+function sectionSpanPxOf(cells: number): number {
   return cells * GRID_CELL
 }
 
@@ -100,11 +102,11 @@ function maxSeatSpanCells(extent: number, posPx: number): number {
   return Math.max(1, Math.floor((extent - posPx + SEAT_GAP) / GRID_CELL))
 }
 
-function maxZoneCell(extent: number, spanPx: number): number {
+function maxSectionCell(extent: number, spanPx: number): number {
   return Math.max(0, Math.floor((extent - spanPx) / GRID_CELL))
 }
 
-function maxZoneSpanCells(extent: number, posPx: number): number {
+function maxSectionSpanCells(extent: number, posPx: number): number {
   return Math.max(DEFAULT_SEAT_CELLS, Math.floor((extent - posPx) / GRID_CELL))
 }
 
@@ -129,10 +131,10 @@ function placeSeat(plan: PlanExtent, size: PlanSize, pos: PlanPoint): PlanPoint 
   }
 }
 
-function placeZone(plan: PlanExtent, size: PlanSize, pos: PlanPoint): PlanPoint {
+function placeSection(plan: PlanExtent, size: PlanSize, pos: PlanPoint): PlanPoint {
   return {
-    x: zonePxOf(clamp(zoneCellOf(pos.x), 0, maxZoneCell(plan.width, size.w))),
-    y: zonePxOf(clamp(zoneCellOf(pos.y), 0, maxZoneCell(plan.height, size.h))),
+    x: sectionPxOf(clamp(sectionCellOf(pos.x), 0, maxSectionCell(plan.width, size.w))),
+    y: sectionPxOf(clamp(sectionCellOf(pos.y), 0, maxSectionCell(plan.height, size.h))),
   }
 }
 
@@ -143,24 +145,35 @@ function placeFixture(plan: PlanExtent, size: PlanSize, pos: PlanPoint): PlanPoi
   }
 }
 
-// Align a whole plan to the grid — rounds a pre-grid (traced) plan to cells. Idempotent.
+// A section outline point on the nearest cell corner, inside the plan.
+function snapPoint(plan: PlanExtent, point: PlanPoint): PlanPoint {
+  return {
+    x: sectionPxOf(clamp(sectionCellOf(point.x), 0, Math.floor(plan.width / GRID_CELL))),
+    y: sectionPxOf(clamp(sectionCellOf(point.y), 0, Math.floor(plan.height / GRID_CELL))),
+  }
+}
+
+// Align a whole plan to the grid — rounds a pre-grid (traced) plan to cells: section outlines to cell corners,
+// desks to cells, fixtures to half cells. Other objects are left where they are. Idempotent.
 function normalize<P extends SeatPlan<string>>(plan: P): P {
   return {
     ...plan,
-    zones: plan.zones.map((zone) => {
-      const w = zoneSpanPxOf(zoneSpanCellsOf(zone.w))
-      const h = zoneSpanPxOf(zoneSpanCellsOf(zone.h))
-      return { ...zone, w, h, ...placeZone(plan, { w, h }, zone) }
-    }),
-    seats: plan.seats.map((seat) => {
-      const w = seatSpanPxOf(seatSpanCellsOf(seat.w))
-      const h = seatSpanPxOf(seatSpanCellsOf(seat.h))
-      return { ...seat, w, h, ...placeSeat(plan, { w, h }, seat) }
-    }),
-    fixtures: plan.fixtures.map((fixture) => {
-      const w = fixturePxOf(fixtureSpanHalfCellsOf(fixture.w))
-      const h = fixturePxOf(fixtureSpanHalfCellsOf(fixture.h))
-      return { ...fixture, w, h, ...placeFixture(plan, { w, h }, fixture) }
+    sections: plan.sections.map((section) => ({
+      ...section,
+      points: section.points.map((point) => snapPoint(plan, point)),
+    })),
+    objects: plan.objects.map((object) => {
+      if (object.kind === 'desk') {
+        const w = seatSpanPxOf(seatSpanCellsOf(object.w))
+        const h = seatSpanPxOf(seatSpanCellsOf(object.h))
+        return { ...object, w, h, ...placeSeat(plan, { w, h }, object) }
+      }
+      if (object.kind === 'fixture') {
+        const w = fixturePxOf(fixtureSpanHalfCellsOf(object.w))
+        const h = fixturePxOf(fixtureSpanHalfCellsOf(object.h))
+        return { ...object, w, h, ...placeFixture(plan, { w, h }, object) }
+      }
+      return object
     }),
   }
 }

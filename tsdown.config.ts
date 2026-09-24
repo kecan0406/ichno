@@ -5,8 +5,6 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'schema/index': 'src/schema/index.ts',
-    'svg/index': 'src/svg/index.ts',
-    'konva/index': 'src/konva/index.ts',
     'editor/index': 'src/editor/index.ts',
   },
   format: 'esm',
@@ -23,10 +21,10 @@ export default defineConfig({
     },
   },
   plugins: [
-    // Ship React Compiler output for the client components — they are written without manual memoization,
-    // and consumers do not compile node_modules. The server SVG has nothing to memoize.
+    // Ship React Compiler output for the client code — it is written without manual memoization, and consumers
+    // do not compile node_modules.
     babel({
-      include: /\/src\/(konva|editor)\/.*\.tsx?$/,
+      include: /\/src\/editor\/.*\.tsx?$/,
       plugins: [['babel-plugin-react-compiler', { target: '19' }]],
     }),
   ],
