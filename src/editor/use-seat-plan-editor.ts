@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useEffectEvent, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { seatPlan } from '../core/geometry'
 import { seatGrid } from '../core/grid'
 import type { LabelSequence } from '../core/labeling'
@@ -29,7 +29,7 @@ type Options<S extends string> = {
   lockedIds?: Iterable<string>
 }
 
-type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; future: SeatPlan<S>[] }
+type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; future: SeatPlan<S>[]; dirty: boolean }
 
 // Undo depth — plenty for an editing session, bounded so a long one does not hold every version.
 const HISTORY_LIMIT = 100
@@ -41,14 +41,21 @@ const HISTORY_LIMIT = 100
 // save `plan`. The plan is grid-normalized on open, so a pre-grid plan starts dirty. To adopt a new baseline after
 // saving, remount (e.g. key the component by the saved version).
 export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: Options<S>) {
-  const [normalizedInitial] = useState(() => seatGrid.normalize(initialPlan))
-  const [history, setHistory] = useState<History<S>>({ past: [], present: normalizedInitial, future: [] })
+  const [start] = useState(() => {
+    const present = seatGrid.normalize(initialPlan)
+    const saved = JSON.stringify(initialPlan)
+    return { saved, history: { past: [], present, future: [], dirty: JSON.stringify(present) !== saved } as History<S> }
+  })
+  const [history, setHistory] = useState<History<S>>(start.history)
+  // The latest history, ahead of the render — so several calls in one handler build on each other (add a table,
+  // then set its seat count) instead of each starting from the rendered plan.
+  const historyRef = useRef(start.history)
   const [selection, setSelection] = useState<EditorSelection<S>[]>([])
   const [drag, setDrag] = useState<PlanDrag<S> | null>(null)
   const locked = new Set(lockedIds)
 
   const plan = history.present
-  const dirty = JSON.stringify(plan) !== JSON.stringify(initialPlan)
+  const dirty = history.dirty
   const selectedObjectIds = selection.flatMap((item) => (item.kind === 'object' ? [item.id] : []))
   const selectedObjects = plan.objects.filter((object) => selectedObjectIds.includes(object.id))
   const selectedSectionId = selection.find((item) => item.kind === 'section')?.id as S | undefined
@@ -67,17 +74,26 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
   // The rubber band being dragged, in plan units — draw it with <SeatMap.Marquee>.
   const [marquee, setMarquee] = useState<PlanRect | null>(null)
 
-  // Every change goes through here: one undo step each, and the redo branch is dropped.
-  function apply(update: (current: SeatPlan<S>) => SeatPlan<S> | null) {
-    setHistory((h) => {
-      const next = update(h.present)
-      if (next === null || next === h.present) return h
-      return { past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [] }
-    })
+  function commit(next: Omit<History<S>, 'dirty'>) {
+    const full = { ...next, dirty: JSON.stringify(next.present) !== start.saved }
+    historyRef.current = full
+    setHistory(full)
   }
 
-  // Runs an operation that creates an object, commits it and selects the result.
-  function create(result: { plan: SeatPlan<S>; id: string } | null): string | null {
+  // Every change goes through here: one undo step each, and the redo branch is dropped. An edit that changes
+  // nothing (removing an empty selection, a drag that snaps back) leaves history — and the redo branch — alone.
+  // Returns whether anything changed.
+  function apply(update: (current: SeatPlan<S>) => SeatPlan<S> | null): boolean {
+    const h = historyRef.current
+    const next = update(h.present)
+    if (next === null || next === h.present || JSON.stringify(next) === JSON.stringify(h.present)) return false
+    commit({ past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [] })
+    return true
+  }
+
+  // Runs an operation that creates an object on the latest plan, commits it and selects the result.
+  function create(run: (current: SeatPlan<S>) => { plan: SeatPlan<S>; id: string } | null): string | null {
+    const result = run(historyRef.current.present)
     if (!result) return null
     apply(() => result.plan)
     setSelection([{ kind: 'object', id: result.id }])
@@ -85,19 +101,15 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
   }
 
   function undo() {
-    setHistory((h) => {
-      const previous = h.past.at(-1)
-      if (!previous) return h
-      return { past: h.past.slice(0, -1), present: previous, future: [h.present, ...h.future] }
-    })
+    const h = historyRef.current
+    const previous = h.past.at(-1)
+    if (previous) commit({ past: h.past.slice(0, -1), present: previous, future: [h.present, ...h.future] })
   }
 
   function redo() {
-    setHistory((h) => {
-      const [next, ...future] = h.future
-      if (!next) return h
-      return { past: [...h.past, h.present], present: next, future }
-    })
+    const h = historyRef.current
+    const [next, ...future] = h.future
+    if (next) commit({ past: [...h.past, h.present], present: next, future })
   }
 
   // Selects what a target points at — a seat selects its row or table. `additive` toggles it in the selection
@@ -133,7 +145,9 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
       return
     }
     setMarquee(null)
-    const picked = seatPlan.objectsInRect(plan, rect).map((id) => ({ kind: 'object' as const, id }))
+    const picked = seatPlan
+      .objectsInRect(historyRef.current.present, rect)
+      .map((id) => ({ kind: 'object' as const, id }))
     setSelection((current) =>
       info.additive ? [...current, ...picked.filter((item) => !current.some((c) => sameSelection(c, item)))] : picked,
     )
@@ -155,15 +169,15 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
 
   // Removes objects; returns the ids refused because they hold a locked id.
   function removeObjects(ids: readonly string[]): string[] {
-    const { plan: next, refused } = planEdits.remove(plan, ids, locked)
+    const { plan: next, refused } = planEdits.remove(historyRef.current.present, ids, locked)
     apply(() => next)
     setSelection((current) => current.filter((item) => item.kind !== 'object' || refused.includes(item.id)))
     return refused
   }
 
-  // Changes an object id. false when the id is locked or already taken.
+  // Changes an id — an object's or a seat's. false when it is locked, taken, missing or would not save.
   function renameObject(id: string, nextId: string): boolean {
-    const next = planEdits.rename(plan, id, nextId, locked)
+    const next = planEdits.rename(historyRef.current.present, id, nextId, locked)
     if (!next) return false
     apply(() => next)
     setSelection((current) =>
@@ -174,7 +188,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
 
   // Grows or shrinks a row or table. false when a seat to remove is locked.
   function setSeatCount(id: string, count: number): boolean {
-    const next = planEdits.setSeatCount(plan, id, count, locked)
+    const next = planEdits.setSeatCount(historyRef.current.present, id, count, locked)
     if (!next) return false
     apply(() => next)
     return true
@@ -182,7 +196,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
 
   // Copies the selected objects next to themselves and selects the copies.
   function duplicateSelected(): string[] {
-    const result = planEdits.duplicate(plan, selectedObjectIds)
+    const result = planEdits.duplicate(historyRef.current.present, selectedObjectIds)
     if (result.ids.length === 0) return []
     apply(() => result.plan)
     setSelection(result.ids.map((id) => ({ kind: 'object' as const, id })))
@@ -190,7 +204,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
   }
 
   function reset() {
-    setHistory({ past: [], present: normalizedInitial, future: [] })
+    commit({ past: [], present: start.history.present, future: [] })
     setSelection([])
   }
 
@@ -214,17 +228,17 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
     reset,
 
     // Creating — each returns the new object's id and selects it (null when there is no room).
-    addDesk: (section: S) => create(planEdits.addDesk(plan, section)),
-    addFixture: (role: string, size: PlanSize) => create(planEdits.addFixture(plan, role, size)),
+    addDesk: (section: S) => create((current) => planEdits.addDesk(current, section)),
+    addFixture: (role: string, size: PlanSize) => create((current) => planEdits.addFixture(current, role, size)),
     addRow: (section: S, row: { start: PlanPoint; end: PlanPoint; seats: number; curve?: number; seatSize?: number }) =>
-      create(planEdits.addRow(plan, section, row)),
+      create((current) => planEdits.addRow(current, section, row)),
     addTable: (
       section: S,
       table: { center: PlanPoint; seats: number; shape?: TableShape; size?: PlanSize; seatSize?: number },
-    ) => create(planEdits.addTable(plan, section, table)),
-    addBooth: (section: S, rect: PlanRect) => create(planEdits.addBooth(plan, section, rect)),
+    ) => create((current) => planEdits.addTable(current, section, table)),
+    addBooth: (section: S, rect: PlanRect) => create((current) => planEdits.addBooth(current, section, rect)),
     addArea: (section: S, area: { rect: PlanRect; capacity: number; shape?: AreaShape }) =>
-      create(planEdits.addArea(plan, section, area)),
+      create((current) => planEdits.addArea(current, section, area)),
     duplicateSelected,
 
     // Changing.

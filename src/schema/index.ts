@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MIN_SEAT_SIZE, seatPlan } from '../core/geometry'
+import { MIN_SEAT_SIZE, OBJECT_ID_MAX, PLACE_ID_MAX, seatPlan } from '../core/geometry'
 import { HALF_CELL } from '../core/grid'
 import { AREA_SHAPES, SEAT_CHAIR_SIDES, TABLE_SHAPES, type PlanRect } from '../core/types'
 import { upgradeSeatPlan } from '../core/v1'
@@ -22,9 +22,6 @@ export type SeatPlanIssue =
 // minimum sizes) are ordinary zod issues and follow your zod error map.
 const ISSUE_PREFIX = 'ichno/'
 
-// Booking keys other records reference — the v1 seat id limit, kept for every place.
-const PLACE_ID_MAX = 8
-const OBJECT_ID_MAX = 16
 const LABEL_MAX = 32
 
 // Build the schemas for your section composition. Section ids are fixed per app: the plan holds each of these

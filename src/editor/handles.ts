@@ -93,7 +93,14 @@ function reshaped<S extends string>(
     w: Math.max(HALF_CELL, roundTo(Math.abs(moved.x - anchor.x), HALF_CELL)),
     h: Math.max(HALF_CELL, roundTo(Math.abs(moved.y - anchor.y), HALF_CELL)),
   }
-  return { ...object, ...size, ...seatGrid.placeFixture(plan, size, originFrom(anchor, moved, size)) }
+  const origin = seatGrid.placeFixture(plan, size, originFrom(anchor, moved, size))
+  // A rectangle never grows past the plan edge.
+  return {
+    ...object,
+    ...origin,
+    w: Math.min(size.w, Math.max(HALF_CELL, Math.floor((plan.width - origin.x) / HALF_CELL) * HALF_CELL)),
+    h: Math.min(size.h, Math.max(HALF_CELL, Math.floor((plan.height - origin.y) / HALF_CELL) * HALF_CELL)),
+  }
 }
 
 // The curve that puts the middle of the arc as close to `apex` as it can go: its offset along the row's left

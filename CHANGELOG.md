@@ -36,6 +36,14 @@ Breaking — document version 2, and the canvas renderers are gone (see `docs/di
   a list; shift/⌘ taps add), group drags, `alignSelected`, `distributeSelected`, `duplicateSelected`, undo/redo
   (`⌘Z`, `⇧⌘Z`, `⌘D` in the shortcuts hook) and `lockedIds`. `removeObject` became `removeObjects`, which returns
   the ids it refused. The operations are exported as pure functions in `planEdits`.
+- `ichno`: `PLACE_ID_MAX` (8) and `OBJECT_ID_MAX` (16). Editor operations never create an id the schema would
+  refuse: adds return null, `nextObjectId` shortens long prefixes, `rename` checks the new id and also renames
+  seats inside rows and tables. Moves and resizes keep the whole object — table seats, a row's far end — inside
+  the plan.
+- `ichno/editor`: calls in one handler build on each other (add a table, then set its seat count); edits that
+  change nothing leave the undo and redo history alone.
+- `ichno/schema`: a 0.1 fixture whose id a seat also uses is renamed on upgrade (v1 kept the two apart).
+- `ichno/react`: after a pinch the remaining finger always pans; horizontal wheel swipes no longer zoom.
 - `ichno`: `labeling.numbers`, `labeling.letters` (skipped letters, AA after Z) and `labeling.custom`.
 - `ichno/react`: `onTap` also reports the plan point and whether the tap was additive.
 - `ichno/react`: marquee selection (`onMarquee`; drags that start on something that does not move draw a
@@ -48,7 +56,8 @@ Breaking — document version 2, and the canvas renderers are gone (see `docs/di
   (`region`, `scale`), and `SeatMap.Content` takes `region` (cull), `scale` and `minLabelPx` (label level of
   detail). The viewport no longer reads layout during gestures; it keeps its size with a ResizeObserver.
 - `ichno`: `seatPlan.conflictsOf` (overlapping footprints, fixtures on places) — the schema and the editor share
-  it. `ichno/editor` exposes `conflictIds`; `SeatMap.Content` / `Place` / `Fixture` take `invalid` and mark it
+  it. Rows claim their seats (`seatPlan.footprintsOf`), not their bounding box, so curved and diagonal rows side
+  by side are not reported as overlapping. `ichno/editor` exposes `conflictIds`; `SeatMap.Content` / `Place` / `Fixture` take `invalid` and mark it
   with `data-invalid` and the warning colour. Row end handles sit beside the end seats instead of on them.
 - `ichno`: `planView.scaleOf`, `toPlan`, `region`, `contains` and `scaleStep`; `ViewportSize`.
 - `ichno`: `PlanHandle`, `HandleOwner` and a `handle` kind in `PlanTarget`; `seatPlan.objectsInRect`,

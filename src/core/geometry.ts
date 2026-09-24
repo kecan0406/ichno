@@ -1,5 +1,6 @@
 import { DEFAULT_SEAT_CELLS, GRID_CELL, HALF_CELL, seatGrid } from './grid'
 import { arcPoints, boundsOfPoints, offsetPolygon, polygonContains, unionBounds } from './math'
+import { spatialIndex } from './spatial'
 import type {
   Desk,
   Fixture,
@@ -19,6 +20,11 @@ import type {
 } from './types'
 
 // Seat plan geometry — zod-free so client bundles (seat pickers, viewers) never pull the schema in.
+
+// Id length limits — a place id is the booking key other records store (the 0.1 seat limit), other objects are
+// editor handles. The schema enforces them; id generators never exceed them.
+export const PLACE_ID_MAX = 8
+export const OBJECT_ID_MAX = 16
 
 // Editor lower bound for desks — the smallest desk whose number still reads.
 export const MIN_SEAT_SIZE = 40
@@ -71,6 +77,7 @@ export const seatPlan = {
   furnitureOf,
   innerWallOf,
   footprintOf,
+  footprintsOf,
   boundsOf,
   conflictsOf,
   translate,
@@ -205,9 +212,13 @@ function nextPlaceId(plan: Pick<SeatPlan, 'objects'>, section: string): string {
   return `${section}${maxSuffix(plan, new RegExp(`^${escapeRegExp(section)}(\\d+)$`)) + 1}`
 }
 
-// Next non-place id — `<prefix>-<n>` (rows, fixtures).
+// Next non-place id — `<prefix>-<n>` (rows, fixtures), with the prefix shortened when the id would pass
+// OBJECT_ID_MAX. Callers check place ids against PLACE_ID_MAX themselves — a section id cannot be shortened.
 function nextObjectId(plan: Pick<SeatPlan, 'objects'>, prefix: string): string {
-  return `${prefix}-${maxSuffix(plan, new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`)) + 1}`
+  const number = maxSuffix(plan, new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`)) + 1
+  const room = OBJECT_ID_MAX - String(number).length - 1
+  if (prefix.length <= room) return `${prefix}-${number}`
+  return nextObjectId(plan, prefix.slice(0, Math.max(1, room)))
 }
 
 // Editor rotation — one edge clockwise.
@@ -224,7 +235,7 @@ function findFreeDeskPos<S extends string>(plan: Pick<SeatPlan<S>, 'sections' | 
   if (!section) return null
   const box = sectionBoundsOf(section)
   const span = seatGrid.seatSpanPxOf(DEFAULT_SEAT_CELLS)
-  const taken = plan.objects.filter((o) => o.kind !== 'fixture').map(footprintOf)
+  const taken = plan.objects.filter((o) => o.kind !== 'fixture').flatMap(footprintsOf)
   // Start from the first cell whose origin is at or past the section origin — the cell just inside the corner
   // when the section is grid-aligned.
   const startX = seatGrid.seatPxOf(Math.ceil((box.x - 2) / GRID_CELL))
@@ -356,12 +367,9 @@ function rowLabelAnchorsOf(row: Pick<Row, 'start' | 'end' | 'curve' | 'seats' | 
 
 // The objects whose footprint touches a rectangle — marquee selection. Fixtures included.
 function objectsInRect(plan: Pick<SeatPlan, 'objects'>, rect: PlanRect): string[] {
-  return plan.objects
-    .filter((object) => {
-      const b = footprintOf(object)
-      return b.x <= rect.x + rect.w && rect.x <= b.x + b.w && b.y <= rect.y + rect.h && rect.y <= b.y + b.h
-    })
-    .map((object) => object.id)
+  const touches = (b: PlanRect) =>
+    b.x <= rect.x + rect.w && rect.x <= b.x + b.w && b.y <= rect.y + rect.h && rect.y <= b.y + b.h
+  return plan.objects.filter((object) => footprintsOf(object).some(touches)).map((object) => object.id)
 }
 
 // Seat centres around a table. Round tables spread seats evenly clockwise from the top; rectangular tables split
@@ -455,20 +463,46 @@ function conflictsOf(plan: Pick<SeatPlan, 'objects'>): {
   fixtures: { fixtureId: string; role: string; id: string }[]
 } {
   const claimed = plan.objects.filter((object) => object.kind !== 'fixture')
-  const footprints = claimed.map((object) => footprintOf(object))
+  const order = new Map(claimed.map((object, i) => [object.id, i]))
+  // One index item per footprint piece (a row has one per seat) — each object meets only its neighbours.
+  const pieces = claimed.flatMap((object, i) =>
+    footprintsOf(object).map((bounds, k) => ({ id: `${i}:${k}`, bounds, owner: object.id })),
+  )
+  const index = spatialIndex.create(pieces)
+  const ownerOf = new Map(pieces.map((piece) => [piece.id, piece.owner]))
+  const found = new Set<string>()
   const overlaps: [string, string][] = []
-  for (let j = 0; j < claimed.length; j++) {
-    for (let i = 0; i < j; i++) {
-      if (seatGrid.rectsOverlap(footprints[i]!, footprints[j]!)) overlaps.push([claimed[i]!.id, claimed[j]!.id])
+  for (const piece of pieces) {
+    for (const other of spatialIndex.query(index, piece.bounds)) {
+      const a = piece.owner
+      const b = ownerOf.get(other.id)!
+      if (a === b || !seatGrid.rectsOverlap(piece.bounds, other.bounds)) continue
+      const pair: [string, string] = order.get(a)! < order.get(b)! ? [a, b] : [b, a]
+      const key = pair.join('\u0000')
+      if (found.has(key)) continue
+      found.add(key)
+      overlaps.push(pair)
     }
   }
+  overlaps.sort((p, q) => order.get(p[1])! - order.get(q[1])! || order.get(p[0])! - order.get(q[0])!)
   const fixtures: { fixtureId: string; role: string; id: string }[] = []
   for (const fixture of plan.objects) {
     if (fixture.kind !== 'fixture') continue
-    const hit = claimed.findIndex((_, i) => seatGrid.rectsOverlap(footprints[i]!, fixture))
-    if (hit >= 0) fixtures.push({ fixtureId: fixture.id, role: fixture.role, id: claimed[hit]!.id })
+    const hits = spatialIndex
+      .query(index, fixture)
+      .filter((piece) => seatGrid.rectsOverlap(piece.bounds, fixture))
+      .map((piece) => ownerOf.get(piece.id)!)
+    const first = hits.sort((a, b) => order.get(a)! - order.get(b)!)[0]
+    if (first !== undefined) fixtures.push({ fixtureId: fixture.id, role: fixture.role, id: first })
   }
   return { overlaps, fixtures }
+}
+
+// The floor an object claims, piece by piece — a row claims each seat (a curved row's bounding box covers floor
+// its seats never touch), anything else its footprint.
+function footprintsOf(object: PlanObject): PlanRect[] {
+  if (object.kind === 'row') return rowSeatsOf(object).map(({ center }) => circleBounds(center, object.seatSize))
+  return [footprintOf(object)]
 }
 
 // Everything an object draws — a table's seats included.

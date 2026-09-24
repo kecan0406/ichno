@@ -56,14 +56,14 @@ describe('planEdits — creating', () => {
       start: { x: 40, y: 400 },
       end: { x: 300, y: 400 },
       seats: 3,
-    })
+    })!
     const row = seatPlan.objectById(plan, id) as Row<S>
     expect(id).toBe('row-1')
     expect(row.seats.map((s) => s.id)).toEqual(['A5', 'A6', 'A7'])
   })
 
   it('gives a table its own place id before its seats', () => {
-    const { plan, id } = planEdits.addTable(planOf(), 'B', { center: { x: 700, y: 400 }, seats: 2 })
+    const { plan, id } = planEdits.addTable(planOf(), 'B', { center: { x: 700, y: 400 }, seats: 2 })!
     const table = seatPlan.objectById(plan, id)
     expect(id).toBe('B1')
     expect(table?.kind === 'table' && table.seats.map((s) => s.id)).toEqual(['B2', 'B3'])
@@ -71,7 +71,7 @@ describe('planEdits — creating', () => {
 })
 
 describe('planEdits — seat counts and locked ids', () => {
-  const base = planEdits.addRow(planOf(), 'A', { start: { x: 46, y: 400 }, end: { x: 460, y: 400 }, seats: 4 })
+  const base = planEdits.addRow(planOf(), 'A', { start: { x: 46, y: 400 }, end: { x: 460, y: 400 }, seats: 4 })!
   const rowOf = (plan: SeatPlan<S>) => seatPlan.objectById(plan, base.id) as Row<S>
 
   it('keeps the row length when the seat count changes', () => {
@@ -134,10 +134,55 @@ describe('planEdits — arranging', () => {
       start: { x: 46, y: 400 },
       end: { x: 322, y: 400 },
       seats: 3,
-    })
+    })!
     const labeled = planEdits.labelSeats(withRow, id, labeling.numbers({ reverse: true }))
     expect((seatPlan.objectById(labeled, id) as Row<S>).seats.map((s) => s.label)).toEqual(['3', '2', '1'])
     const named = planEdits.labelObjects(plan, ['A3', 'A1'], labeling.letters())
     expect(named.objects.map((o) => (o as Desk<S>).label)).toEqual(['B', undefined, 'A'])
+  })
+})
+
+describe('planEdits — review regressions', () => {
+  it('keeps a moved table, seats included, inside the plan', () => {
+    const { plan, id } = planEdits.addTable(planOf(), 'B', { center: { x: 700, y: 400 }, seats: 4 })!
+    const moved = planEdits.move(plan, id, { x: plan.width - 23, y: 400 })
+    const bounds = seatPlan.boundsOf(seatPlan.objectById(moved, id)!)
+    expect(bounds.x + bounds.w).toBeLessThanOrEqual(plan.width)
+  })
+
+  it('keeps a dragged row end inside the plan', () => {
+    const { plan, id } = planEdits.addRow(planOf(), 'A', {
+      start: { x: 46, y: 400 },
+      end: { x: 460, y: 400 },
+      seats: 4,
+    })!
+    const moved = planEdits.move(plan, id, { x: 900, y: 400 })
+    const bounds = seatPlan.boundsOf(seatPlan.objectById(moved, id)!)
+    expect(bounds.x + bounds.w).toBeLessThanOrEqual(plan.width)
+    expect(bounds.x).toBeGreaterThanOrEqual(0)
+  })
+
+  it('refuses to create places whose ids would pass the 8-character limit', () => {
+    const long = { ...planOf(), sections: [{ id: 'balcony' as S, points: planOf().sections[0]!.points }] }
+    expect(
+      planEdits.addRow(long, 'balcony' as S, { start: { x: 46, y: 400 }, end: { x: 460, y: 400 }, seats: 9 }),
+    ).not.toBeNull()
+    expect(
+      planEdits.addRow(long, 'balcony' as S, { start: { x: 46, y: 400 }, end: { x: 460, y: 400 }, seats: 10 }),
+    ).toBeNull()
+    expect(planEdits.addFixture(planOf(), 'emergency-exit1', { w: 46, h: 23 })?.id.length).toBeLessThanOrEqual(16)
+  })
+
+  it('renames seats inside rows and refuses ids that do not exist or would not save', () => {
+    const { plan, id } = planEdits.addRow(planOf(), 'A', {
+      start: { x: 46, y: 400 },
+      end: { x: 460, y: 400 },
+      seats: 2,
+    })!
+    const renamed = planEdits.rename(plan, 'A1', 'A9')!
+    expect((seatPlan.objectById(renamed, id) as Row<S>).seats.map((s) => s.id)).toEqual(['A9', 'A2'])
+    expect(planEdits.rename(plan, 'nope', 'A9')).toBeNull()
+    expect(planEdits.rename(plan, 'A1', 'toolong123')).toBeNull()
+    expect(planEdits.rename(plan, 'A1', ' ')).toBeNull()
   })
 })

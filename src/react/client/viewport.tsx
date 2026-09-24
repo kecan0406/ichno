@@ -264,6 +264,9 @@ export function Viewport<S extends string>({
     const result = gesture.down(gestureRef.current, pointer, pressRef.current.target ? 'target' : null)
     gestureRef.current = result.state
     handle(result.events)
+    // A second finger turns the press into a pinch, and whatever finger remains afterwards pans — the target the
+    // first finger landed on is let go even when no drag had started yet.
+    if (result.state.kind === 'pinching') pressRef.current = IDLE_PRESS
   }
 
   function handlePointerMove(e: PointerEvent<SVGSVGElement>) {
@@ -341,7 +344,8 @@ export function Viewport<S extends string>({
 
   // Wheel zoom needs a non-passive listener to stop the page from scrolling; React's wheel handler is passive.
   const onWheel = useEffectEvent((e: WheelEvent) => {
-    if (!zoomable) return
+    // Horizontal swipes (deltaY 0) are not zoom — leave them to the page.
+    if (!zoomable || e.deltaY === 0) return
     e.preventDefault()
     const origin = originOf(false)
     const center = origin ? toPlan({ x: e.clientX - origin.left, y: e.clientY - origin.top }) : null

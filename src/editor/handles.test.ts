@@ -90,7 +90,8 @@ describe('marquee and row labels', () => {
     const plan = planOf([desk, tv, row])
     expect(seatPlan.objectsInRect(plan, { x: 0, y: 0, w: 100, h: 100 })).toEqual(['A1'])
     expect(seatPlan.objectsInRect(plan, { x: 0, y: 0, w: 1000, h: 30 })).toEqual(['tv-1'])
-    expect(seatPlan.objectsInRect(plan, { x: 300, y: 450, w: 5, h: 5 })).toEqual(['row-1'])
+    expect(seatPlan.objectsInRect(plan, { x: 270, y: 450, w: 5, h: 5 })).toEqual(['row-1'])
+    expect(seatPlan.objectsInRect(plan, { x: 360, y: 450, w: 5, h: 5 })).toEqual([])
   })
 
   it('puts row labels one seat beyond each end, along the row', () => {

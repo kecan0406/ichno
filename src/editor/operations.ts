@@ -1,4 +1,4 @@
-import { seatPlan } from '../core/geometry'
+import { OBJECT_ID_MAX, PLACE_ID_MAX, seatPlan } from '../core/geometry'
 import { DEFAULT_SEAT_CELLS, GRID_CELL, HALF_CELL, seatGrid } from '../core/grid'
 import type { LabelSequence } from '../core/labeling'
 import { planHandles } from './handles'
@@ -16,8 +16,8 @@ import type {
 
 // Editor operations as pure functions — plan in, plan out. The hook keeps history and selection around them;
 // keeping them pure makes each rule testable and lets consumers run them outside React (imports, scripts).
-// Ids other records reference (`locked`) are never deleted or renamed; operations that would do so refuse and
-// return null.
+// Ids other records reference (`locked`) are never deleted or renamed, and no operation creates an id the schema
+// would refuse (place ids stay within PLACE_ID_MAX); operations that would do either refuse and return null.
 
 export const DEFAULT_ROW_SEAT_SIZE = 40
 export const DEFAULT_TABLE_SEAT_SIZE = 36
@@ -52,9 +52,9 @@ export const planEdits = {
 // A standard desk (2×2 cells) at the section's first free cell. null when the section has no free 2×2 spot.
 function addDesk<S extends string>(plan: SeatPlan<S>, section: S): Added<S> | null {
   const pos = seatPlan.findFreeDeskPos(plan, section)
-  if (!pos) return null
+  const [id] = placeIds(plan, section, 1) ?? []
+  if (!pos || !id) return null
   const span = seatGrid.seatSpanPxOf(DEFAULT_SEAT_CELLS)
-  const id = seatPlan.nextPlaceId(plan, section)
   return append(plan, { kind: 'desk', id, section, ...pos, w: span, h: span, chairSide: 'down' })
 }
 
@@ -73,17 +73,18 @@ function addRow<S extends string>(
   plan: SeatPlan<S>,
   section: S,
   row: { start: PlanPoint; end: PlanPoint; seats: number; curve?: number; seatSize?: number },
-): Added<S> {
-  const id = seatPlan.nextObjectId(plan, 'row')
+): Added<S> | null {
+  const seatIds = placeIds(plan, section, row.seats)
+  if (!seatIds) return null
   return append(plan, {
     kind: 'row',
-    id,
+    id: seatPlan.nextObjectId(plan, 'row'),
     section,
     start: snapHalf(row.start),
     end: snapHalf(row.end),
     curve: row.curve ?? 0,
     seatSize: row.seatSize ?? DEFAULT_ROW_SEAT_SIZE,
-    seats: placeIds(plan, section, row.seats).map((seatId) => ({ id: seatId })),
+    seats: seatIds.map((seatId) => ({ id: seatId })),
   })
 }
 
@@ -92,13 +93,14 @@ function addTable<S extends string>(
   plan: SeatPlan<S>,
   section: S,
   table: { center: PlanPoint; seats: number; shape?: TableShape; size?: PlanSize; seatSize?: number },
-): Added<S> {
+): Added<S> | null {
   const size = table.size ?? { w: DEFAULT_TABLE_SIZE, h: DEFAULT_TABLE_SIZE }
   const origin = snapHalf({ x: table.center.x - size.w / 2, y: table.center.y - size.h / 2 })
-  const [id, ...seatIds] = placeIds(plan, section, table.seats + 1)
+  const [id, ...seatIds] = placeIds(plan, section, table.seats + 1) ?? []
+  if (!id) return null
   return append(plan, {
     kind: 'table',
-    id: id!,
+    id,
     section,
     shape: table.shape ?? 'round',
     ...origin,
@@ -108,18 +110,21 @@ function addTable<S extends string>(
   })
 }
 
-function addBooth<S extends string>(plan: SeatPlan<S>, section: S, rect: PlanRect): Added<S> {
-  return append(plan, { kind: 'booth', id: seatPlan.nextPlaceId(plan, section), section, ...snapRect(rect) })
+function addBooth<S extends string>(plan: SeatPlan<S>, section: S, rect: PlanRect): Added<S> | null {
+  const [id] = placeIds(plan, section, 1) ?? []
+  return id ? append(plan, { kind: 'booth', id, section, ...snapRect(rect) }) : null
 }
 
 function addArea<S extends string>(
   plan: SeatPlan<S>,
   section: S,
   area: { rect: PlanRect; capacity: number; shape?: AreaShape },
-): Added<S> {
+): Added<S> | null {
+  const [id] = placeIds(plan, section, 1) ?? []
+  if (!id) return null
   return append(plan, {
     kind: 'area',
-    id: seatPlan.nextPlaceId(plan, section),
+    id,
     section,
     shape: area.shape ?? 'rect',
     ...snapRect(area.rect),
@@ -143,8 +148,9 @@ function setSeatCount<S extends string>(
     if (seats.slice(count).some((seat) => locked.has(seat.id))) return null
     return replace(plan, { ...object, seats: seats.slice(0, count) })
   }
-  const added = placeIds(plan, object.section, count - seats.length).map((seatId) => ({ id: seatId }))
-  return replace(plan, { ...object, seats: [...seats, ...added] })
+  const added = placeIds(plan, object.section, count - seats.length)
+  if (!added) return null
+  return replace(plan, { ...object, seats: [...seats, ...added.map((seatId) => ({ id: seatId }))] })
 }
 
 // Labels the seats of a row or table in their order.
@@ -217,7 +223,7 @@ function distribute<S extends string>(plan: SeatPlan<S>, ids: readonly string[],
 }
 
 // Copies objects one desk step to the right and down, with fresh ids (places continue their section numbering,
-// labels are copied). Returns the copies' ids in order.
+// labels are copied). Returns the copies' ids in order; an object whose fresh ids would be too long is skipped.
 function duplicate<S extends string>(
   plan: SeatPlan<S>,
   ids: readonly string[],
@@ -227,6 +233,7 @@ function duplicate<S extends string>(
   const created: string[] = []
   for (const object of objectsOf(plan, ids)) {
     const copy = withFreshIds(next, seatPlan.translate(object, offset.x, offset.y))
+    if (!copy) continue
     next = { ...next, objects: [...next.objects, copy] }
     created.push(copy.id)
   }
@@ -245,15 +252,30 @@ function remove<S extends string>(
   return { plan: { ...plan, objects: plan.objects.filter((o) => !removed.has(o.id)) }, refused }
 }
 
-// Changes an object id (for places, the key other records reference). null when the id is locked or taken.
+// Changes an id — an object's or a seat's inside a row or table (for places, the key other records reference).
+// null when the id does not exist, is locked, is taken, or would not save (blank, too long).
 function rename<S extends string>(
   plan: SeatPlan<S>,
   id: string,
   nextId: string,
   locked: ReadonlySet<string> = NONE,
 ): SeatPlan<S> | null {
-  if (locked.has(id) || (nextId !== id && seatPlan.idsOf(plan).includes(nextId))) return null
-  return { ...plan, objects: plan.objects.map((o) => (o.id === id ? { ...o, id: nextId } : o)) }
+  const trimmed = nextId.trim()
+  if (trimmed !== nextId || trimmed.length === 0 || locked.has(id)) return null
+  const ids = seatPlan.idsOf(plan)
+  if (!ids.includes(id) || (nextId !== id && ids.includes(nextId))) return null
+  const object = seatPlan.objectById(plan, id)
+  const isPlace = !object || (object.kind !== 'row' && object.kind !== 'fixture')
+  if (nextId.length > (isPlace ? PLACE_ID_MAX : OBJECT_ID_MAX)) return null
+  return {
+    ...plan,
+    objects: plan.objects.map((o) => {
+      if (o.id === id) return { ...o, id: nextId }
+      if (o.kind !== 'row' && o.kind !== 'table') return o
+      if (!o.seats.some((seat) => seat.id === id)) return o
+      return { ...o, seats: o.seats.map((seat) => (seat.id === id ? { ...seat, id: nextId } : seat)) }
+    }),
+  }
 }
 
 // Turns a desk's chair one edge clockwise.
@@ -318,9 +340,24 @@ function movedObject<S extends string>(plan: SeatPlan<S>, object: PlanObject<S>,
     return { ...object, ...pos, section }
   }
   if (object.kind === 'fixture') return { ...object, ...seatGrid.placeFixture(plan, object, to) }
+  // Rows, tables, booths and areas snap to half cells and are pushed back inside the plan by whole half cells —
+  // by everything they draw (a table's seats, a row's far end), not just their origin.
   const from = object.kind === 'row' ? object.start : object
-  const snapped = seatGrid.placeFixture(plan, { w: 0, h: 0 }, to)
-  return seatPlan.translate(object, snapped.x - from.x, snapped.y - from.y)
+  const moved = seatPlan.translate(object, roundTo(to.x, HALF_CELL) - from.x, roundTo(to.y, HALF_CELL) - from.y)
+  const b = seatPlan.boundsOf(moved)
+  return seatPlan.translate(moved, inward(b.x, b.w, plan.width), inward(b.y, b.h, plan.height))
+}
+
+// The half-cell shift that brings [start, start + size] inside [0, extent] (the start wins when it cannot fit).
+function inward(start: number, size: number, extent: number): number {
+  if (start < 0) return Math.ceil(-start / HALF_CELL) * HALF_CELL
+  const over = start + size - extent
+  if (over <= 0) return 0
+  return -Math.min(Math.ceil(over / HALF_CELL) * HALF_CELL, Math.floor(start / HALF_CELL) * HALF_CELL)
+}
+
+function roundTo(value: number, step: number): number {
+  return Math.round(value / step) * step
 }
 
 function movedSection<S extends string>(plan: SeatPlan<S>, section: Section<S>, delta: PlanPoint): Section<S> {
@@ -347,19 +384,21 @@ function moveEach<S extends string>(
   }
 }
 
-// `count` fresh place ids for a section, continuing its numbering.
-function placeIds(plan: SeatPlan<string>, section: string, count: number): string[] {
+// `count` fresh place ids for a section, continuing its numbering. null when the last would pass PLACE_ID_MAX.
+function placeIds(plan: SeatPlan<string>, section: string, count: number): string[] | null {
   const first = seatPlan.nextPlaceId(plan, section)
   const start = Number(first.slice(section.length))
-  return Array.from({ length: count }, (_, i) => `${section}${start + i}`)
+  const ids = Array.from({ length: count }, (_, i) => `${section}${start + i}`)
+  return ids.every((id) => id.length <= PLACE_ID_MAX) ? ids : null
 }
 
-function withFreshIds<S extends string>(plan: SeatPlan<S>, object: PlanObject<S>): PlanObject<S> {
+function withFreshIds<S extends string>(plan: SeatPlan<S>, object: PlanObject<S>): PlanObject<S> | null {
   switch (object.kind) {
     case 'fixture':
       return { ...object, id: seatPlan.nextObjectId(plan, object.role) }
     case 'row': {
       const seatIds = placeIds(plan, object.section, object.seats.length)
+      if (!seatIds) return null
       return {
         ...object,
         id: seatPlan.nextObjectId(plan, 'row'),
@@ -367,11 +406,14 @@ function withFreshIds<S extends string>(plan: SeatPlan<S>, object: PlanObject<S>
       }
     }
     case 'table': {
-      const [id, ...seatIds] = placeIds(plan, object.section, object.seats.length + 1)
-      return { ...object, id: id!, seats: object.seats.map((seat, i) => ({ ...seat, id: seatIds[i]! })) }
+      const [id, ...seatIds] = placeIds(plan, object.section, object.seats.length + 1) ?? []
+      if (!id) return null
+      return { ...object, id, seats: object.seats.map((seat, i) => ({ ...seat, id: seatIds[i]! })) }
     }
-    default:
-      return { ...object, id: seatPlan.nextPlaceId(plan, object.section) }
+    default: {
+      const [id] = placeIds(plan, object.section, 1) ?? []
+      return id ? { ...object, id } : null
+    }
   }
 }
 
