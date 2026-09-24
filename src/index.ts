@@ -25,3 +25,16 @@ export {
 } from './core/geometry'
 export { ZOOM_STEP, centerZoom, fitScaleOf, fitView, zoomView, type SeatMapView, type ViewportSize } from './core/view'
 export { themeVars, type ThemeVar } from './theme/vars'
+export { spatialIndex, type SpatialIndex, type SpatialItem } from './core/spatial'
+export {
+  DRAG_THRESHOLD_PX,
+  IDLE_GESTURE,
+  TOUCH_DRAG_THRESHOLD_PX,
+  gesture,
+  type GestureEvent,
+  type GesturePointer,
+  type GestureResult,
+  type GestureState,
+  type ScreenPoint,
+} from './core/gesture'
+export { placeNavigation, type NavigationDirection, type NavigationItem } from './core/navigation'

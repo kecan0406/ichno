@@ -4,6 +4,10 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+- `ichno`: interaction core, independent of any renderer — `spatialIndex` (bucket-grid index for hit-testing and
+  area queries), `gesture` (a pure pointer state machine for tap, drag, pan and pinch) and `placeNavigation`
+  (arrow-key movement between places).
+
 ## 0.1.0 — 2026-09-24
 
 First release.
