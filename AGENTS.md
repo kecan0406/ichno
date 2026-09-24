@@ -4,6 +4,10 @@ Seat floor plans for React: one JSON document (`SeatPlan`), a zod schema for it,
 server-rendered SVG, Konva canvases for viewing and editing, and a headless editor hook. It is published to npm and
 consumed by apps that store the document in their own database — every rule below follows from that.
 
+The long-term target (headless SVG primitives, a Seats.io-level document, no canvas dependency) and the decisions
+behind it are in [`docs/direction.md`](docs/direction.md). Read it before changing the document shape or a
+renderer.
+
 ## Commands
 
 | Command               | What it does                                                        |
