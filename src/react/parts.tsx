@@ -1,7 +1,7 @@
 import type { ComponentProps, CSSProperties, ReactNode } from 'react'
 import { SECTION_LABEL_BAND, SECTION_LABEL_FONT, WALL_THICKNESS, seatPlan } from '../core/geometry'
 import { GRID_CELL } from '../core/grid'
-import type { Fixture, Place, PlanPoint, PlanRect, SeatPlan, Section, Table } from '../core/types'
+import type { Fixture, Place, PlanHandle, PlanPoint, PlanRect, Row, SeatPlan, Section, Table } from '../core/types'
 import { planView, type PlanView } from '../core/view'
 import { FONT_VAR, NUMBER_FONT_VAR, cssVar } from '../theme/vars'
 
@@ -266,6 +266,97 @@ export function GridPart({ plan, ...rest }: GProps & { plan: Pick<SeatPlan, 'wid
   )
 }
 
+type RowLabelProps = GProps & {
+  row: Row
+  // Defaults to the row's label; nothing is drawn without one.
+  label?: ReactNode
+  // Which ends of the row carry the label.
+  ends?: 'both' | 'start' | 'end'
+}
+
+// A row's label beside its first and last seat — tapping it selects the row.
+export function RowLabelPart({ row, label, ends = 'both', ...rest }: RowLabelProps) {
+  const text = label === undefined ? row.label : label
+  if (text == null || text === false || text === '') return null
+  const anchors = seatPlan.rowLabelAnchorsOf(row)
+  const points = ends === 'both' ? [anchors.start, anchors.end] : [anchors[ends]]
+  const fontSize = Math.min(SEAT_LABEL_FONT, Math.max(10, row.seatSize * 0.5))
+  return (
+    <g data-ichno-object={row.id} data-kind="row" data-part="row-label" {...rest}>
+      {points.map((point, i) => (
+        <text
+          key={i}
+          x={point.x}
+          y={point.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={fontSize}
+          fontWeight={700}
+          fill={cssVar('label')}
+        >
+          {text}
+        </text>
+      ))}
+    </g>
+  )
+}
+
+// Editing handles — squares for corners and row ends, a dot for a row's curve. They keep a fixed screen size at
+// any zoom (a zero-length stroke that does not scale), and carry the attributes the viewport reads to drag them.
+export function HandlesPart({ handles, ...rest }: GProps & { handles: readonly PlanHandle[] }) {
+  return (
+    <g data-part="handles" {...rest}>
+      {handles.map((handle) => {
+        const d = `M${handle.point.x} ${handle.point.y}h0`
+        const cap = handle.name === 'curve' ? 'round' : 'square'
+        return (
+          <g
+            key={`${handle.owner.kind}:${handle.owner.id}:${handle.name}`}
+            data-part="handle"
+            data-ichno-handle={handle.name}
+            data-ichno-owner={handle.owner.id}
+            data-ichno-owner-kind={handle.owner.kind}
+            style={{ cursor: HANDLE_CURSORS[handle.name] ?? 'move' }}
+          >
+            <path
+              d={d}
+              stroke={cssVar('accent')}
+              strokeWidth={HANDLE_PX}
+              strokeLinecap={cap}
+              vectorEffect="non-scaling-stroke"
+            />
+            <path
+              d={d}
+              stroke={cssVar('surface')}
+              strokeWidth={HANDLE_PX - 4}
+              strokeLinecap={cap}
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
+// The rubber band of a marquee selection.
+export function MarqueePart({ rect, ...rest }: GProps & { rect: PlanRect | null }) {
+  if (!rect) return null
+  return (
+    <g data-part="marquee" pointerEvents="none" {...rest}>
+      <rect
+        {...rectOf(rect)}
+        fill={cssVar('accent')}
+        fillOpacity={0.08}
+        stroke={cssVar('accent')}
+        strokeWidth={1}
+        strokeDasharray="4 3"
+        vectorEffect="non-scaling-stroke"
+      />
+    </g>
+  )
+}
+
 function DeskShape({
   w,
   h,
@@ -351,5 +442,16 @@ const RECT_RADIUS = 4
 const CHAIR_RADIUS = 7
 const LINE_WIDTH = 1.5
 const DIMMED_OPACITY = 0.35
+// Handle size in screen pixels.
+const HANDLE_PX = 12
+const HANDLE_CURSORS: Partial<Record<string, string>> = {
+  nw: 'nwse-resize',
+  se: 'nwse-resize',
+  ne: 'nesw-resize',
+  sw: 'nesw-resize',
+  curve: 'grab',
+  start: 'grab',
+  end: 'grab',
+}
 // Unset variables are invalid at computed-value time, so the number font falls back to the inherited font.
 const NUMBER_FONT_STYLE: CSSProperties = { fontFamily: `var(${NUMBER_FONT_VAR}, var(${FONT_VAR}))` }

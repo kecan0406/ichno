@@ -1,6 +1,7 @@
 import { seatPlan } from '../core/geometry'
 import { DEFAULT_SEAT_CELLS, GRID_CELL, HALF_CELL, seatGrid } from '../core/grid'
 import type { LabelSequence } from '../core/labeling'
+import { planHandles } from './handles'
 import type {
   AreaShape,
   PlanDrag,
@@ -286,11 +287,12 @@ function reshapeSection<S extends string>(plan: SeatPlan<S>, id: S, points: read
   }
 }
 
-// The plan with a drag applied — a section by whole cells; objects by the drag total from where they are. When
-// the dragged object is part of `group` (the selection), the whole group moves together.
+// The plan with a drag applied — a handle reshapes its owner, a section moves by whole cells, objects by the drag
+// total from where they are. When the dragged object is part of `group` (the selection), the whole group moves.
 function applyDrag<S extends string>(plan: SeatPlan<S>, drag: PlanDrag<S>, group: readonly string[] = []): SeatPlan<S> {
   const { target, total } = drag
   if (target.kind === 'section') return moveSection(plan, target.id, total)
+  if (target.kind === 'handle') return planHandles.drag(plan, target.owner, target.name, total)
   const id = target.kind === 'place' ? target.objectId : target.id
   const moving = new Set(group.includes(id) ? group : [id])
   return {

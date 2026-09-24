@@ -19,7 +19,7 @@ import {
   type GestureState,
 } from '../../core/gesture'
 import { placeNavigation, type NavigationDirection } from '../../core/navigation'
-import type { Place, PlanDrag, PlanPoint, PlanTarget, SeatPlan } from '../../core/types'
+import type { Place, PlanDrag, PlanPoint, PlanRect, PlanTarget, SeatPlan } from '../../core/types'
 import { ZOOM_STEP, planView, type PlanView } from '../../core/view'
 import { FONT_VAR, cssVar } from '../../theme/vars'
 
@@ -47,6 +47,18 @@ type ViewportProps<S extends string> = Omit<
   // Which targets move instead of panning, and what happens while they do (the editor passes both).
   canDrag?(target: PlanTarget<S>): boolean
   onTargetDrag?(drag: PlanDrag<S>): void
+  // Rubber-band selection. When given, a drag that starts on something that does not move (or with shift, ⌘ or
+  // Ctrl held) draws a rectangle instead of panning; empty space outside every section and the middle mouse
+  // button still pan.
+  onMarquee?(rect: PlanRect, info: { phase: 'start' | 'move' | 'end'; additive: boolean }): void
+}
+
+type Press<S extends string> = {
+  target: PlanTarget<S> | null
+  mode: 'drag' | 'marquee' | 'pan'
+  additive: boolean
+  // Marquee anchor in plan units, set when the marquee starts.
+  anchor: PlanPoint | null
 }
 
 // The interactive plan — an <svg> that pans, zooms (wheel, pinch), reports taps and drags, and moves a focus
@@ -65,6 +77,7 @@ export function Viewport<S extends string>({
   onTap,
   canDrag,
   onTargetDrag,
+  onMarquee,
   style,
   children,
   onFocus,
@@ -73,8 +86,8 @@ export function Viewport<S extends string>({
 }: ViewportProps<S>) {
   const svgRef = useRef<SVGSVGElement>(null)
   const gestureRef = useRef<GestureState>(IDLE_GESTURE)
-  // What the current press started on, and whether it drags that target or pans.
-  const pressRef = useRef<{ target: PlanTarget<S> | null; drags: boolean; additive: boolean }>(IDLE_PRESS)
+  // What the current press started on, and whether it drags that target, draws a marquee or pans.
+  const pressRef = useRef<Press<S>>(IDLE_PRESS)
   const hoverRef = useRef<string | null>(null)
   const idPrefix = useId()
 
@@ -116,8 +129,9 @@ export function Viewport<S extends string>({
   }
 
   function handle(events: GestureEvent[], clientOrigin: DOMRect | undefined) {
-    const press = pressRef.current
     for (const event of events) {
+      // Read per event — a marquee sets its anchor on dragstart, and the drag in the same batch needs it.
+      const press = pressRef.current
       switch (event.type) {
         case 'tap': {
           const target = press.target
@@ -135,27 +149,38 @@ export function Viewport<S extends string>({
           break
         }
         case 'dragstart':
-          if (press.drags && press.target)
+          if (press.mode === 'drag' && press.target) {
             onTargetDrag?.({ target: press.target, phase: 'start', total: { x: 0, y: 0 } })
+          } else if (press.mode === 'marquee' && clientOrigin) {
+            const anchor = toPlan(clientOrigin.left + event.point.x, clientOrigin.top + event.point.y)
+            pressRef.current = { ...press, anchor }
+            if (anchor) onMarquee?.({ ...anchor, w: 0, h: 0 }, { phase: 'start', additive: press.additive })
+          }
           break
         case 'drag': {
           const scale = unitsPerPixel()
-          if (press.drags && press.target) {
+          if (press.mode === 'drag' && press.target) {
             const total = { x: event.total.x * scale, y: event.total.y * scale }
             onTargetDrag?.({ target: press.target, phase: 'move', total })
+          } else if (press.mode === 'marquee') {
+            const rect = marqueeRect(press.anchor, event.point, clientOrigin)
+            if (rect) onMarquee?.(rect, { phase: 'move', additive: press.additive })
           } else if (pannable) {
             changeView(planView.pan(viewRef.current, { x: -event.delta.x * scale, y: -event.delta.y * scale }))
           }
           break
         }
         case 'dragend':
-          if (press.drags && press.target) {
+          if (press.mode === 'drag' && press.target) {
             const scale = unitsPerPixel()
             onTargetDrag?.({
               target: press.target,
               phase: 'end',
               total: { x: event.total.x * scale, y: event.total.y * scale },
             })
+          } else if (press.mode === 'marquee') {
+            const rect = marqueeRect(press.anchor, event.point, clientOrigin)
+            if (rect) onMarquee?.(rect, { phase: 'end', additive: press.additive })
           }
           // After a pinch the remaining finger pans — it never drags the target the gesture began on.
           pressRef.current = IDLE_PRESS
@@ -173,22 +198,40 @@ export function Viewport<S extends string>({
     }
   }
 
+  // The rectangle between the marquee anchor and the pointer (screen point relative to the viewport box).
+  function marqueeRect(anchor: PlanPoint | null, point: { x: number; y: number }, origin: DOMRect | undefined) {
+    if (!anchor || !origin) return null
+    const to = toPlan(origin.left + point.x, origin.top + point.y)
+    if (!to) return null
+    return {
+      x: Math.min(anchor.x, to.x),
+      y: Math.min(anchor.y, to.y),
+      w: Math.abs(to.x - anchor.x),
+      h: Math.abs(to.y - anchor.y),
+    }
+  }
+
   function pointerOf(e: PointerEvent<SVGSVGElement>) {
     const box = e.currentTarget.getBoundingClientRect()
     return { pointer: { id: e.pointerId, x: e.clientX - box.left, y: e.clientY - box.top }, box }
   }
 
   function handlePointerDown(e: PointerEvent<SVGSVGElement>) {
-    if (e.button !== 0 && e.pointerType === 'mouse') return
+    const middle = e.pointerType === 'mouse' && e.button === 1
+    if (e.pointerType === 'mouse' && e.button !== 0 && !middle) return
+    if (middle) e.preventDefault() // no autoscroll
     setKeyboardFocus(false)
     const { pointer, box } = pointerOf(e)
     if (gestureRef.current.kind === 'idle') {
-      const target = targetOf<S>(e.target)
-      pressRef.current = {
-        target,
-        drags: target !== null && (canDrag?.(target) ?? false),
-        additive: e.shiftKey || e.metaKey || e.ctrlKey,
-      }
+      const target = middle ? null : targetOf<S>(e.target)
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey
+      const mode =
+        target !== null && (canDrag?.(target) ?? false)
+          ? 'drag'
+          : onMarquee && !middle && (additive || target !== null)
+            ? 'marquee'
+            : 'pan'
+      pressRef.current = { target, mode, additive, anchor: null }
     }
     e.currentTarget.setPointerCapture(e.pointerId)
     const result = gesture.down(gestureRef.current, pointer, pressRef.current.target ? 'target' : null)
@@ -360,6 +403,15 @@ export function Viewport<S extends string>({
 // The place, object or section an element belongs to — the nearest part with an ichno data attribute.
 function targetOf<S extends string>(element: EventTarget | null): PlanTarget<S> | null {
   if (!(element instanceof Element)) return null
+  const handle = element.closest('[data-ichno-handle]')
+  if (handle) {
+    const id = handle.getAttribute('data-ichno-owner')!
+    const owner =
+      handle.getAttribute('data-ichno-owner-kind') === 'section'
+        ? { kind: 'section' as const, id: id as S }
+        : { kind: 'object' as const, id }
+    return { kind: 'handle', owner, name: handle.getAttribute('data-ichno-handle')! }
+  }
   const place = element.closest('[data-ichno-id]')
   if (place) {
     const id = place.getAttribute('data-ichno-id')!
@@ -380,4 +432,4 @@ const ARROW_KEYS: Partial<Record<string, NavigationDirection>> = {
 }
 
 const FOCUS_RING_GAP = 6
-const IDLE_PRESS = { target: null, drags: false, additive: false }
+const IDLE_PRESS: Press<never> = { target: null, mode: 'pan', additive: false, anchor: null }

@@ -133,8 +133,9 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
    `Grid`; viewBox view math.
 4. ✅ **Editor v2** — row, table, booth and area tools, curve, labeling combinators, multi-select, align and
    distribute, undo/redo, `lockedIds`.
-   Still open: marquee (rubber-band) selection, on-plan handles (resize, curve, section vertices, rotation) and
-   a row-label part — the operations exist, the pointer affordances do not.
+   Marquee selection, on-plan handles (corner resize, row ends and curve, section vertices) and row labels are
+   in. Rotating tables, booths and areas needs a `rotation` field (overlap and bounds would change with it) and is
+   left for a later minor.
 5. **Scale** — viewport culling and level of detail; measure 1k, 5k and 20k seats before considering a canvas
    seat layer.
 

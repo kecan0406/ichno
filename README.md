@@ -135,13 +135,14 @@ import { SeatMap } from 'ichno/react'
 ```
 
 `SeatMap.Content` is a convenience; compose the parts yourself when you need something else —
-`SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Table` and `SeatMap.Grid`, fed by
+`SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Table`, `SeatMap.RowLabel`, `SeatMap.Grid`,
+`SeatMap.Handles` and `SeatMap.Marquee`, fed by
 `seatPlan.placesOf(plan)`. `renderPlace` swaps one place's drawing while keeping the rest.
 
 **Styling.** Parts paint with presentation attributes that read the theme variables, so any class overrides them.
 State is on the element: `data-kind`, `data-status`, `data-selected`, `data-disabled`, `data-highlighted`,
 `data-dimmed`, `data-category`, `data-chair-side`; pieces are named by `data-part` (`shape`, `chair`, `label`,
-`floor`, `wall`, `top`, `focus-ring`).
+`floor`, `wall`, `top`, `row-label`, `handle`, `marquee`, `focus-ring`).
 
 ```tsx
 <SeatMap.Place
@@ -173,6 +174,8 @@ useSeatPlanEditorShortcuts(editor) // Delete, R (turn chair), ⌘Z / ⇧⌘Z, �
 <SeatMap.Viewport {...editor.viewportProps}>
   <SeatMap.Grid plan={editor.displayPlan} />
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} />
+  <SeatMap.Handles handles={editor.handles} />
+  <SeatMap.Marquee rect={editor.marquee} />
 </SeatMap.Viewport>
 
 <button onClick={() => editor.addDesk('A') ?? alert('No free 2×2 spot')}>Add desk</button>
@@ -184,8 +187,11 @@ useSeatPlanEditorShortcuts(editor) // Delete, R (turn chair), ⌘Z / ⇧⌘Z, �
 <button disabled={!editor.dirty} onClick={() => save(editor.plan)}>Save</button>
 ```
 
-Tapping selects (a seat selects its row or table; shift/⌘ adds to the selection), dragging moves the selection
-with the snapping the commit will use, and dragging empty floor pans. `displayPlan` is the plan with the drag in
+Tapping selects (a seat selects its row or table; shift/⌘ adds to the selection) and dragging moves the selection
+with the snapping the commit will use. Dragging on a section's floor draws a marquee that selects everything it
+touches; a selected section moves instead. Space outside every section and the middle mouse button pan.
+A single selected item shows handles: corners resize rectangles (desks by whole cells), a row's ends set its
+length and direction and its middle handle sets the curve, a section's vertices reshape it. `displayPlan` is the plan with the drag in
 progress; `plan` is what you save. `onTap` also reports the plan point, for tools that place things where you click.
 
 - **Create:** `addDesk`, `addFixture(role, size)`, `addRow`, `addTable`, `addBooth`, `addArea`,

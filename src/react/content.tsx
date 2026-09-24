@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 import { seatPlan } from '../core/geometry'
 import type { Fixture, Place, SeatPlan, Section } from '../core/types'
-import { FixturePart, PlacePart, SectionPart, TablePart, type PlaceProps } from './parts'
+import { FixturePart, PlacePart, RowLabelPart, SectionPart, TablePart, type PlaceProps } from './parts'
 
 type ContentProps<S extends string> = {
   plan: SeatPlan<S>
@@ -22,7 +22,7 @@ type ContentProps<S extends string> = {
 }
 
 // The whole plan in drawing order — sections, then every object in document order (fixtures, table furniture,
-// places). A convenience over the parts; compose them yourself when you need something else.
+// places, row labels). A convenience over the parts; compose them yourself when you need something else.
 export function Content<S extends string>({
   plan,
   status,
@@ -83,6 +83,14 @@ export function Content<S extends string>({
           )
         }
         const places = (placesByObject.get(object.id) ?? []).map(placeElement)
+        if (object.kind === 'row' && object.label) {
+          return (
+            <g key={object.id}>
+              {places}
+              <RowLabelPart row={object} />
+            </g>
+          )
+        }
         if (object.kind === 'table') {
           return (
             <g key={object.id}>

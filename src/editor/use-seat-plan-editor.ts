@@ -10,11 +10,13 @@ import type {
   PlanObject,
   PlanPoint,
   PlanRect,
+  PlanHandle,
   PlanSize,
   PlanTarget,
   SeatPlan,
   TableShape,
 } from '../core/types'
+import { planHandles } from './handles'
 import { planEdits, type AlignEdge } from './operations'
 import type { EditorSelection } from './selection'
 
@@ -33,8 +35,9 @@ type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; fu
 const HISTORY_LIMIT = 100
 
 // Headless seat plan editor — document state, selection, undo history and every edit operation; no UI. Spread
-// `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select and drag-to-move, draw `displayPlan`
-// (the plan with the drag in progress), and build panels, buttons and saving yourself. Edits stay local until you
+// `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select, drag-to-move and marquee selection,
+// draw `displayPlan` (the plan with the drag in progress) with `handles` and `marquee` on top, and build panels,
+// buttons and saving yourself. Edits stay local until you
 // save `plan`. The plan is grid-normalized on open, so a pre-grid plan starts dirty. To adopt a new baseline after
 // saving, remount (e.g. key the component by the saved version).
 export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: Options<S>) {
@@ -53,6 +56,10 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
   const selectedPlaceIds = seatPlan.placesOf({ objects: selectedObjects }).map((place) => place.id)
   // The plan as drawn — the drag in progress applied with the snapping it will commit with.
   const displayPlan = drag === null ? plan : planEdits.applyDrag(plan, drag, selectedObjectIds)
+  // Handles for a single selected item, placed on the plan as drawn so they follow a drag.
+  const handles: PlanHandle<S>[] = planHandles.of(displayPlan, selection)
+  // The rubber band being dragged, in plan units — draw it with <SeatMap.Marquee>.
+  const [marquee, setMarquee] = useState<PlanRect | null>(null)
 
   // Every change goes through here: one undo step each, and the redo branch is dropped.
   function apply(update: (current: SeatPlan<S>) => SeatPlan<S> | null) {
@@ -107,8 +114,27 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
     select(target, info.additive)
   }
 
+  // A section moves only once it is selected; before that a drag on its floor draws a marquee.
+  function canDrag(target: PlanTarget<S>): boolean {
+    if (target.kind !== 'section') return true
+    return selection.some((item) => item.kind === 'section' && item.id === target.id)
+  }
+
+  // Marquee selection — everything whose footprint the rubber band touches. `additive` adds to the selection.
+  function handleMarquee(rect: PlanRect, info: { phase: 'start' | 'move' | 'end'; additive: boolean }) {
+    if (info.phase !== 'end') {
+      setMarquee(rect)
+      return
+    }
+    setMarquee(null)
+    const picked = seatPlan.objectsInRect(plan, rect).map((id) => ({ kind: 'object' as const, id }))
+    setSelection((current) =>
+      info.additive ? [...current, ...picked.filter((item) => !current.some((c) => sameSelection(c, item)))] : picked,
+    )
+  }
+
   function handleDrag(next: PlanDrag<S>) {
-    if (next.phase === 'start') {
+    if (next.phase === 'start' && next.target.kind !== 'handle') {
       const item = selectionOf(next.target)
       // Dragging something outside the selection selects it alone; dragging a selected object moves the group.
       if (!selection.some((other) => sameSelection(other, item))) setSelection([item])
@@ -170,6 +196,8 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
     selectedObjects,
     selectedSection: selectedSectionId === undefined ? undefined : seatPlan.sectionOf(plan, selectedSectionId),
     selectedPlaceIds,
+    handles,
+    marquee,
     select,
     isLocked: (object: PlanObject<S>) => planEdits.isLocked(object, locked),
     canUndo: history.past.length > 0,
@@ -218,8 +246,9 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds }: 
     viewportProps: {
       plan: displayPlan,
       onTap: handleTap,
-      canDrag: canDragTarget,
+      canDrag,
       onTargetDrag: handleDrag,
+      onMarquee: handleMarquee,
     },
   }
 }
@@ -263,6 +292,7 @@ export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEdi
 }
 
 function selectionOf<S extends string>(target: PlanTarget<S> | EditorSelection<S>): EditorSelection<S> {
+  if (target.kind === 'handle') return target.owner
   if (target.kind === 'section') return { kind: 'section', id: target.id }
   if (target.kind === 'place') return { kind: 'object', id: target.objectId }
   return { kind: 'object', id: target.id }
@@ -270,8 +300,4 @@ function selectionOf<S extends string>(target: PlanTarget<S> | EditorSelection<S
 
 function sameSelection<S extends string>(a: EditorSelection<S>, b: EditorSelection<S>): boolean {
   return a.kind === b.kind && a.id === b.id
-}
-
-function canDragTarget(): boolean {
-  return true
 }

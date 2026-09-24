@@ -7,4 +7,5 @@ export {
   type Added,
   type AlignEdge,
 } from './operations'
+export { planHandles } from './handles'
 export type { EditorSelection } from './selection'

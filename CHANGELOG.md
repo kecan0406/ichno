@@ -38,6 +38,14 @@ Breaking — document version 2, and the canvas renderers are gone (see `docs/di
   the ids it refused. The operations are exported as pure functions in `planEdits`.
 - `ichno`: `labeling.numbers`, `labeling.letters` (skipped letters, AA after Z) and `labeling.custom`.
 - `ichno/react`: `onTap` also reports the plan point and whether the tap was additive.
+- `ichno/react`: marquee selection (`onMarquee`; drags that start on something that does not move draw a
+  rectangle), middle-button panning, and the `SeatMap.RowLabel`, `SeatMap.Handles` and `SeatMap.Marquee` parts.
+  `SeatMap.Content` draws row labels.
+- `ichno/editor`: `handles` for a single selected item — corners resize, row ends and the curve handle reshape a
+  row, section vertices reshape the outline — and `marquee`. A section moves only once selected. The handle rules
+  are pure functions in `planHandles`.
+- `ichno`: `PlanHandle`, `HandleOwner` and a `handle` kind in `PlanTarget`; `seatPlan.objectsInRect`,
+  `seatPlan.rowApexOf` and `seatPlan.rowLabelAnchorsOf`.
 - Removed `ichno/svg` and `ichno/konva` (replaced by `ichno/react`), the `konva` / `react-konva` peer
   dependencies and the `--ichno-occupied-tint` variable.
 

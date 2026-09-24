@@ -116,10 +116,20 @@ export type Place<S extends string = string> = {
 // A plan cropped to one section — the same shape, translated so the crop's bounding box starts at the origin.
 export type SectionPlan<S extends string = string> = { id: S; plan: SeatPlan<S> }
 
-// What a pointer or key landed on — a place, a non-place object (fixture, table top, a row as a whole) or a
-// section outline. Viewports report it; the editor acts on it.
+// What a pointer or key landed on — a place, a non-place object (fixture, table top, a row as a whole), a
+// section outline, or an editing handle. Viewports report it; the editor acts on it.
 export type PlanTarget<S extends string = string> =
-  { kind: 'place'; id: string; objectId: string } | { kind: 'object'; id: string } | { kind: 'section'; id: S }
+  | { kind: 'place'; id: string; objectId: string }
+  | { kind: 'object'; id: string }
+  | { kind: 'section'; id: S }
+  | { kind: 'handle'; owner: HandleOwner<S>; name: string }
+
+// What an editing handle belongs to.
+export type HandleOwner<S extends string = string> = { kind: 'object'; id: string } | { kind: 'section'; id: S }
+
+// An editing handle on the plan — a corner to resize, a row end or its curve, a section vertex. `name` is
+// `nw` `ne` `se` `sw`, `start` `end` `curve`, or `vertex-<index>`.
+export type PlanHandle<S extends string = string> = { owner: HandleOwner<S>; name: string; point: PlanPoint }
 
 // A drag of a target, reported by viewports while it moves. `total` is the movement since the drag started, in
 // plan units.

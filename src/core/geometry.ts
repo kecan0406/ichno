@@ -64,7 +64,10 @@ export const seatPlan = {
   sectionPlanOf,
   sectionPlansOf,
   rowSeatsOf,
+  rowApexOf,
+  rowLabelAnchorsOf,
   tableSeatsOf,
+  objectsInRect,
   furnitureOf,
   innerWallOf,
   footprintOf,
@@ -321,6 +324,43 @@ function sectionPlansOf<S extends string>(plan: SeatPlan<S>): SectionPlan<S>[] {
 function rowSeatsOf(row: Pick<Row, 'start' | 'end' | 'curve' | 'seats'>): { seat: RowSeat; center: PlanPoint }[] {
   const centers = arcPoints(row.start, row.end, row.curve, row.seats.length)
   return row.seats.map((seat, i) => ({ seat, center: centers[i]! }))
+}
+
+// The middle of a row's arc — where its curve handle sits.
+function rowApexOf(row: Pick<Row, 'start' | 'end' | 'curve'>): PlanPoint {
+  return arcPoints(row.start, row.end, row.curve, 1)[0]!
+}
+
+// Where a row's label goes — one seat's width beyond the first and the last seat, along the row.
+function rowLabelAnchorsOf(row: Pick<Row, 'start' | 'end' | 'curve' | 'seats' | 'seatSize'>): {
+  start: PlanPoint
+  end: PlanPoint
+} {
+  const centers = rowSeatsOf(row).map(({ center }) => center)
+  const first = centers[0] ?? row.start
+  const last = centers.at(-1) ?? row.end
+  const outward = (from: PlanPoint, toward: PlanPoint | undefined, fallback: PlanPoint): PlanPoint => {
+    const dx = toward ? from.x - toward.x : fallback.x
+    const dy = toward ? from.y - toward.y : fallback.y
+    const length = Math.hypot(dx, dy)
+    if (length === 0) return { x: from.x, y: from.y }
+    return { x: from.x + (dx / length) * row.seatSize, y: from.y + (dy / length) * row.seatSize }
+  }
+  const along = { x: row.end.x - row.start.x || 1, y: row.end.y - row.start.y }
+  return {
+    start: outward(first, centers[1], { x: -along.x, y: -along.y }),
+    end: outward(last, centers.at(-2), along),
+  }
+}
+
+// The objects whose footprint touches a rectangle — marquee selection. Fixtures included.
+function objectsInRect(plan: Pick<SeatPlan, 'objects'>, rect: PlanRect): string[] {
+  return plan.objects
+    .filter((object) => {
+      const b = footprintOf(object)
+      return b.x <= rect.x + rect.w && rect.x <= b.x + b.w && b.y <= rect.y + rect.h && rect.y <= b.y + b.h
+    })
+    .map((object) => object.id)
 }
 
 // Seat centres around a table. Round tables spread seats evenly clockwise from the top; rectangular tables split
