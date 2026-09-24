@@ -138,9 +138,6 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
 5. **Scale** — viewport culling and level of detail; measure 1k, 5k and 20k seats before considering a canvas
    seat layer.
 
-The consumer app (tusa) moves to each release after it ships; its call sites for the removed Konva canvases are the
-largest migration.
-
 ## Out of scope
 
 Booking flow (holds, sessions, channels, seasons, best available), prices and ticket types, finished UI chrome
