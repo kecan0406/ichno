@@ -4,6 +4,8 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+## 0.2.0 — 2026-09-24
+
 Breaking — document version 2, and the canvas renderers are gone (see `docs/direction.md`).
 
 - `ichno`: document v2 — `sections` (polygons) replace `zones`, and `objects` hold desks (the 0.1 seats), curved
