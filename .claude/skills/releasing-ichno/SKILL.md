@@ -24,7 +24,10 @@ confirm with the maintainer before it.
 5. **Confirm**: `gh run watch` on the Release run, then `npm view ichno version`. If the run fails before publishing,
    fix it on `main`, and with the maintainer's go-ahead move the tag (`git tag -d v<version>`,
    `git push origin :refs/tags/v<version>`, tag again, push). An authentication error means the trusted publisher on
-   npmjs.com (package settings: `kecan0406` / `ichno` / `release.yml`) is missing or no longer matches the workflow.
+   npmjs.com (package settings: `kecan0406` / `ichno` / `release.yml`) is missing or no longer matches the workflow;
+   `E403 … OIDC permission denied for this action` means it only allows staged publishing — npm's default for
+   connections made after 2026-09-03. Connections cannot be edited: the maintainer deletes it and recreates it with
+   `npm publish` allowed, then `gh run rerun <run id>` publishes from the same tag.
 6. **Consumers**: each consumer bumps its dependency (`pnpm add ichno@^<version>` in the consuming package) and runs
    its own checks. For a breaking release, list what consumers must change in the changelog entry.
 
