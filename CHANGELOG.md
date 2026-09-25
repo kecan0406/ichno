@@ -7,6 +7,8 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 - `ichno/react`: seat, row label, whole-table chair and handle coordinates are printed rounded to hundredths.
   Server-rendered plans with rows or tables inside `SeatMap.Viewport` no longer fail hydration when the server's
   JavaScript engine computes the last digits of a seat position differently from the browser's.
+- `ichno/editor`: a selected table's corner handles sit just outside its seats instead of on the corners of the
+  top, where they covered the chairs. Dragging one still resizes the top.
 
 ## 0.2.0 — 2026-09-24
 

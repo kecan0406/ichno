@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { seatPlan } from '../core/geometry'
-import type { Desk, Fixture, PlanObject, Row, SeatPlan } from '../core/types'
+import { TABLE_SEAT_GAP, seatPlan } from '../core/geometry'
+import type { Desk, Fixture, PlanObject, Row, SeatPlan, Table } from '../core/types'
 import { planHandles } from './handles'
 
 type S = 'A'
@@ -45,6 +45,45 @@ describe('planHandles.of', () => {
         { kind: 'object', id: 'row-1' },
       ]),
     ).toEqual([])
+  })
+
+  it('keeps table corner handles off the seats around the top — round and rectangular', () => {
+    const seats = (prefix: string) => Array.from({ length: 6 }, (_, i) => ({ id: `${prefix}${i + 1}` }))
+    const round: Table<S> = {
+      kind: 'table',
+      id: 'T1',
+      section: 'A',
+      shape: 'round',
+      x: 276,
+      y: 276,
+      w: 92,
+      h: 92,
+      seatSize: 36,
+      seats: seats('R'),
+    }
+    const rect: Table<S> = {
+      kind: 'table',
+      id: 'T2',
+      section: 'A',
+      shape: 'rect',
+      x: 552,
+      y: 276,
+      w: 138,
+      h: 92,
+      seatSize: 36,
+      seats: seats('Q'),
+    }
+    for (const table of [round, rect]) {
+      const handles = planHandles.of(planOf([table]), [{ kind: 'object', id: table.id }])
+      expect(handles).toHaveLength(4)
+      for (const { point } of handles) {
+        for (const { center } of seatPlan.tableSeatsOf(table)) {
+          // Distance from the handle to the seat's bounding square — at least the gap seats keep from the top.
+          const outside = Math.max(Math.abs(point.x - center.x), Math.abs(point.y - center.y)) - table.seatSize / 2
+          expect(outside).toBeGreaterThanOrEqual(TABLE_SEAT_GAP)
+        }
+      }
+    }
   })
 })
 

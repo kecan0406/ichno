@@ -1,4 +1,4 @@
-import { seatPlan } from '../core/geometry'
+import { TABLE_SEAT_GAP, seatPlan } from '../core/geometry'
 import { HALF_CELL, seatGrid } from '../core/grid'
 import type { HandleOwner, PlanHandle, PlanObject, PlanPoint, PlanRect, SeatPlan } from '../core/types'
 import type { EditorSelection } from './selection'
@@ -37,6 +37,18 @@ function handlesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edit
       { owner, name: 'end', point: ends.end },
       { owner, name: 'curve', point: seatPlan.rowApexOf(object) },
     ]
+  }
+  if (object.kind === 'table') {
+    // Seats ring the top, so its corners lie under the chairs. The handles sit just outside everything the table
+    // draws instead; dragging one still resizes the top from that corner.
+    const drawn = seatPlan.boundsOf(object)
+    const around = {
+      x: drawn.x - TABLE_SEAT_GAP,
+      y: drawn.y - TABLE_SEAT_GAP,
+      w: drawn.w + TABLE_SEAT_GAP * 2,
+      h: drawn.h + TABLE_SEAT_GAP * 2,
+    }
+    return CORNERS.map((name) => ({ owner, name, point: cornerOf(around, name) }))
   }
   return CORNERS.map((name) => ({ owner, name, point: cornerOf(object, name) }))
 }
