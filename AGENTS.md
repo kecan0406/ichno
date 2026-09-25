@@ -98,5 +98,6 @@ renaming or removing an export, a CSS variable or an issue code, changing a comp
 and changing grid constants.
 
 Record every user-visible change under `## Unreleased` in `CHANGELOG.md` in the same commit. Releasing follows the
-`releasing-ichno` skill (`.claude/skills/releasing-ichno/SKILL.md`); publishing needs the maintainer's npm one-time
-password, so an agent prepares everything and the maintainer runs `npm publish`.
+`releasing-ichno` skill (`.claude/skills/releasing-ichno/SKILL.md`). Pushing a `v<version>` tag publishes it from
+GitHub Actions (`.github/workflows/release.yml`, npm trusted publishing — no token or one-time password), so an agent
+prepares the release commit and pushes the tag only once the maintainer confirms.
