@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <style>
+    rect { fill: #111113 }
+    .picked { fill: #4f46e5 }
+    @media (prefers-color-scheme: dark) {
+      rect { fill: #ededf0 }
+      .picked { fill: #8b8bff }
+    }
+  </style>
+  <rect x="2" y="5" width="6" height="6" rx="1.8" />
+  <rect x="9" y="5" width="6" height="6" rx="1.8" />
+  <rect class="picked" x="16" y="5" width="6" height="6" rx="1.8" />
+  <rect x="2" y="13" width="6" height="6" rx="1.8" />
+  <rect x="9" y="13" width="6" height="6" rx="1.8" />
+  <rect x="16" y="13" width="6" height="6" rx="1.8" />
+</svg>

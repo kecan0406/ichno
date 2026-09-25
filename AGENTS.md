@@ -36,6 +36,12 @@ them — a consumer importing the core must never pull in zod or React. No canva
 | `src/react/client` | `ichno/react`  | `react`, core, theme | Every file starts with `'use client'`. Interaction only; draws nothing the parts could. |
 | `src/editor`       | `ichno/editor` | `react`, core        | `'use client'`. Never import `src/react` — hook users must not pull the components.     |
 
+`site/` is the landing page and the editor playground (`/playground`) — a private Next.js app in the pnpm workspace
+that consumes the built `dist/` through `ichno: workspace:*`, like any app would. It is never published. `pnpm check`
+only formats it; after changing it run `pnpm --filter ichno-site build`, which builds the library, then type-checks
+and builds the site. Its demo documents are parsed with the schema at build time, so a library change that breaks
+them fails that build.
+
 Adding an entry point means three edits together: `entry` in `tsdown.config.ts`, `exports` in `package.json`, and a
 section in `README.md`. Client directories must also be listed in the babel `include` of `tsdown.config.ts` **and** in
 `DIRS` of `scripts/check-compiler.mjs`.

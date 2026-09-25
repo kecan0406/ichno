@@ -3,3 +3,8 @@ dist
 *.tgz
 CLAUDE.local.md
 .claude/settings.local.json
+
+# site
+.next
+next-env.d.ts
+*.tsbuildinfo

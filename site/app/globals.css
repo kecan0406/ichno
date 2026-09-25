@@ -1,0 +1,114 @@
+/* Design tokens. Everything on the page, the seat maps included, reads these; dark mode only swaps the base set. */
+:root {
+  color-scheme: light dark;
+
+  --theme-bg: #fafafa;
+  --theme-fg: #111113;
+  --theme-muted: #6b6b76;
+  --theme-surface: #ffffff;
+  --theme-accent: #4f46e5;
+  --theme-accent-fg: #ffffff;
+  --theme-warning: #e0930b;
+  --theme-premium: #c2410c;
+  --theme-access: #0e7490;
+
+  --theme-border: color-mix(in srgb, var(--theme-fg) 10%, transparent);
+  --theme-border-strong: color-mix(in srgb, var(--theme-fg) 18%, transparent);
+  --theme-subtle: color-mix(in srgb, var(--theme-fg) 4%, var(--theme-surface));
+  --theme-hover: color-mix(in srgb, var(--theme-fg) 7%, transparent);
+  --theme-accent-soft: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
+
+  --font-sans-serif:
+    'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Segoe UI',
+    'Noto Sans KR', sans-serif;
+  --font-monospace: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-s: 10px;
+  --radius-m: 16px;
+  --radius-l: 24px;
+  --page-width: 1120px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ichno's theme contract, mapped onto the tokens above. */
+  --ichno-surface: var(--theme-surface);
+  --ichno-fixture: var(--theme-subtle);
+  --ichno-grid: color-mix(in srgb, var(--theme-fg) 7%, var(--theme-surface));
+  --ichno-label: color-mix(in srgb, var(--theme-fg) 55%, var(--theme-surface));
+  --ichno-ink: var(--theme-fg);
+  --ichno-ink-foreground: var(--theme-surface);
+  --ichno-accent: var(--theme-accent);
+  --ichno-accent-foreground: var(--theme-accent-fg);
+  --ichno-warning: var(--theme-warning);
+  --ichno-font: var(--font-sans-serif);
+  --ichno-number-font: var(--font-monospace);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --theme-bg: #0c0c0e;
+    --theme-fg: #ededf0;
+    --theme-muted: #9a9aa6;
+    --theme-surface: #17171a;
+    --theme-accent: #8b8bff;
+    --theme-accent-fg: #0c0c0e;
+    --theme-warning: #f5b43d;
+    --theme-premium: #fb923c;
+    --theme-access: #22d3ee;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--theme-bg);
+  color: var(--theme-fg);
+  font-family: var(--font-sans-serif);
+  font-size: 16px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+code,
+pre {
+  font-family: var(--font-monospace);
+  font-size: 0.875em;
+  font-variant-ligatures: none;
+  letter-spacing: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--theme-accent) 30%, transparent);
+}

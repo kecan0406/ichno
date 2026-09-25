@@ -1,0 +1,479 @@
+/* ---------- Header ---------- */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-bg) 78%, transparent);
+  /* Standard property only: with the -webkit- copy beside it, the CSS minifier drops both. */
+  backdrop-filter: saturate(1.6) blur(16px);
+}
+
+.headerInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: var(--page-width);
+  height: 60px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.logo {
+  width: 24px;
+  height: 24px;
+}
+
+.version {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--theme-hover);
+  color: var(--theme-muted);
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.nav a {
+  padding: 6px 12px;
+  border-radius: var(--radius-s);
+  color: var(--theme-muted);
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.nav a:hover {
+  color: var(--theme-fg);
+  background: var(--theme-hover);
+}
+
+.nav .navButton {
+  margin-left: 4px;
+  border: 1px solid var(--theme-border);
+  color: var(--theme-fg);
+}
+
+/* ---------- Hero ---------- */
+
+.hero {
+  position: relative;
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: 88px 24px 32px;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: -60px 0 auto;
+  z-index: -1;
+  height: 520px;
+  background: radial-gradient(
+    60% 60% at 50% 0%,
+    color-mix(in srgb, var(--theme-accent) 14%, transparent),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.heroText {
+  max-width: 880px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.eyebrow {
+  display: inline-block;
+  margin: 0 0 20px;
+  padding: 4px 12px;
+  border: 1px solid var(--theme-border);
+  border-radius: 999px;
+  background: var(--theme-surface);
+  color: var(--theme-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(36px, 5.6vw, 60px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.titleMuted {
+  color: var(--theme-muted);
+}
+
+.lede {
+  max-width: 620px;
+  margin: 24px auto 0;
+  color: var(--theme-muted);
+  font-size: clamp(16px, 2vw, 19px);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.primary {
+  display: inline-flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 22px;
+  border-radius: var(--radius-m);
+  background: var(--theme-fg);
+  color: var(--theme-bg);
+  font-size: 15px;
+  font-weight: 700;
+  transition:
+    transform 0.2s var(--ease-out),
+    opacity 0.2s;
+}
+
+.primary:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+.heroDemo {
+  margin-top: 56px;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 28px;
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--theme-muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.facts li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.facts li::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--theme-accent);
+}
+
+/* ---------- Sections ---------- */
+
+.section {
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: 104px 24px 0;
+  scroll-margin-top: 40px;
+}
+
+.sectionHead {
+  max-width: 680px;
+  margin-bottom: 40px;
+}
+
+.sectionHead h2,
+.ctaInner h2 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.sectionHead p,
+.ctaInner p {
+  margin: 14px 0 0;
+  color: var(--theme-muted);
+  font-size: 17px;
+  text-wrap: pretty;
+}
+
+/* ---------- Features ---------- */
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.card {
+  padding: 28px;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-l);
+  background: var(--theme-surface);
+  transition: border-color 0.2s;
+}
+
+.card:hover {
+  border-color: var(--theme-border-strong);
+}
+
+.card h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.card p {
+  margin: 10px 0 0;
+  color: var(--theme-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.cardWide {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  align-items: center;
+  gap: 32px;
+}
+
+.cardText {
+  max-width: 400px;
+}
+
+.cardVisual {
+  padding: 16px;
+  border-radius: var(--radius-m);
+  background: var(--theme-subtle);
+}
+
+/* ---------- Playground teaser ---------- */
+
+.teaser {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  align-items: center;
+  gap: 40px;
+  padding: 40px;
+}
+
+.teaserText h2 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+
+.teaserText > p {
+  margin: 14px 0 0;
+  font-size: 16px;
+}
+
+.points {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 20px 0 28px;
+  padding: 0;
+  list-style: none;
+  color: var(--theme-muted);
+  font-size: 14.5px;
+}
+
+.points li {
+  display: flex;
+  gap: 10px;
+}
+
+.points li::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 9px;
+  border-radius: 2px;
+  background: var(--theme-accent);
+}
+
+.teaserVisual {
+  padding: 12px;
+  border-radius: var(--radius-m);
+  background: var(--ichno-surface);
+  box-shadow: inset 0 0 0 1px var(--theme-border);
+}
+
+/* The grid sits under the drawing — let it show through the section floor. */
+.teaserVisual [data-part='floor'] {
+  fill: transparent;
+}
+
+/* ---------- Code ---------- */
+
+.entries {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.entry {
+  padding: 22px;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-l);
+  background: var(--theme-surface);
+}
+
+.entry code {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.entryDeps {
+  display: block;
+  margin-top: 4px;
+  color: var(--theme-muted);
+  font-size: 12px;
+}
+
+.entry p {
+  margin: 12px 0 0;
+  color: var(--theme-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* ---------- CTA and footer ---------- */
+
+.cta {
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: 120px 24px 0;
+}
+
+.ctaInner {
+  padding: 64px 24px;
+  border: 1px solid var(--theme-border);
+  border-radius: 32px;
+  background:
+    radial-gradient(80% 120% at 50% 0%, color-mix(in srgb, var(--theme-accent) 12%, transparent), transparent 70%),
+    var(--theme-surface);
+  text-align: center;
+}
+
+.ctaInner .heroActions {
+  margin-top: 28px;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: 48px 24px 56px;
+  color: var(--theme-muted);
+  font-size: 14px;
+}
+
+.footerLinks {
+  display: flex;
+  gap: 20px;
+}
+
+.footerLinks a:hover {
+  color: var(--theme-fg);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 960px) {
+  .features {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cardWide,
+  .teaser {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .entries {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .headerInner {
+    padding: 0 16px;
+  }
+
+  .nav a:not(.navButton) {
+    display: none;
+  }
+
+  .hero {
+    padding: 56px 16px 24px;
+  }
+
+  .heroDemo {
+    margin-top: 40px;
+  }
+
+  .section {
+    padding: 80px 16px 0;
+  }
+
+  .features,
+  .entries {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .card,
+  .teaser {
+    padding: 22px;
+  }
+
+  .cta {
+    padding: 88px 16px 0;
+  }
+
+  .footer {
+    padding: 40px 16px 48px;
+  }
+}

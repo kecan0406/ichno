@@ -1,0 +1,120 @@
+.install {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  padding: 6px 6px 6px 16px;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-m);
+  background: var(--theme-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--theme-fg) 6%, transparent);
+}
+
+.prompt {
+  color: var(--theme-muted);
+  font-family: var(--font-monospace);
+  font-size: 14px;
+}
+
+.command {
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.copy {
+  flex: none;
+  min-width: 72px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: var(--theme-hover);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.copy:hover {
+  background: var(--theme-border-strong);
+}
+
+.copy span {
+  display: inline-block;
+}
+
+.tabs {
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-l);
+  background: var(--theme-surface);
+  overflow: hidden;
+}
+
+.tabList {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--theme-border);
+  overflow-x: auto;
+}
+
+.tab {
+  position: relative;
+  flex: none;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--theme-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.tab:hover,
+.tab[data-selected] {
+  color: var(--theme-fg);
+}
+
+.tabIndicator {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--theme-hover);
+}
+
+.tabLabel {
+  position: relative;
+}
+
+.tabPanel {
+  padding: 20px 24px 24px;
+}
+
+.caption {
+  margin: 0 0 16px;
+  color: var(--theme-muted);
+  font-size: 15px;
+}
+
+.code {
+  margin: 0;
+  padding: 20px;
+  border-radius: var(--radius-m);
+  background: var(--theme-subtle);
+  overflow-x: auto;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+@media (max-width: 640px) {
+  .tabPanel {
+    padding: 16px;
+  }
+
+  .code {
+    padding: 16px;
+    font-size: 12.5px;
+  }
+}
