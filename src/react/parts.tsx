@@ -116,7 +116,7 @@ export function PlacePart({
   }
   return (
     <g
-      transform={`translate(${place.bounds.x} ${place.bounds.y})`}
+      transform={`translate(${round(place.bounds.x)} ${round(place.bounds.y)})`}
       data-ichno-id={place.id}
       data-ichno-object={place.parent?.id ?? place.id}
       data-kind={place.kind}
@@ -233,8 +233,8 @@ export function TablePart({ table, ...rest }: GProps & { table: Table }) {
             <circle
               key={seat.id}
               data-part="chair"
-              cx={center.x}
-              cy={center.y}
+              cx={round(center.x)}
+              cy={round(center.y)}
               r={table.seatSize / 2}
               {...shape}
               vectorEffect="non-scaling-stroke"
@@ -297,8 +297,8 @@ export function RowLabelPart({ row, label, ends = 'both', ...rest }: RowLabelPro
       {points.map((point, i) => (
         <text
           key={i}
-          x={point.x}
-          y={point.y}
+          x={round(point.x)}
+          y={round(point.y)}
           textAnchor="middle"
           dominantBaseline="central"
           fontSize={fontSize}
@@ -318,7 +318,7 @@ export function HandlesPart({ handles, ...rest }: GProps & { handles: readonly P
   return (
     <g data-part="handles" {...rest}>
       {handles.map((handle) => {
-        const d = `M${handle.point.x} ${handle.point.y}h0`
+        const d = `M${round(handle.point.x)} ${round(handle.point.y)}h0`
         const cap = handle.name === 'curve' ? 'round' : 'square'
         return (
           <g
@@ -440,7 +440,8 @@ const TONES = {
   disabled: { fill: cssVar('ink'), chair: cssVar('ink'), stroke: cssVar('ink'), label: cssVar('inkForeground') },
 } satisfies Record<string, Tone>
 
-// Outline coordinates — rounded to hundredths so mitred corners do not print float noise.
+// Printed coordinates — rounded to hundredths. Row and table seats come from trigonometry, whose last bits differ
+// between JavaScript engines; unrounded, a server-rendered plan would not match the browser's and fail hydration.
 function pointsOf(points: readonly PlanPoint[]): string {
   return points.map((p) => `${round(p.x)},${round(p.y)}`).join(' ')
 }
