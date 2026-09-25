@@ -1,6 +1,6 @@
 {
   "name": "ichno",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Seat plans for React: a Seats.io-level JSON document with a zod schema, geometry, headless SVG components that render on the server, and a headless editor hook.",
   "keywords": [
     "seat-map",

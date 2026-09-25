@@ -4,6 +4,8 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+## 0.2.1 — 2026-09-25
+
 - `ichno/react`: seat, row label, whole-table chair and handle coordinates are printed rounded to hundredths.
   Server-rendered plans with rows or tables inside `SeatMap.Viewport` no longer fail hydration when the server's
   JavaScript engine computes the last digits of a seat position differently from the browser's.
