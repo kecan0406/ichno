@@ -33,6 +33,8 @@ import { pivotOf, turnObjects, withGroupRotation } from './turn'
 export type Snap = { cell: number }
 
 export type AlignEdge = 'left' | 'right' | 'top' | 'bottom' | 'center-x' | 'center-y'
+// Where `reorder` moves objects in the drawing order.
+export type Reorder = 'front' | 'back' | 'forward' | 'backward'
 export type Added<S extends string> = { plan: SeatPlan<S>; ids: string[] }
 // Which members of a group `layoutGroup` lays out — its places, or its fixtures of one role (a table's chairs).
 export type GroupMembers = { kind: 'place' } | { kind: 'fixture'; role?: string }
@@ -50,6 +52,7 @@ export const planEdits = {
   label,
   align,
   distribute,
+  reorder,
   duplicate,
   templateOf,
   insertTemplate,
@@ -307,6 +310,39 @@ function distribute<S extends string>(plan: SeatPlan<S>, ids: readonly string[],
     const delta = Math.round(first + step * i - centerOf(unit))
     return shift(next, unit, axis === 'x' ? { x: delta, y: 0 } : { x: 0, y: delta })
   }, plan)
+}
+
+// Moves objects and groups in the drawing order: `front` above everything, `back` under everything, `forward` and
+// `backward` past the next unit above or below. A unit is a group (as one) or an object outside one, and units stand
+// in the order of their highest member — a group whose members are drawn apart (a table top under everything, its
+// seats on top) stands where its highest one is, the way a layers panel lists it. What moves goes together and keeps
+// its own order; the plan comes back as it was when there is nothing to pass.
+function reorder<S extends string>(plan: SeatPlan<S>, ids: readonly string[], to: Reorder): SeatPlan<S> {
+  const moving = new Set(ids.flatMap((id) => unitOf(plan, id)).map((o) => o.id))
+  if (moving.size === 0) return plan
+  const moved = plan.objects.filter((o) => moving.has(o.id))
+  const kept = plan.objects.filter((o) => !moving.has(o.id))
+  if (to === 'front') return { ...plan, objects: [...kept, ...moved] }
+  if (to === 'back') return { ...plan, objects: [...moved, ...kept] }
+  // How high what moves reaches, and where each unit that stays has its highest member — in the plan's order
+  // (`index`) and among what stays (`at`).
+  let top = -1
+  let staying = 0
+  const highest = new Map<string, { at: number; index: number }>()
+  plan.objects.forEach((o, index) => {
+    if (moving.has(o.id)) top = index
+    else highest.set(o.group ?? o.id, { at: staying++, index })
+  })
+  const passed = [...highest.values()].reduce<{ at: number; index: number } | null>((best, unit) => {
+    const beyond = to === 'forward' ? unit.index > top : unit.index < top
+    if (!beyond) return best
+    const nearer = best === null || (to === 'forward' ? unit.index < best.index : unit.index > best.index)
+    return nearer ? unit : best
+  }, null)
+  if (passed === null) return plan
+  // Forward lands just above the unit passed, backward just under its highest member — one place in the listing.
+  const at = to === 'forward' ? passed.at + 1 : passed.at
+  return { ...plan, objects: [...kept.slice(0, at), ...moved, ...kept.slice(at)] }
 }
 
 // Copies objects and groups by `offset` with fresh ids (places continue their section numbering, labels are

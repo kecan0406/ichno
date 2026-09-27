@@ -19,7 +19,7 @@ import type {
   Shape,
 } from '../core/types'
 import { planHandles } from './handles'
-import { planEdits, type AlignEdge, type GroupMembers, type Snap } from './operations'
+import { planEdits, type AlignEdge, type GroupMembers, type Reorder, type Snap } from './operations'
 import type { EditorSelection } from './selection'
 import { strokeOf, type EditorTool } from './tools'
 
@@ -74,7 +74,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   // The latest history, ahead of the render — so several calls in one handler build on each other (add a group,
   // then lay it out) instead of each starting from the rendered plan.
   const historyRef = useRef(start.history)
-  const [chosen, setSelection] = useState<EditorSelection<S>[]>([])
+  const [chosen, setChosen] = useState<EditorSelection<S>[]>([])
   const [drag, setDrag] = useState<PlanDrag<S> | null>(null)
   // The creation tool in use — null while selecting.
   const [tool, setToolState] = useState<EditorTool<S> | null>(null)
@@ -195,11 +195,11 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   function select(target: PlanTarget<S> | EditorSelection<S> | null, additive?: boolean) {
     const item = target === null ? null : selectionOf(target, selection)
     if (!additive) {
-      setSelection(item ? [item] : [])
+      setChosen(item ? [item] : [])
       return
     }
     if (!item) return
-    setSelection((current) =>
+    setChosen((current) =>
       current.some((other) => sameSelection(other, item))
         ? current.filter((other) => !sameSelection(other, item))
         : [...current, item],
@@ -208,7 +208,23 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
 
   // Selects every object — grouped ones as their group.
   function selectAll() {
-    setSelection(unitsOf(historyRef.current.present.objects))
+    setChosen(unitsOf(historyRef.current.present.objects))
+  }
+
+  // Selects exactly these items — what a layers panel or a list of problems points at, where a tap would pick a
+  // grouped object's group first. An object whose group is among them is left to the group.
+  function setSelection(items: readonly EditorSelection<S>[]) {
+    const current = historyRef.current.present
+    const groups = new Set(items.flatMap((item) => (item.kind === 'group' ? [item.id] : [])))
+    const seen = new Set<string>()
+    setChosen(
+      items.filter((item) => {
+        if (seen.has(keyOf(item))) return false
+        seen.add(keyOf(item))
+        const group = item.kind === 'object' ? seatPlan.objectById(current, item.id)?.group : undefined
+        return group === undefined || !groups.has(group)
+      }),
+    )
   }
 
   function handleTap(target: PlanTarget<S> | null, info: { additive: boolean }) {
@@ -242,7 +258,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     const current = historyRef.current.present
     const inside = new Set(seatPlan.objectsInRect(current, rect))
     const picked = unitsOf(current.objects.filter((object) => inside.has(object.id)))
-    setSelection((existing) => {
+    setChosen((existing) => {
       if (!info.additive) return picked
       const held = new Set(existing.map(keyOf))
       return [...existing, ...picked.filter((item) => !held.has(keyOf(item)))]
@@ -254,7 +270,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     if (next.phase === 'start' && next.target.kind !== 'handle') {
       const item = selectionOf(next.target, selection)
       // Dragging something outside the selection selects it alone; dragging a selected object moves the group.
-      if (!covers(historyRef.current.present, selection, item)) setSelection([item])
+      if (!covers(historyRef.current.present, selection, item)) setChosen([item])
     }
     if (next.phase !== 'end') {
       setDrag(next)
@@ -298,7 +314,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     const before = historyRef.current.present
     const next = tool.create(before, shaped)
     if (next === null || !apply(() => next)) return
-    setSelection(addedSelection(before, next))
+    setChosen(addedSelection(before, next))
     if (!tool.keep) setToolState(null)
   }
 
@@ -330,7 +346,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   function added(result: { plan: SeatPlan<S>; ids: string[] } | null, pick: EditorSelection<S>[]): string[] {
     if (!result || result.ids.length === 0) return []
     apply(() => result.plan)
-    setSelection(pick)
+    setChosen(pick)
     return result.ids
   }
 
@@ -373,7 +389,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     const before = historyRef.current.present
     const result = planEdits.insertTemplate(before, template, at, options)
     if (!result || !apply(() => result.plan)) return []
-    setSelection(addedSelection(before, result.plan))
+    setChosen(addedSelection(before, result.plan))
     return result.ids
   }
 
@@ -381,7 +397,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   function removeObjects(ids: readonly string[]): string[] {
     const { plan: next, refused } = planEdits.remove(historyRef.current.present, ids, locked)
     apply(() => next)
-    setSelection((current) => current.filter((item) => item.kind === 'section' || refused.includes(item.id)))
+    setChosen((current) => current.filter((item) => item.kind === 'section' || refused.includes(item.id)))
     return refused
   }
 
@@ -390,7 +406,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     const next = planEdits.rename(historyRef.current.present, id, nextId, locked)
     if (!next) return false
     apply(() => next)
-    setSelection((current) =>
+    setChosen((current) =>
       current.map((item) => (item.kind !== 'section' && item.id === id ? { ...item, id: nextId } : item)),
     )
     return true
@@ -433,7 +449,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     const result = planEdits.duplicate(current, selectedIds)
     if (result.ids.length === 0) return []
     apply(() => result.plan)
-    setSelection(
+    setChosen(
       result.ids.map((id) =>
         seatPlan.groupById(result.plan, id) ? { kind: 'group' as const, id } : { kind: 'object' as const, id },
       ),
@@ -446,14 +462,14 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     const result = planEdits.group(historyRef.current.present, selectedIds, props)
     if (!result) return null
     apply(() => result.plan)
-    setSelection([{ kind: 'group', id: result.id }])
+    setChosen([{ kind: 'group', id: result.id }])
     return result.id
   }
 
   function ungroup(id: string) {
     const members = seatPlan.membersOf(historyRef.current.present, id).filter((o) => o.kind !== 'label')
     apply((current) => planEdits.ungroup(current, id))
-    setSelection(members.map((o) => ({ kind: 'object' as const, id: o.id })))
+    setChosen(members.map((o) => ({ kind: 'object' as const, id: o.id })))
   }
 
   // Dissolves every selected group in one step; their members take their place in the selection.
@@ -463,7 +479,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     const current = historyRef.current.present
     const members = groups.flatMap((id) => seatPlan.membersOf(current, id).filter((o) => o.kind !== 'label'))
     apply((plan) => groups.reduce((next, id) => planEdits.ungroup(next, id), plan))
-    setSelection([
+    setChosen([
       ...selection.filter((item) => item.kind !== 'group'),
       ...members.map((o) => ({ kind: 'object' as const, id: o.id })),
     ])
@@ -471,7 +487,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
 
   function reset() {
     commit({ past: [], present: start.history.present, future: [] })
-    setSelection([])
+    setChosen([])
   }
 
   return {
@@ -494,6 +510,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     snap: grid,
     select,
     selectAll,
+    setSelection,
     isLocked: (id: string) => planEdits.isLocked(plan, id, locked),
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
@@ -554,6 +571,8 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     alignSelected: (edge: AlignEdge) => apply((current) => planEdits.align(current, selectedIds, edge)),
     distributeSelected: (axis: 'x' | 'y') => apply((current) => planEdits.distribute(current, selectedIds, axis)),
     rotateSelected: (degrees: number) => apply((current) => planEdits.rotate(current, selectedIds, degrees)),
+    // Moves the selection in the drawing order — to the front or back, or a step forward or backward.
+    reorderSelected: (to: Reorder) => apply((current) => planEdits.reorder(current, selectedIds, to)),
     // Moves the selection — objects, groups and sections — by `delta`, snapped like a drag.
     moveSelected: (delta: PlanPoint) =>
       apply((current) =>
@@ -610,9 +629,12 @@ export type ViewControls = {
 // Keyboard shortcuts — Delete/Backspace removes the selection; the arrow keys move it (Shift: ten units, or a
 // whole cell when snapping); R turns it a quarter clockwise (⇧R back); Escape drops the stroke, drag or marquee
 // under way, then the tool, then the selection; ⌘/Ctrl+A selects everything; ⌘C, ⌘X and ⌘V copy, cut and paste
-// (under the pointer when it is over the plan); ⌘D duplicates; ⌘G groups and ⇧⌘G ungroups; ⌘Z undoes and ⇧⌘Z /
-// Ctrl+Y redo. Given the `view`, + and − zoom, ⇧1 shows the whole plan and ⇧2 the selection. Ignored while typing
-// in an input, textarea, select or contenteditable, and for keys a handler already took (`preventDefault`).
+// (under the pointer when it is over the plan); ⌘D duplicates; ⌘G groups and ⇧⌘G ungroups; ⌘] and ⌘[ move the
+// selection a step forward or backward in the drawing order, ⌥⌘] and ⌥⌘[ to the front or back; Enter selects the
+// members of the selected groups and ⇧Enter the groups of the selected objects; ⌘Z undoes and ⇧⌘Z / Ctrl+Y redo.
+// Given the `view`, + and − zoom, ⇧1 shows the whole plan and ⇧2 the selection. Ignored while typing in an input,
+// textarea, select or contenteditable, for Enter on a control that answers it (a button, a link, a menu item), and
+// for keys a handler already took (`preventDefault`).
 export function useSeatPlanEditorShortcuts<S extends string>(
   editor: SeatPlanEditor<S>,
   options: { view?: ViewControls } = {},
@@ -636,6 +658,14 @@ export function useSeatPlanEditorShortcuts<S extends string>(
     if (command && e.code === 'KeyD') {
       e.preventDefault()
       editor.duplicateSelected()
+      return
+    }
+    // With nothing selected ⌘[ and ⌘] stay the browser's (back and forward).
+    if (command && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
+      if (editor.selectedIds.length === 0) return
+      e.preventDefault()
+      const up = e.code === 'BracketRight'
+      editor.reorderSelected(e.altKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward')
       return
     }
     if (command && e.code === 'KeyG') {
@@ -680,6 +710,13 @@ export function useSeatPlanEditorShortcuts<S extends string>(
       else if (editor.selection.length > 0) editor.select(null)
       return
     }
+    if (e.key === 'Enter' && !answersEnter(e.target)) {
+      const next = e.shiftKey ? groupsOf(editor) : membersOf(editor)
+      if (next === null) return
+      e.preventDefault()
+      editor.setSelection(next)
+      return
+    }
     const arrow = ARROWS[e.key]
     if (arrow) {
       if (editor.selection.length === 0) return
@@ -722,6 +759,35 @@ function zoomOf(e: KeyboardEvent): 'fit' | 'selection' | 'in' | 'out' | null {
 function hasTextSelection(): boolean {
   const selected = window.getSelection()
   return selected !== null && !selected.isCollapsed && selected.toString().length > 0
+}
+
+// Controls that answer Enter themselves — a button presses, a link follows, a menu item picks.
+const ENTER_CONTROLS =
+  'button, a[href], summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"]'
+
+function answersEnter(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(ENTER_CONTROLS) !== null
+}
+
+// The selection with each selected group swapped for its members — null when no group is selected.
+function membersOf<S extends string>(editor: SeatPlanEditor<S>): EditorSelection<S>[] | null {
+  if (!editor.selection.some((item) => item.kind === 'group')) return null
+  return editor.selection.flatMap((item) =>
+    item.kind === 'group'
+      ? seatPlan.membersOf(editor.plan, item.id).map((o) => ({ kind: 'object' as const, id: o.id }))
+      : [item],
+  )
+}
+
+// The selection with each grouped object swapped for its group — null when no selected object is in one.
+function groupsOf<S extends string>(editor: SeatPlanEditor<S>): EditorSelection<S>[] | null {
+  const groupOf = (item: EditorSelection<S>) =>
+    item.kind === 'object' ? seatPlan.objectById(editor.plan, item.id)?.group : undefined
+  if (!editor.selection.some((item) => groupOf(item) !== undefined)) return null
+  return editor.selection.map((item) => {
+    const group = groupOf(item)
+    return group === undefined ? item : { kind: 'group' as const, id: group }
+  })
 }
 
 // Whether a selection already holds an item — itself, or the group of a grouped object.

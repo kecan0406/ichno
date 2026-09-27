@@ -246,7 +246,8 @@ import { SeatMap, useSeatMapView } from 'ichno/react'
 
 const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 46 } })
 const map = useSeatMapView(editor.plan)
-// arrows, Delete, R / ⇧R, Escape, ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G / ⇧⌘G, ⌘Z / ⇧⌘Z — and with the view, + / − / ⇧1 / ⇧2
+// arrows, Delete, R / ⇧R, Escape, Enter / ⇧Enter, ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G / ⇧⌘G, ⌘] / ⌘[, ⌘Z / ⇧⌘Z —
+// and with the view, + / − / ⇧1 / ⇧2
 useSeatPlanEditorShortcuts(editor, { view: map })
 
 <SeatMap.Viewport {...editor.viewportProps} {...map.viewProps} wheel="pan">
@@ -361,19 +362,28 @@ Operations take object and group ids alike — a group acts as one.
   table whole), `rotateSelected(degrees)`, `moveSelected(delta)` (objects, groups and sections), `alignSelected`,
   `distributeSelected`, `label(ids, sequence)` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or
   `labeling.custom`, `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
-  `ungroupSelected`, `moveSection`, `reshapeSection`.
+  `ungroupSelected`, `moveSection`, `reshapeSection`, `reorderSelected('front' | 'back' | 'forward' | 'backward')`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
-- **Select:** `select(target, additive)`, `selectAll()`.
+- **Select:** `select(target, additive)` (what a tap selects), `selectAll()`, `setSelection(items)` (exactly these
+  objects, groups and sections — for a layers panel or a list of problems).
+
+`objects` is the drawing order, later on top. `reorderSelected` moves the selection to the front or back, or a step
+past the next unit — a group as one, or an object outside one. Units stand in the order of their highest member, so
+a group whose members are drawn apart (a table top under everything, its seats on top) is listed where its highest
+member is; list your layers that way and a step moves one row.
+
 - **Remove:** `removeObjects`, `removeSelected`, `cutSelected` — return the ids they refused. Groups left empty go
   too.
 - **History:** `undo`, `redo`, `canUndo`, `canRedo`, `reset`.
 
 `useSeatPlanEditorShortcuts` binds the arrow keys (move the selection one unit — with Shift ten, or half a cell and
 a cell when snapping; with nothing selected they move the viewport's focus ring), Delete, R / ⇧R, Escape (the
-stroke, drag or marquee under way, then the tool, then the selection), ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G / ⇧⌘G (group,
-ungroup) and ⌘Z / ⇧⌘Z. Given `{ view }` — `useSeatMapView`, or anything with `zoomIn`, `zoomOut`, `fit` and
-`zoomTo` (`ViewControls`) — + and − zoom, ⇧1 shows the whole plan and ⇧2 the selection. It ignores keys typed into
-a field and keys a handler already took (`preventDefault`), so your own shortcuts can run first.
+stroke, drag or marquee under way, then the tool, then the selection), Enter / ⇧Enter (the selected groups'
+members, the selected objects' groups), ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G / ⇧⌘G (group, ungroup), ⌘] / ⌘[ (a step
+forward, backward), ⌥⌘] / ⌥⌘[ (to the front, back) and ⌘Z / ⇧⌘Z. Given `{ view }` — `useSeatMapView`, or anything
+with `zoomIn`, `zoomOut`, `fit` and `zoomTo` (`ViewControls`) — + and − zoom, ⇧1 shows the whole plan and ⇧2 the
+selection. It ignores keys typed into a field, Enter on a control that answers it (a button, a link, a menu item),
+and keys a handler already took (`preventDefault`), so your own shortcuts can run first.
 
 `lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or turned into a
 fixture, while labels stay free. Every operation is also available as a pure function in `planEdits` (plan in, plan

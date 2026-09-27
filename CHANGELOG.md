@@ -74,6 +74,12 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   (`preventDefault`) are left alone.
 - `ichno/editor`: `overlayProps` — what the editor draws over the plan, for `SeatMap.EditorOverlay` — and
   `selectionBounds`, what the selection covers, for zooming to it.
+- `ichno/editor`: layers panels — `setSelection(items)` selects exactly the given objects, groups and sections, where
+  a tap picks a grouped object's group first. `planEdits.reorder(plan, ids, to)` and `reorderSelected(to)` move
+  objects and groups in the drawing order: `front`, `back`, or a step `forward` or `backward` past the next unit — a
+  group as one, standing where its highest member is drawn. Shortcuts: ⌘] / ⌘[ step forward and backward, ⌥⌘] /
+  ⌥⌘[ go to the front and back (with nothing selected they stay the browser's), Enter selects the selected groups'
+  members and ⇧Enter the selected objects' groups. Enter on a button, a link or a menu item is left to it.
 - `ichno/react`: `useSeatMapView(plan)` keeps the view of a `SeatMap.Viewport` with the controls around it —
   `zoomIn`, `zoomOut`, `fit`, `zoomTo(rects)`, `level` (1: the whole plan), `canZoomIn`, `canZoomOut` — and
   `viewProps` to spread into the viewport.

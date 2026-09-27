@@ -182,7 +182,9 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
    previewed while drawn and committed as one step), saved objects and the clipboard as `PlanTemplate`s (objects
    and groups around their centre, no sections, versioned like documents), selection and hover outlines, Shift
    constraints, keyboard nudging, Space and wheel panning; the view's controls (`useSeatMapView`, zoom keys) and
-   `SeatMap.EditorOverlay`, so an editor is its panels and tools. Ships with phase 6 as 0.3.
+   `SeatMap.EditorOverlay`, so an editor is its panels and tools; what a layers panel needs — exact selection
+   (`setSelection`), the drawing order (`planEdits.reorder`, ⌘] / ⌘[) and moving between a group and its members
+   (Enter / ⇧Enter). Ships with phase 6 as 0.3.
 
 ## Out of scope
 

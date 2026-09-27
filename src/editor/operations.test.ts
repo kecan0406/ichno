@@ -279,6 +279,50 @@ describe('planEdits — arranging', () => {
   })
 })
 
+describe('planEdits — drawing order', () => {
+  // Bottom to top: a table's top, a stage, A1, the table's seats B1 and B2, A2. Listed by their highest member, top
+  // first: A2, the table, A1, the stage.
+  const fixture = (id: string, group?: string): PlanObject<S> => ({
+    kind: 'fixture',
+    id,
+    shape: 'rect',
+    x: 600,
+    y: 600,
+    w: 92,
+    h: 92,
+    ...(group ? { group } : {}),
+  })
+  const plan = planOf(
+    [
+      fixture('top', 'table-1'),
+      fixture('stage'),
+      desk('A1', 2, 2),
+      desk('B1', 600, 2, { section: 'B', group: 'table-1' }),
+      desk('B2', 600, 94, { section: 'B', group: 'table-1' }),
+      desk('A2', 94, 2),
+    ],
+    [{ id: 'table-1', role: 'table' }],
+  )
+
+  it('moves a group to the front or back as one, keeping the order of what moves', () => {
+    expect(idsOf(planEdits.reorder(plan, ['table-1'], 'front'))).toEqual(['stage', 'A1', 'A2', 'top', 'B1', 'B2'])
+    expect(idsOf(planEdits.reorder(plan, ['A2', 'stage'], 'back'))).toEqual(['stage', 'A2', 'top', 'A1', 'B1', 'B2'])
+  })
+
+  it('steps past one unit, a group standing where its highest member is drawn', () => {
+    expect(idsOf(planEdits.reorder(plan, ['A1'], 'forward'))).toEqual(['top', 'stage', 'B1', 'B2', 'A1', 'A2'])
+    expect(idsOf(planEdits.reorder(plan, ['A2'], 'backward'))).toEqual(['top', 'stage', 'A1', 'B1', 'A2', 'B2'])
+    expect(idsOf(planEdits.reorder(plan, ['table-1'], 'backward'))).toEqual(['stage', 'top', 'B1', 'B2', 'A1', 'A2'])
+  })
+
+  it('leaves the plan as it is with nothing to pass', () => {
+    expect(planEdits.reorder(plan, ['A2'], 'forward')).toBe(plan)
+    // The stage is drawn over the table's top, but the table is listed above it — it is already the lowest.
+    expect(planEdits.reorder(plan, ['stage'], 'backward')).toBe(plan)
+    expect(planEdits.reorder(plan, ['missing'], 'front')).toBe(plan)
+  })
+})
+
 describe('planEdits — templates', () => {
   // Row `row-1` (A1–A4, centres 46 to 460 on y 400) with its label beyond the last seat.
   const { plan: rowed } = withRow(planOf([desk('D1', 600, 2)]))
