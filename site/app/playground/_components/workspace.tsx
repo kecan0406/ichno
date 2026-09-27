@@ -13,6 +13,7 @@ import {
 } from 'ichno'
 import { planEdits, useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
 import { SeatMap, useSeatMapView } from 'ichno/react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useEffect, useEffectEvent, useState } from 'react'
 import { fixtureNames } from '../../_demo/plans'
@@ -37,6 +38,16 @@ import { ShortcutsDialog } from './shortcuts'
 
 type Panel = 'inspect' | 'checks' | 'json'
 
+// The 3D preview is this site's own (three.js) — fetched only when someone switches to it.
+const Preview3D = dynamic(() => import('./preview-3d'), {
+  ssr: false,
+  loading: () => (
+    <div className={styles.scene3d}>
+      <p className={styles.scene3dMessage}>Loading the 3D view…</p>
+    </div>
+  ),
+})
+
 const SELECT_HINT =
   'Tap to select, again for one seat of a group. Drag to move, or drag the floor to select an area. ? for keys.'
 
@@ -58,6 +69,8 @@ export function Workspace({
   const { onTap, ...viewportProps } = editor.viewportProps
 
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
+  // Preview draws the plan with ichno (2D) or stands it up in the site's 3D view.
+  const [dimension, setDimension] = useState<'2d' | '3d'>('2d')
   const [panel, setPanel] = useState<Panel>('inspect')
   // Keep the object picked after placing one, instead of going back to selecting.
   const [keep, setKeep] = useState(false)
@@ -187,6 +200,8 @@ export function Workspace({
 
   // Over the plan with a tool that can make nothing there — its places need a section to belong to.
   const nowhere = activeTool !== null && editor.pointer !== null && editor.draft === null
+  // The 3D view brings its own status line and camera buttons.
+  const threeD = mode === 'preview' && dimension === '3d'
   const status =
     notice ??
     (mode === 'preview'
@@ -307,6 +322,16 @@ export function Workspace({
               )}
               <SeatMap.EditorOverlay {...editor.overlayProps} />
             </SeatMap.Viewport>
+          ) : threeD ? (
+            <Preview3D
+              plan={plan}
+              status={bookedStatus}
+              picked={picked}
+              isDisabled={(place) => picking === 'pick' && booked.includes(place.id)}
+              sectionName={(id) => initial.sectionNames[id] ?? id}
+              fixtureName={fixtureLabel}
+              onPlaceTap={previewTap}
+            />
           ) : (
             <SeatMap.Viewport
               plan={plan}
@@ -328,46 +353,72 @@ export function Workspace({
             </SeatMap.Viewport>
           )}
 
-          <div className={styles.status} aria-live="polite" data-warn={nowhere || undefined}>
-            {status}
-            {mode === 'edit' && editor.conflictIds.length > 0 && (
-              <span className={styles.statusWarn}>{editor.conflictIds.length} overlapping</span>
-            )}
-          </div>
-          <div className={styles.zoom}>
-            <button
-              type="button"
-              aria-label="Zoom out"
-              title="Zoom out (−)"
-              disabled={!map.canZoomOut}
-              onClick={map.zoomOut}
-            >
-              −
-            </button>
-            <button type="button" className={styles.zoomLevel} title="Fit the plan (⇧1)" onClick={map.fit}>
-              {Math.round(map.level * 100)}%
-            </button>
-            <button
-              type="button"
-              aria-label="Zoom in"
-              title="Zoom in (+)"
-              disabled={!map.canZoomIn}
-              onClick={map.zoomIn}
-            >
-              +
-            </button>
-            {mode === 'edit' && (
+          {mode === 'preview' && (
+            <div className={styles.dimension} role="radiogroup" aria-label="Preview as">
               <button
                 type="button"
-                aria-label="Zoom to the selection"
-                title="Zoom to the selection (⇧2)"
-                disabled={editor.selection.length === 0}
-                onClick={() => map.zoomTo(editor.selectionBounds)}
+                role="radio"
+                aria-checked={dimension === '2d'}
+                title="The plan as ichno draws it"
+                onClick={() => setDimension('2d')}
               >
-                <Icon name="focus" />
+                2D
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={dimension === '3d'}
+                title="The same document stood up in 3D by this playground (three.js) — not part of ichno"
+                onClick={() => setDimension('3d')}
+              >
+                3D
+              </button>
+            </div>
+          )}
+          {!threeD && (
+            <div className={styles.status} aria-live="polite" data-warn={nowhere || undefined}>
+              {status}
+              {mode === 'edit' && editor.conflictIds.length > 0 && (
+                <span className={styles.statusWarn}>{editor.conflictIds.length} overlapping</span>
+              )}
+            </div>
+          )}
+          {!threeD && (
+            <div className={styles.zoom}>
+              <button
+                type="button"
+                aria-label="Zoom out"
+                title="Zoom out (−)"
+                disabled={!map.canZoomOut}
+                onClick={map.zoomOut}
+              >
+                −
+              </button>
+              <button type="button" className={styles.zoomLevel} title="Fit the plan (⇧1)" onClick={map.fit}>
+                {Math.round(map.level * 100)}%
+              </button>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                title="Zoom in (+)"
+                disabled={!map.canZoomIn}
+                onClick={map.zoomIn}
+              >
+                +
+              </button>
+              {mode === 'edit' && (
+                <button
+                  type="button"
+                  aria-label="Zoom to the selection"
+                  title="Zoom to the selection (⇧2)"
+                  disabled={editor.selection.length === 0}
+                  onClick={() => map.zoomTo(editor.selectionBounds)}
+                >
+                  <Icon name="focus" />
+                </button>
+              )}
+            </div>
+          )}
         </main>
 
         <aside className={styles.side}>
@@ -414,6 +465,7 @@ export function Workspace({
             <div className={styles.panel}>
               <PreviewPanel
                 plan={plan}
+                threeD={threeD}
                 picking={picking}
                 onPickingChange={setPicking}
                 rules={rules}

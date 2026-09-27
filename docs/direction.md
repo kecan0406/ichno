@@ -189,3 +189,10 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
 Booking flow (holds, sessions, channels, seasons, best available), prices and ticket types, finished UI chrome
 (legend, filters, popovers, loading states), 3D and image scanning. These need a server or a design system, and
 both belong to the consumer.
+
+A 3D view is a renderer the consumer adds over the same document. The playground's 3D preview shows the shape:
+three.js in the site, loaded only when opened, reading places, fixtures, groups and roles as stored and supplying
+what the document does not hold — a scale for plan units, heights, which way seating faces, where a guest's eyes
+are — as its own reading of its roles (`site/app/playground/_lib/scene.ts`). Nothing in ichno changed for it.
+Real heights (raked rows, balconies, floors) would be a document change — an optional field and a decision recorded
+here — not a renderer one.

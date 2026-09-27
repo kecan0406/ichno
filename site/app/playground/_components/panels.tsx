@@ -125,6 +125,7 @@ export type PickRules = { max: number; consecutive: boolean; noOrphans: boolean 
 
 export function PreviewPanel({
   plan,
+  threeD,
   picking,
   onPickingChange,
   rules,
@@ -136,6 +137,7 @@ export function PreviewPanel({
   onClear,
 }: {
   plan: SeatPlan<string>
+  threeD: boolean
   picking: 'pick' | 'book'
   onPickingChange(next: 'pick' | 'book'): void
   rules: PickRules
@@ -152,6 +154,12 @@ export function PreviewPanel({
         This is the plan as your customers would see it. Booked places stay booked in the editor too — they become its
         <code>lockedIds</code>, so what they hold cannot be deleted.
       </p>
+      {threeD && (
+        <p className={styles.panelHint}>
+          The 3D view is this playground’s own, built with three.js from the same document. ichno stores footprints only
+          — the heights, which way chairs face and the furniture are the playground’s reading of its roles.
+        </p>
+      )}
       <Segmented
         label="Tapping a place"
         value={picking}
