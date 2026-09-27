@@ -400,7 +400,7 @@ function GroupInspector({ editor, booked, onNotice, onSaveObject, group }: Props
         its centre
       </p>
       <div className={styles.actions}>
-        <button type="button" className={styles.button} onClick={() => editor.ungroup(group.id)}>
+        <button type="button" className={styles.button} onClick={() => editor.ungroup(group.id)} title="⇧⌘G">
           Ungroup
         </button>
       </div>

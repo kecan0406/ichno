@@ -9,7 +9,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['V', 'Select'],
       ['1 – 6', 'Row, seat block, round table, desk, booth, standing area — the playground’s objects'],
       ['Q', 'Keep the object picked after placing one'],
-      ['Esc', 'Stop drawing, put the object down, then clear the selection'],
+      ['Esc', 'Drop the drawing, drag or marquee under way, put the object down, then clear the selection'],
     ],
   },
   {
@@ -39,7 +39,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     keys: [
       ['⌘C  ⌘X  ⌘V', 'Copy, cut, paste — under the pointer'],
       ['⌘D', 'Duplicate'],
-      ['⌘G', 'Group'],
+      ['⌘G  ⇧⌘G', 'Group, ungroup'],
       ['⌘Z  ⇧⌘Z', 'Undo, redo'],
     ],
   },
@@ -49,6 +49,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['Scroll', 'Pan'],
       ['Pinch  ⌘-scroll', 'Zoom'],
       ['Space-drag', 'Pan, whatever the tool'],
+      ['Drag to the edge', 'Scroll the plan while moving, selecting or drawing'],
       ['+  −', 'Zoom in, out'],
       ['⇧1  ⇧2', 'Fit the plan, zoom to the selection'],
       ['?', 'This list'],

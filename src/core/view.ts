@@ -9,18 +9,21 @@ export type PlanView = PlanRect
 // The viewport's size in CSS pixels.
 export type ViewportSize = { width: number; height: number }
 
-// One wheel tick, and the zoom range relative to the home view (the whole drawing).
+// One wheel tick, and how far the zoom goes in, relative to the home view (the whole drawing). It goes no further out
+// than the home view itself: a step cut short at a limit below it would leave every later step off the home view
+// (90% × 1.1 = 99%), so zooming in and back out would never come back to it.
 export const ZOOM_STEP = 1.1
-const ZOOM_MIN_FACTOR = 0.9
 const ZOOM_MAX_FACTOR = 6
 
 export const planView = {
   home,
   zoom,
   pan,
+  pinch,
   fitTo,
   scaleOf,
   toPlan,
+  visible,
   region,
   contains,
   scaleStep,
@@ -32,10 +35,10 @@ function home(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>): PlanView {
   return seatPlan.drawingBoundsOf(plan)
 }
 
-// Zoom by `factor` (> 1 zooms in) keeping `center` (a plan point, e.g. under the cursor) fixed, within
-// 0.9×–6× of `homeView`.
+// Zoom by `factor` (> 1 zooms in) keeping `center` (a plan point, e.g. under the cursor) fixed, from `homeView` in
+// to 6× — zooming out stops at the whole drawing, exactly.
 function zoom(view: PlanView, factor: number, center: PlanPoint, homeView: PlanView): PlanView {
-  const w = clamp(view.w / factor, homeView.w / ZOOM_MAX_FACTOR, homeView.w / ZOOM_MIN_FACTOR)
+  const w = clamp(view.w / factor, homeView.w / ZOOM_MAX_FACTOR, homeView.w)
   const applied = view.w / w
   return {
     x: center.x - (center.x - view.x) / applied,
@@ -50,16 +53,32 @@ function pan(view: PlanView, delta: PlanPoint): PlanView {
   return { ...view, x: view.x + delta.x, y: view.y + delta.y }
 }
 
+// One step of a two-finger pinch: the plan follows the fingers' midpoint (`delta`, screen pixels since the last
+// step, `center` where it is now) and scales by `factor` about it — so the plan point between the fingers stays
+// between them.
+function pinch(
+  view: PlanView,
+  size: ViewportSize,
+  step: { center: { x: number; y: number }; delta: { x: number; y: number }; factor: number },
+  homeView: PlanView,
+): PlanView {
+  const perPixel = 1 / scaleOf(view, size)
+  const panned = pan(view, { x: -step.delta.x * perPixel, y: -step.delta.y * perPixel })
+  // Where the fingers are now, on the plan as it has followed them — not on the view before it moved.
+  return zoom(panned, step.factor, toPlan(panned, size, step.center), homeView)
+}
+
 // The view that frames the given rectangles (e.g. the places to zoom to) with `padding` plan units around them,
-// never closer than the maximum zoom of `homeView`. null when there is nothing to frame.
+// within the zoom range — never closer than the maximum zoom of `homeView`, never further out than it. null when
+// there is nothing to frame.
 function fitTo(rects: readonly PlanRect[], padding: number, homeView: PlanView): PlanView | null {
   if (rects.length === 0) return null
   const x0 = Math.min(...rects.map((r) => r.x)) - padding
   const y0 = Math.min(...rects.map((r) => r.y)) - padding
   const x1 = Math.max(...rects.map((r) => r.x + r.w)) + padding
   const y1 = Math.max(...rects.map((r) => r.y + r.h)) + padding
-  const w = Math.max(x1 - x0, homeView.w / ZOOM_MAX_FACTOR)
-  const h = Math.max(y1 - y0, homeView.h / ZOOM_MAX_FACTOR)
+  const w = clamp(x1 - x0, homeView.w / ZOOM_MAX_FACTOR, homeView.w)
+  const h = clamp(y1 - y0, homeView.h / ZOOM_MAX_FACTOR, homeView.h)
   return { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h }
 }
 
@@ -81,6 +100,16 @@ function toPlan(view: PlanView, size: ViewportSize, point: { x: number; y: numbe
   const offsetX = (size.width - view.w * scale) / 2
   const offsetY = (size.height - view.h * scale) / 2
   return { x: view.x + (point.x - offsetX) / scale, y: view.y + (point.y - offsetY) / scale }
+}
+
+// What the viewport shows — more than the view along its short side when the shapes differ: the browser centres
+// the viewBox (xMidYMid meet) and the plan beyond it stays visible. Cull, and keep things on screen, against this.
+function visible(view: PlanView, size: ViewportSize): PlanRect {
+  const scale = scaleOf(view, size)
+  if (!(scale > 0)) return view
+  const w = size.width / scale
+  const h = size.height / scale
+  return { x: view.x - (w - view.w) / 2, y: view.y - (h - view.h) / 2, w, h }
 }
 
 // The view grown by `margin` of its size on every side — the area worth drawing, so small pans stay inside it.

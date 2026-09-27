@@ -1,5 +1,6 @@
 import { Viewport } from './client/viewport'
 import { Content } from './content'
+import { EditorOverlay } from './overlay'
 import {
   FixturePart,
   GridPart,
@@ -25,7 +26,10 @@ export const SeatMap = {
   Handles: HandlesPart,
   Outline: OutlinePart,
   Marquee: MarqueePart,
+  EditorOverlay,
 }
 
+export { useSeatMapView, type SeatMapView } from './client/use-seat-map-view'
 export type { PlaceProps } from './parts'
+export type { EditorOverlayProps } from './overlay'
 export type { ViewportFrame } from './client/viewport'

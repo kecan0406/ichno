@@ -3,11 +3,13 @@ import {
   layout,
   seatPlan,
   type Fixture,
+  type LabelSequence,
   type Place,
   type PlanBox,
   type PlanObject,
   type PlanPoint,
   type PlanRect,
+  type PlanSize,
   type PlanStroke,
   type SeatPlan,
   type Shape,
@@ -88,7 +90,7 @@ export function tableTool(plan: Plan, stroke: PlanStroke): Plan | null {
   const count = tap ? 6 : clamp(Math.round((Math.PI * (top.w + top.h)) / 2 / PITCH), 2, 20)
   const section = seatPlan.sectionAt(plan, seatPlan.centerOf(top))
   if (section === null) return null
-  const label = `T${groupsWithRole(plan, 'table') + 1}`
+  const label = nextLabel(plan, 'table', TABLE_LABELS)
   const { plan: grouped, id } = planEdits.addGroup(plan, { role: 'table', label })
   const withTop = planEdits.addFixtures(grouped, [top], { shape: 'ellipse', role: 'table', group: id }).plan
   const boxes = layout.around({ table: top, shape: 'ellipse', count, size: TABLE_SEAT })
@@ -153,7 +155,8 @@ export function fixtureTool(role: string | undefined, size: { w: number; h: numb
 
 // ---------- Rows ----------
 
-export type Row = { seats: Place[]; start: PlanPoint; end: PlanPoint; curve: number; size: number }
+// `size` is the first seat's — every seat of a relaid row takes it.
+export type Row = { seats: Place[]; start: PlanPoint; end: PlanPoint; curve: number; size: PlanSize }
 
 // A row read back from its seats — the arc through their centres, first to last.
 export function rowOf(plan: Plan, groupId: string): Row | null {
@@ -165,11 +168,12 @@ export function rowOf(plan: Plan, groupId: string): Row | null {
     start: centers[0]!,
     end: centers.at(-1)!,
     curve: layout.curveOf(centers),
-    size: Math.min(seats[0]!.w, seats[0]!.h),
+    size: { w: seats[0]!.w, h: seats[0]!.h },
   }
 }
 
-// The row laid out again between the same ends — with another seat count or curve. Its labels follow its ends.
+// The row laid out again between the same ends — with another seat count or curve. Its labels follow its ends, and
+// seats numbered the way the inspector numbers them stay numbered that way, new ones included.
 export function relayRow(
   plan: Plan,
   groupId: string,
@@ -179,17 +183,31 @@ export function relayRow(
   const row = rowOf(plan, groupId)
   if (!row) return null
   const count = change.count ?? row.seats.length
-  // A single seat has no ends to span — grow it along the row's direction, one seat apart.
-  const end = row.seats.length === 1 ? { x: row.start.x + row.size * 1.2 * (count - 1), y: row.start.y } : row.end
-  const boxes = layout.arc({ start: row.start, end, curve: change.curve ?? row.curve, count, size: row.size })
+  const boxes = layout.arc({
+    start: row.start,
+    end: endOf(row, count),
+    curve: change.curve ?? row.curve,
+    count,
+    size: row.size,
+  })
   const next = planEdits.layoutGroup(plan, groupId, boxes, { kind: 'place' }, locked)
   if (!next) return null
   const labels = seatPlan.membersOf(next, groupId).filter((o) => o.kind === 'label')
-  return planEdits.arrange(
+  const arranged = planEdits.arrange(
     next,
     labels.map((o) => o.id),
     labelBoxesOf(boxes),
   )
+  return renumbered(arranged, groupId, numberingOf(row.seats))
+}
+
+// Where a relaid row ends. A single seat has no ends to span — the row grows the way the seat faces, a seat and a
+// fifth apart.
+function endOf(row: Row, count: number): PlanPoint {
+  if (row.seats.length > 1) return row.end
+  const heading = ((row.seats[0]!.rotation ?? 0) * Math.PI) / 180
+  const reach = row.size.w * 1.2 * (count - 1)
+  return { x: row.start.x + Math.cos(heading) * reach, y: row.start.y + Math.sin(heading) * reach }
 }
 
 // A lettered row of `count` seats from `start` to `end` (seat centres), numbered from the start, its letter at both
@@ -197,7 +215,7 @@ export function relayRow(
 function rowOn(plan: Plan, start: PlanPoint, end: PlanPoint, count: number): Plan | null {
   const section = seatPlan.sectionAt(plan, { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 })
   if (section === null) return null
-  const label = labeling.letters({ skip: ['I', 'O'] })(groupsWithRole(plan, 'row'), 1)
+  const label = nextLabel(plan, 'row', ROW_LABELS)
   const { plan: grouped, id } = planEdits.addGroup(plan, { role: 'row', label })
   const boxes = layout.line({ start, end, count, size: SEAT })
   const seats = planEdits.addPlaces(grouped, section, boxes, { role: 'seat', group: id })
@@ -226,7 +244,8 @@ function labelBoxesOf(seats: readonly PlanBox[]): PlanBox[] {
 
 // ---------- Tables ----------
 
-export type Table = { top: Place | Fixture; seats: (Place | Fixture)[]; whole: boolean; size: number }
+// `size` is the first seat's — every seat of a relaid table takes it.
+export type Table = { top: Place | Fixture; seats: (Place | Fixture)[]; whole: boolean; size: PlanSize }
 
 // A table read back from its group: the member with the `table` role is the top; booked whole, the top is the
 // place and the seats are chairs.
@@ -236,9 +255,12 @@ export function tableOf(plan: Plan, groupId: string): Table | null {
   if (!top) return null
   const whole = top.kind === 'place'
   const seats = members.filter((o) => o !== top && (whole ? o.kind === 'fixture' : o.kind === 'place'))
-  return { top, seats, whole, size: seats[0] ? Math.min(seats[0].w, seats[0].h) : TABLE_SEAT }
+  const size = seats[0] ? { w: seats[0].w, h: seats[0].h } : { w: TABLE_SEAT, h: TABLE_SEAT }
+  return { top, seats, whole, size }
 }
 
+// The table's seats set round it again — another count or shape. Seats numbered or lettered the way the inspector
+// does it stay that way, new ones included.
 export function relayTable(
   plan: Plan,
   groupId: string,
@@ -252,7 +274,9 @@ export function relayTable(
   const reshaped = replace(plan, { ...table.top, shape, ...(table.whole ? { capacity: count } : {}) })
   const boxes = layout.around({ table: table.top, shape, count, size: table.size })
   const members = table.whole ? { kind: 'fixture' as const, role: 'chair' } : { kind: 'place' as const }
-  return planEdits.layoutGroup(reshaped, groupId, boxes, members, locked)
+  const next = planEdits.layoutGroup(reshaped, groupId, boxes, members, locked)
+  // Booked whole, the seats are chairs — nothing to number.
+  return next && renumbered(next, groupId, table.whole ? null : numberingOf(table.seats))
 }
 
 // Booked whole: the top becomes the place (holding every seat) and the seats become chairs — or back.
@@ -274,7 +298,7 @@ export function setWholeTable(plan: Plan, groupId: string, whole: boolean, locke
 // ---------- Helpers ----------
 
 // The rectangle a stroke spans, corner to corner.
-export function rectOf(stroke: PlanStroke): PlanRect {
+function rectOf(stroke: PlanStroke): PlanRect {
   return {
     x: Math.min(stroke.start.x, stroke.end.x),
     y: Math.min(stroke.start.y, stroke.end.y),
@@ -302,8 +326,51 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function groupsWithRole(plan: Plan, role: string): number {
-  return plan.groups.filter((group) => group.role === role).length
+// What new rows and tables are called — rows A, B, C… (no I or O, which read as 1 and 0), tables T1, T2…
+const ROW_LABELS = labeling.letters({ skip: ['I', 'O'] })
+const TABLE_LABELS = labeling.numbers({ prefix: 'T' })
+
+// The label after the furthest one groups of `role` already use — counting them would hand out a label twice once
+// one was deleted (rows A, B, C, then B deleted: the next is D, not a second C). Labels outside the sequence are
+// someone's own names and are passed over.
+function nextLabel(plan: Plan, role: string, sequence: LabelSequence): string {
+  const used = new Set(plan.groups.flatMap((g) => (g.role === role && g.label !== undefined ? [g.label] : [])))
+  let next = 0
+  for (let i = 0, found = 0; found < used.size && i < LABEL_SEARCH; i++) {
+    if (!used.has(sequence(i, i + 1))) continue
+    next = i + 1
+    found++
+  }
+  return sequence(next, next + 1)
+}
+
+// How far into a sequence `nextLabel` looks for labels in use.
+const LABEL_SEARCH = 1000
+
+// The ways the inspector numbers seats — kept when a row or table grows or shrinks, so new seats are numbered like
+// the rest.
+const SEAT_NUMBERINGS: LabelSequence[] = [
+  labeling.numbers(),
+  labeling.numbers({ reverse: true }),
+  labeling.numbers({ step: 2 }),
+  labeling.letters(),
+]
+
+// Which of those the seats follow, in order — null when they are labelled some other way (they keep their labels).
+function numberingOf(seats: readonly (Place | Fixture)[]): LabelSequence | null {
+  const labels = seats.map((seat) => (seat.kind === 'place' ? seat.label : undefined))
+  return SEAT_NUMBERINGS.find((sequence) => labels.every((label, i) => label === sequence(i, labels.length))) ?? null
+}
+
+// A group's places labelled again by `numbering`, in their new order and number. The plan as it is without one.
+function renumbered(plan: Plan, groupId: string, numbering: LabelSequence | null): Plan {
+  if (numbering === null) return plan
+  const seats = seatPlan.membersOf(plan, groupId).filter((o) => o.kind === 'place')
+  return planEdits.label(
+    plan,
+    seats.map((o) => o.id),
+    numbering,
+  )
 }
 
 function replace(plan: Plan, object: PlanObject<string>): Plan {

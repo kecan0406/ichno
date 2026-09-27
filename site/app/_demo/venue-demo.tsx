@@ -1,7 +1,7 @@
 'use client'
 
-import { planView, seatPlan, validateSelection, type Place, type PlanView } from 'ichno'
-import { SeatMap } from 'ichno/react'
+import { seatPlan, validateSelection, type Place } from 'ichno'
+import { SeatMap, useSeatMapView } from 'ichno/react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import styles from './demo.module.css'
@@ -11,7 +11,6 @@ import { fixtureNames, venuePlan, venueSectionNames, venueStatus, type VenueSect
 const places = seatPlan.placesOf(venuePlan)
 const placeById = new Map(places.map((place) => [place.id, place]))
 const unavailable = Object.keys(venueStatus)
-const HOME = planView.home(venuePlan)
 const MAX_PICK = 8
 
 const PALETTES = [
@@ -25,22 +24,17 @@ type Palette = (typeof PALETTES)[number]['id']
 
 export function VenueDemo() {
   const [selected, setSelected] = useState<string[]>([])
-  const [view, setView] = useState<PlanView>(HOME)
+  const map = useSeatMapView(venuePlan)
   const [palette, setPalette] = useState<Palette>('site')
 
   const issues = validateSelection(venuePlan, { selected, unavailable }, { max: MAX_PICK, noOrphans: true })
   const guests = selected.reduce((sum, id) => sum + (placeById.get(id)?.capacity ?? 0), 0)
-  const zoomed = view.w < HOME.w - 1
+  // Zoomed in past the whole plan — it pans then, and can go back.
+  const zoomed = map.canZoomOut
 
   function toggle(place: Place<VenueSection>) {
     setSelected((current) =>
       current.includes(place.id) ? current.filter((id) => id !== place.id) : [...current, place.id],
-    )
-  }
-
-  function zoomBy(factor: number) {
-    setView((current) =>
-      planView.zoom(current, factor, { x: current.x + current.w / 2, y: current.y + current.h / 2 }, HOME),
     )
   }
 
@@ -49,8 +43,7 @@ export function VenueDemo() {
       const place = placeById.get(id)
       return place ? [seatPlan.boundsOf(place)] : []
     })
-    const next = planView.fitTo(rects, 160, HOME)
-    if (next) setView(next)
+    map.zoomTo(rects, 160)
   }
 
   return (
@@ -87,8 +80,7 @@ export function VenueDemo() {
       <div className={styles.stage} data-zoomed={zoomed || undefined}>
         <SeatMap.Viewport
           plan={venuePlan}
-          view={view}
-          onViewChange={setView}
+          {...map.viewProps}
           pannable={zoomed}
           zoomable={false}
           onPlaceClick={toggle}
@@ -138,13 +130,13 @@ export function VenueDemo() {
         </div>
         <div className={styles.summaryActions}>
           <div className={styles.zoom} role="group" aria-label="Zoom">
-            <button type="button" onClick={() => zoomBy(1.5)} aria-label="Zoom in">
+            <button type="button" onClick={map.zoomIn} aria-label="Zoom in" disabled={!map.canZoomIn}>
               +
             </button>
-            <button type="button" onClick={() => zoomBy(1 / 1.5)} aria-label="Zoom out" disabled={!zoomed}>
+            <button type="button" onClick={map.zoomOut} aria-label="Zoom out" disabled={!map.canZoomOut}>
               −
             </button>
-            <button type="button" onClick={() => setView(HOME)} aria-label="Show the whole plan" disabled={!zoomed}>
+            <button type="button" onClick={map.fit} aria-label="Show the whole plan" disabled={!zoomed}>
               ⤢
             </button>
           </div>

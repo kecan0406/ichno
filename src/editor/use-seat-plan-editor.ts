@@ -46,11 +46,15 @@ type DrawInfo = { phase: 'start' | 'move' | 'end' | 'cancel'; constrain: boolean
 // What was copied, where it came from, and how many times it was pasted next to it.
 type Clip = { template: PlanTemplate; at: PlanPoint; pastes: number }
 
+// The press under way — a stroke, a drag or a marquee — and whether Escape dropped it before it was let go.
+type Press = { kind: 'stroke' | 'drag' | 'marquee'; cancelled: boolean }
+
 // Undo depth — plenty for an editing session, bounded so a long one does not hold every version.
 const HISTORY_LIMIT = 100
 // How far each paste lands from what was copied when the pointer is not over the plan — two cells, like duplicate.
 const PASTE_STEP = GRID_CELL * 2
 const NO_KEYS = {}
+const NO_FRAMES: PlanPoint[][] = []
 
 // Headless seat plan editor — document state, selection, creation tools, clipboard, undo history and every edit
 // operation; no UI. Spread `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select, drag-to-move,
@@ -74,9 +78,9 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   const [drag, setDrag] = useState<PlanDrag<S> | null>(null)
   // The creation tool in use — null while selecting.
   const [tool, setToolState] = useState<EditorTool<S> | null>(null)
-  // The stroke being drawn with it, snapped and constrained — and whether Escape dropped it before it was let go.
+  // The stroke being drawn with it, snapped and constrained.
   const [stroke, setStroke] = useState<PlanStroke | null>(null)
-  const strokeRef = useRef<'idle' | 'drawing' | 'cancelled'>('idle')
+  const pressRef = useRef<Press | null>(null)
   // Where a tap would draw while a tool is active (snapped) — the tool previews there.
   const [pointer, setPointer] = useState<PlanPoint | null>(null)
   // The plan point under the pointer, whatever the tool — pasting lands there. Null when it is off the plan.
@@ -107,6 +111,15 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   )
   // The places of the selection — pass them to the renderer as selected.
   const selectedPlaceIds = selectedObjects.flatMap((object) => (object.kind === 'place' ? [object.id] : []))
+  // What the selection covers — objects by their turned bounds, sections by their outline's box. Frame it with a
+  // view's zoomTo (useSeatMapView, ichno/react).
+  const selectionBounds: PlanRect[] = [
+    ...selectedObjects.map(seatPlan.boundsOf),
+    ...selectedSectionIds.flatMap((id) => {
+      const section = seatPlan.sectionOf(plan, id)
+      return section ? [seatPlan.sectionBoundsOf(section)] : []
+    }),
+  ]
   // The plan as drawn — the drag in progress applied with the snapping it will commit with.
   const displayPlan = drag === null ? plan : planEdits.applyDrag(plan, drag, selectedIds, grid)
   // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it.
@@ -208,9 +221,19 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     return selection.some((item) => item.kind === 'section' && item.id === target.id)
   }
 
+  // Follows a press through its phases — true while its events should be acted on, false once Escape dropped it
+  // (until it is let go).
+  function pressing(kind: Press['kind'], phase: 'start' | 'move' | 'end'): boolean {
+    if (phase === 'start') pressRef.current = { kind, cancelled: false }
+    const press = pressRef.current
+    if (phase === 'end') pressRef.current = null
+    return press === null || !press.cancelled
+  }
+
   // Marquee selection — everything whose shape the rubber band touches, grouped objects as their group.
   // `additive` adds to the selection.
   function handleMarquee(rect: PlanRect, info: { phase: 'start' | 'move' | 'end'; additive: boolean }) {
+    if (!pressing('marquee', info.phase)) return
     if (info.phase !== 'end') {
       setMarquee(rect)
       return
@@ -227,6 +250,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   }
 
   function handleDrag(next: PlanDrag<S>) {
+    if (!pressing('drag', next.phase)) return
     if (next.phase === 'start' && next.target.kind !== 'handle') {
       const item = selectionOf(next.target, selection)
       // Dragging something outside the selection selects it alone; dragging a selected object moves the group.
@@ -257,21 +281,17 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   function handleDraw(raw: PlanStroke, info: DrawInfo) {
     if (tool === null) return
     if (info.phase === 'cancel') {
-      strokeRef.current = 'idle'
+      pressRef.current = null
       setStroke(null)
       return
     }
-    if (info.phase === 'start') strokeRef.current = 'drawing'
-    if (strokeRef.current === 'cancelled') {
-      if (info.phase === 'end') strokeRef.current = 'idle'
-      return
-    }
+    // A tap is a stroke with no `start` — only its end is reported.
+    if (!pressing('stroke', info.phase)) return
     const shaped = strokeOf(tool.draw, raw.start, raw.end, info, grid)
     if (info.phase !== 'end') {
       setStroke(shaped)
       return
     }
-    strokeRef.current = 'idle'
     setStroke(null)
     // The pointer is still where the tap was — no preview of the next one on top of what was just made.
     setPointer(null)
@@ -282,9 +302,11 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     if (!tool.keep) setToolState(null)
   }
 
-  // Picks a creation tool, or goes back to selecting with null. A stroke being drawn is dropped.
+  // Picks a creation tool, or goes back to selecting with null. A stroke being drawn is dropped — with another tool
+  // its end is ignored when it comes; with none, it never comes (the viewport stops drawing).
   function setTool(next: EditorTool<S> | null) {
-    if (strokeRef.current === 'drawing') strokeRef.current = 'cancelled'
+    const press = pressRef.current
+    if (press?.kind === 'stroke') pressRef.current = next === null ? null : { ...press, cancelled: true }
     setStroke(null)
     setToolState(next)
     setHovered(null)
@@ -292,11 +314,15 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     setPointer(next === null || point === null ? null : strokeOf('point', point, point, NO_KEYS, grid).end)
   }
 
-  // Drops the stroke being drawn (Escape) — letting go then makes nothing. false when none was being drawn.
-  function cancelDraw(): boolean {
-    if (strokeRef.current !== 'drawing') return false
-    strokeRef.current = 'cancelled'
+  // Drops the press under way (Escape) — a stroke makes nothing, a drag puts back what it moved, a marquee selects
+  // nothing; letting go then changes nothing. false when nothing was under way.
+  function cancel(): boolean {
+    const press = pressRef.current
+    if (press === null || press.cancelled) return false
+    pressRef.current = { ...press, cancelled: true }
     setStroke(null)
+    setDrag(null)
+    setMarquee(null)
     return true
   }
 
@@ -430,6 +456,19 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     setSelection(members.map((o) => ({ kind: 'object' as const, id: o.id })))
   }
 
+  // Dissolves every selected group in one step; their members take their place in the selection.
+  function ungroupSelected() {
+    const groups = selection.flatMap((item) => (item.kind === 'group' ? [item.id] : []))
+    if (groups.length === 0) return
+    const current = historyRef.current.present
+    const members = groups.flatMap((id) => seatPlan.membersOf(current, id).filter((o) => o.kind !== 'label'))
+    apply((plan) => groups.reduce((next, id) => planEdits.ungroup(next, id), plan))
+    setSelection([
+      ...selection.filter((item) => item.kind !== 'group'),
+      ...members.map((o) => ({ kind: 'object' as const, id: o.id })),
+    ])
+  }
+
   function reset() {
     commit({ past: [], present: start.history.present, future: [] })
     setSelection([])
@@ -445,6 +484,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     selectedGroups,
     selectedSection: selectedSectionIds[0] === undefined ? undefined : seatPlan.sectionOf(plan, selectedSectionIds[0]),
     selectedPlaceIds,
+    selectionBounds,
     handles,
     frame,
     frames,
@@ -470,7 +510,8 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     // Where a tap would draw while a tool is active, or null when the pointer is off the plan. With `draft` null
     // it says the tool can make nothing there — tell people why.
     pointer,
-    cancelDraw,
+    // Drops the stroke, drag or marquee under way (Escape); false when there is none.
+    cancel,
 
     // Creating — each returns the new ids and selects what it made (an empty list when nothing could be added).
     addPlaces,
@@ -507,6 +548,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
       options?: { section?: S; capacity?: number; role?: string },
     ) => apply((current) => planEdits.convert(current, ids, to, options, locked)),
     ungroup,
+    ungroupSelected,
     label: (ids: readonly string[], sequence: LabelSequence) =>
       apply((current) => planEdits.label(current, ids, sequence)),
     alignSelected: (edge: AlignEdge) => apply((current) => planEdits.align(current, selectedIds, edge)),
@@ -541,15 +583,40 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
       // With something selected the arrow keys move it (useSeatPlanEditorShortcuts); otherwise they move the focus.
       navigable: selection.length === 0 && tool === null,
     },
+
+    // Spread into <SeatMap.EditorOverlay> (ichno/react), drawn over the plan: the outlines of a selection of several
+    // items (a single one shows its frame with the handles), what a tap would select, the handles, the marquee, and
+    // the stroke a tool is drawing.
+    overlayProps: {
+      frames: selection.length > 1 ? frames : NO_FRAMES,
+      hoverFrame,
+      handles,
+      frame,
+      marquee,
+      stroke,
+      draw: tool?.draw,
+    },
   }
 }
 
+// The view controls the zoom keys drive — what useSeatMapView (ichno/react) returns, or your own.
+export type ViewControls = {
+  zoomIn(): void
+  zoomOut(): void
+  fit(): void
+  zoomTo(rects: readonly PlanRect[]): boolean
+}
+
 // Keyboard shortcuts — Delete/Backspace removes the selection; the arrow keys move it (Shift: ten units, or a
-// whole cell when snapping); R turns it a quarter clockwise (⇧R back); Escape drops a stroke, then the tool, then
-// the selection; ⌘/Ctrl+A selects everything; ⌘C, ⌘X and ⌘V copy, cut and paste (under the pointer when it is over
-// the plan); ⌘D duplicates; ⌘G groups; ⌘Z undoes and ⇧⌘Z / Ctrl+Y redo. Ignored while typing in an input,
-// textarea, select or contenteditable, and for keys a handler already took (`preventDefault`).
-export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEditor<S>) {
+// whole cell when snapping); R turns it a quarter clockwise (⇧R back); Escape drops the stroke, drag or marquee
+// under way, then the tool, then the selection; ⌘/Ctrl+A selects everything; ⌘C, ⌘X and ⌘V copy, cut and paste
+// (under the pointer when it is over the plan); ⌘D duplicates; ⌘G groups and ⇧⌘G ungroups; ⌘Z undoes and ⇧⌘Z /
+// Ctrl+Y redo. Given the `view`, + and − zoom, ⇧1 shows the whole plan and ⇧2 the selection. Ignored while typing
+// in an input, textarea, select or contenteditable, and for keys a handler already took (`preventDefault`).
+export function useSeatPlanEditorShortcuts<S extends string>(
+  editor: SeatPlanEditor<S>,
+  options: { view?: ViewControls } = {},
+) {
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
     if (e.defaultPrevented) return
     if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]')) return
@@ -573,7 +640,8 @@ export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEdi
     }
     if (command && e.code === 'KeyG') {
       e.preventDefault()
-      editor.groupSelected()
+      if (e.shiftKey) editor.ungroupSelected()
+      else editor.groupSelected()
       return
     }
     if (command && e.code === 'KeyA') {
@@ -596,8 +664,18 @@ export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEdi
       return
     }
     if (command || e.altKey) return
+    const view = options.view
+    const zoom = view ? zoomOf(e) : null
+    if (view && zoom) {
+      e.preventDefault()
+      if (zoom === 'fit') view.fit()
+      else if (zoom === 'selection') view.zoomTo(editor.selectionBounds)
+      else if (zoom === 'in') view.zoomIn()
+      else view.zoomOut()
+      return
+    }
     if (e.key === 'Escape') {
-      if (editor.cancelDraw()) return
+      if (editor.cancel()) return
       if (editor.tool !== null) editor.setTool(null)
       else if (editor.selection.length > 0) editor.select(null)
       return
@@ -629,6 +707,15 @@ const ARROWS: Partial<Record<string, PlanPoint>> = {
   ArrowRight: { x: 1, y: 0 },
   ArrowUp: { x: 0, y: -1 },
   ArrowDown: { x: 0, y: 1 },
+}
+
+// The zoom a key asks for — ⇧1 and ⇧2 by the physical key, since what Shift makes of a digit depends on the keyboard.
+function zoomOf(e: KeyboardEvent): 'fit' | 'selection' | 'in' | 'out' | null {
+  if (e.shiftKey && e.code === 'Digit1') return 'fit'
+  if (e.shiftKey && e.code === 'Digit2') return 'selection'
+  if (e.key === '+' || e.key === '=') return 'in'
+  if (e.key === '-' || e.key === '_') return 'out'
+  return null
 }
 
 // Whether a range of page text is selected — ⌘C then copies it, not the plan's selection.

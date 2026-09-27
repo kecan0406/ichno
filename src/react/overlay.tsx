@@ -1,0 +1,94 @@
+import type { ComponentProps } from 'react'
+import type { PlanHandle, PlanPoint, PlanRect, PlanStroke } from '../core/types'
+import { cssVar } from '../theme/vars'
+import { HandlesPart, MarqueePart, OutlinePart } from './parts'
+
+// `stroke` is the editor's stroke, not the <g>'s paint.
+export type EditorOverlayProps = Omit<ComponentProps<'g'>, 'children' | 'stroke'> & {
+  // Each selected item's outline — pass them when more than one is selected; a single item shows its `frame` with
+  // its handles.
+  frames?: readonly (readonly PlanPoint[])[]
+  // What a tap would select.
+  hoverFrame?: readonly PlanPoint[] | null
+  handles?: readonly PlanHandle[]
+  frame?: readonly PlanPoint[] | null
+  marquee?: PlanRect | null
+  // The stroke a creation tool is drawing, and how the tool draws: a box is outlined, a line drawn along, a point
+  // left to the draft.
+  stroke?: PlanStroke | null
+  draw?: 'box' | 'line' | 'point'
+}
+
+// Everything an editor draws over the plan, layered the way it reads: the selection's outlines, what a tap would
+// select, the handles with the frame they belong to, the marquee, and the stroke a creation tool is drawing. The
+// editor's `overlayProps` (ichno/editor) are these props. Pieces are named for styling — `data-part` `selection`,
+// `hover` and `stroke`, beside the `handles`, `outline` and `marquee` of the parts it draws with.
+export function EditorOverlay({
+  frames = NO_FRAMES,
+  hoverFrame = null,
+  handles = NO_HANDLES,
+  frame = null,
+  marquee = null,
+  stroke = null,
+  draw,
+  ...rest
+}: EditorOverlayProps) {
+  const guide = stroke && draw !== 'point' ? stroke : null
+  return (
+    <g data-part="editor-overlay" {...rest}>
+      {frames.length > 0 && (
+        <g data-part="selection">
+          {frames.map((points, i) => (
+            <OutlinePart key={i} points={points} />
+          ))}
+        </g>
+      )}
+      {hoverFrame && (
+        // Fainter than the selection — a suggestion, not a choice.
+        <g data-part="hover" opacity={HOVER_OPACITY}>
+          <OutlinePart points={hoverFrame} />
+        </g>
+      )}
+      <HandlesPart handles={handles} frame={frame} />
+      <MarqueePart rect={marquee} />
+      {guide && (
+        <g data-part="stroke" pointerEvents="none">
+          {draw === 'line' ? (
+            <line
+              x1={round(guide.start.x)}
+              y1={round(guide.start.y)}
+              x2={round(guide.end.x)}
+              y2={round(guide.end.y)}
+              {...GUIDE}
+            />
+          ) : (
+            <rect
+              x={round(Math.min(guide.start.x, guide.end.x))}
+              y={round(Math.min(guide.start.y, guide.end.y))}
+              width={round(Math.abs(guide.end.x - guide.start.x))}
+              height={round(Math.abs(guide.end.y - guide.start.y))}
+              {...GUIDE}
+            />
+          )}
+        </g>
+      )}
+    </g>
+  )
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+const NO_FRAMES: readonly (readonly PlanPoint[])[] = []
+const NO_HANDLES: readonly PlanHandle[] = []
+const HOVER_OPACITY = 0.6
+// A stroke guide is a dashed accent line, 1px on screen at any zoom (vector-effect is not inherited — it goes on the
+// shape itself).
+const GUIDE = {
+  fill: 'none',
+  stroke: cssVar('accent'),
+  strokeWidth: 1,
+  strokeDasharray: '4 3',
+  vectorEffect: 'non-scaling-stroke' as const,
+}

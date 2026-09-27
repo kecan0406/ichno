@@ -19,7 +19,8 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   about their centres until they only touch. An area's `wholeBooking` is dropped — whether one booking takes a whole
   place is the consumer's rule.
 - `ichno`: `layout.line`, `layout.arc`, `layout.around`, `layout.grid` and `layout.curveOf` compute seat boxes for
-  rows, tables and blocks; `TABLE_SEAT_GAP` moved here.
+  rows, tables and blocks; `TABLE_SEAT_GAP` moved here. `layout.around` spaces the seats of a round or oval top
+  evenly along its edge, each the seat gap away and facing it squarely.
 - `ichno`: `seatPlan` works on turned shapes — `boundsOf`, `contains`, `overlaps` (with `OVERLAP_TOLERANCE`),
   `outlineOf`, `centerOf`, `extentOf`, `frameOf` (the box around objects in a given direction), `groupById`,
   `membersOf`. `PlanHandle` carries the turned `angle` of a corner. `conflictsOf` returns overlapping place pairs.
@@ -54,7 +55,10 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   the tool would make under the pointer and while the stroke is drawn (`draft`, `stroke`, `pointer`), commits it as
   one undo step, selects what it made and goes back to selecting unless `keep` is set. Strokes snap like moves;
   Shift keeps a box square and a line to 15° steps, Alt draws from the centre, and a tap is a stroke with no
-  length. `cancelDraw` drops a stroke; handles hide while a tool is active.
+  length. Handles hide while a tool is active.
+- `ichno/editor`: `cancel()` drops the stroke, drag or marquee under way — a stroke makes nothing, a drag puts back
+  what it moved, a marquee selects nothing — and letting go then changes nothing. `ungroupSelected` dissolves every
+  selected group in one step, its members taking its place in the selection.
 - `ichno/editor`: saved objects — `planEdits.templateOf(plan, ids)` keeps what a selection holds as a
   `PlanTemplate`, and `planEdits.insertTemplate(plan, template, at, { section })` adds one with fresh ids, in the
   sections it lands in and inside the plan; `editor.insert(template, at)`. A clipboard: `copySelected`,
@@ -64,18 +68,45 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   edit took away. Shift constrains drags — moves keep to one axis, turns step by 15° without snapping, corners keep
   their proportions and vertices move straight (`planHandles.drag` takes `constrain`).
 - `ichno/editor`: shortcuts — the arrow keys move the selection (Shift: ten units, or a cell when snapping), Escape
-  drops the stroke, then the tool, then the selection, ⌘A selects everything and ⌘C / ⌘X / ⌘V copy, cut and paste.
-  Keys a handler already took (`preventDefault`) are left alone.
+  drops the stroke, drag or marquee under way, then the tool, then the selection, ⌘A selects everything, ⌘C / ⌘X /
+  ⌘V copy, cut and paste, and ⇧⌘G ungroups. `useSeatPlanEditorShortcuts(editor, { view })` also zooms — + and −,
+  ⇧1 the whole plan, ⇧2 the selection — with `useSeatMapView` or any `ViewControls`. Keys a handler already took
+  (`preventDefault`) are left alone.
+- `ichno/editor`: `overlayProps` — what the editor draws over the plan, for `SeatMap.EditorOverlay` — and
+  `selectionBounds`, what the selection covers, for zooming to it.
+- `ichno/react`: `useSeatMapView(plan)` keeps the view of a `SeatMap.Viewport` with the controls around it —
+  `zoomIn`, `zoomOut`, `fit`, `zoomTo(rects)`, `level` (1: the whole plan), `canZoomIn`, `canZoomOut` — and
+  `viewProps` to spread into the viewport.
+- `ichno/react`: `SeatMap.EditorOverlay` draws what an editor draws over the plan, in order: the selection's outlines,
+  what a tap would select, the handles, the marquee and a tool's stroke (a box outlined, a line drawn along). New
+  `data-part`s `selection`, `hover` and `stroke`.
 - `ichno`: `PlanTemplate`, `TemplateObject` and `PlanStroke`; `PlanDrag` carries `constrain`.
 - `ichno/schema`: `createSeatPlanSchema` also returns `Template`, which checks a stored template's ids and group
   references.
 - `ichno/react`: `SeatMap.Viewport` takes `onDraw` (presses draw strokes for a creation tool), `onHover` (the
   pointer while nothing is pressed), `wheel: 'zoom' | 'pan'` and `navigable`. Space held or the middle button pans
   whatever is under the pointer, and the svg carries `data-pan` (`ready`, `active`) with a grab cursor. Wheel zoom
-  follows how far the wheel turned, so trackpads zoom smoothly, and Safari's pinch zooms the plan instead of the
-  page. With `onMarquee`, a mouse drag on empty space outside every section draws a marquee instead of panning
-  (touch still pans). Enter and Space pick only the place the focus ring shows, and focus from the keyboard shows
-  the ring at once. New part `SeatMap.Outline` draws the editor's `frames` and `hoverFrame`.
+  follows how far the wheel turned, so trackpads zoom smoothly, and Safari's trackpad pinch zooms the plan instead of
+  the page (on a touch screen the fingers' own pointers zoom, never Safari's gesture events as well). With
+  `onMarquee`, a mouse drag on empty space outside every section draws a marquee instead of panning (touch still
+  pans). Enter and Space pick only the place the focus ring shows, and focus from the keyboard shows the ring at
+  once. New part `SeatMap.Outline` draws the editor's `frames` and `hoverFrame`.
+- `ichno/react`: drags, marquees and strokes are followed in plan units, so what is dragged stays under the pointer
+  when the view zooms or scrolls mid-drag. Held near the viewport's edge, they scroll the plan toward it — after a
+  moment, faster the closer the pointer is, and only until the drawing's edge is in view (as tldraw's edge
+  scrolling and React Flow's auto-pan do).
+- `ichno/react`: a two-finger pinch keeps the plan point between the fingers under them; it drifted as the fingers
+  moved while spreading (`planView.pinch` is the math).
+- `ichno`: `planView.zoom` — and with it the viewport's wheel and pinch — zooms out no further than the home view
+  (the whole drawing). It went to 90% of it, and the step cut short there put every later step off the home view:
+  zooming in and back out stopped at 99% instead of 100%. `planView.fitTo` frames no further out than the home view
+  either.
+- `ichno/react`: large plans — the frame's `region` covers what the viewport shows. A viewport of another shape
+  than its view shows plan beyond the view, and places there were left out while visible. Arrow-key focus recentres
+  only on a place outside what is shown. New: `planView.visible(view, size)`.
+- `ichno/react`: a press whose release never arrives — pointer capture lost, a menu that opened mid-drag — ends
+  where it last was instead of dragging on with no button held, and the context menu stays shut while a press is
+  under way.
 
 ## 0.2.1 — 2026-09-25
 

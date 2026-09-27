@@ -84,7 +84,7 @@ import { layout } from 'ichno'
 
 layout.arc({ start, end, curve: -0.1, count: 12, size: 40 }) // a row, seats turned along the arc
 layout.line({ start, end, count: 8, size: 40 }) // a straight row
-layout.around({ table: top, shape: 'ellipse', count: 6, size: 36 }) // seats around a table top, facing it
+layout.around({ table: top, shape: 'ellipse', count: 6, size: 36 }) // seats around a table top (round or oval), facing it
 layout.grid({ origin, columns: 4, rows: 2, size: { w: 88, h: 60 }, gap: 4 }) // a block of desks
 layout.curveOf(centres) // the curve of an existing row — the inverse of `arc`
 ```
@@ -169,23 +169,29 @@ import { SeatMap } from 'ichno/react'
 
 ```tsx
 'use client'
+import { SeatMap, useSeatMapView } from 'ichno/react'
+
 // Interactive — pan, wheel/pinch zoom, taps, arrow keys (Enter/Space picks), the same children.
-<SeatMap.Viewport plan={plan} view={view} onViewChange={setView} onPlaceClick={(place) => toggle(place.id)}
-  className="h-[480px]">
+const map = useSeatMapView(plan) // the view, and zoom controls for the buttons you draw
+<SeatMap.Viewport plan={plan} {...map.viewProps} onPlaceClick={(place) => toggle(place.id)} className="h-[480px]">
   <SeatMap.Content plan={plan} selected={picked} />
 </SeatMap.Viewport>
+<button onClick={map.zoomOut} disabled={!map.canZoomOut}>−</button>
+<button onClick={map.fit}>{Math.round(map.level * 100)}%</button>
+<button onClick={map.zoomIn} disabled={!map.canZoomIn}>+</button>
 ```
 
 `SeatMap.Content` is a convenience; compose the parts yourself when you need something else —
 `SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Label`, `SeatMap.Grid`, `SeatMap.Handles`,
-`SeatMap.Outline` and `SeatMap.Marquee`, fed by `plan.objects`. `renderPlace` swaps one place's drawing while keeping the rest. Turned
-places keep their label level.
+`SeatMap.Outline` and `SeatMap.Marquee`, fed by `plan.objects`; `SeatMap.EditorOverlay` layers the editing ones
+(see Edit). `renderPlace` swaps one place's drawing while keeping the rest. Turned places keep their label level.
 
 **Styling.** Parts paint with presentation attributes that read the theme variables, so any class overrides them.
 State is on the element: `data-kind` (`place`, `fixture`, `label`), `data-role`, `data-group`, `data-shape`,
 `data-status`, `data-selected`, `data-disabled`, `data-highlighted`, `data-dimmed`, `data-invalid`,
 `data-category`; pieces are named by `data-part` (`shape`, `label`, `hit`, `floor`, `wall`, `handle`, `outline`,
-`marquee`, `focus-ring`). Style your roles by `data-role` — `[data-role='chair'] [data-part='shape']`.
+`marquee`, `focus-ring`, and `editor-overlay` with its `selection`, `hover` and `stroke`). Style your roles by
+`data-role` — `[data-role='chair'] [data-part='shape']`.
 
 ```tsx
 <SeatMap.Place
@@ -195,9 +201,9 @@ State is on the element: `data-kind` (`place`, `fixture`, `label`), `data-role`,
 />
 ```
 
-**Large plans.** Give the viewport a function child and pass the frame on — objects outside the view (plus a
-margin) are skipped and labels too small to read are left out. Content redraws only when a pan leaves the margin
-or the zoom crosses a step, so 20,000 seats pan at 60fps.
+**Large plans.** Give the viewport a function child and pass the frame on — objects outside what the viewport shows
+(plus a margin) are skipped and labels too small to read are left out. Content redraws only when a pan leaves the
+margin or the zoom crosses a step, so 20,000 seats pan at 60fps.
 
 ```tsx
 <SeatMap.Viewport plan={plan}>
@@ -212,9 +218,17 @@ do; the default zooms, the way maps do. Zoom follows how far the wheel turned, s
 Safari's pinch zooms the plan rather than the page. `onHover(point, target)` reports the pointer while nothing is
 pressed; `onDraw(stroke, info)` turns every press into a stroke for a creation tool (the editor passes both).
 `navigable={false}` turns the arrow-key focus off — the editor does while the arrows move its selection.
+Drags are followed in plan units: what is dragged stays under the pointer while the view zooms or scrolls, and a
+drag, marquee or stroke held near the edge scrolls the plan toward it until the drawing's edge is in view.
 
-**Views** are viewBoxes in plan units (`planView.home(plan)`, `planView.zoom`, `planView.pan`, `planView.fitTo`
-for zoom-to-places), so nothing is measured while rendering. Leave `view` out and the viewport keeps its own.
+**Views** are viewBoxes in plan units (`planView.home(plan)`, `planView.zoom`, `planView.pan`, `planView.pinch`,
+`planView.fitTo` for zoom-to-places), so nothing is measured while rendering. Zoom goes from the home view (the
+whole drawing) in to 6×, and zooming out stops at the home view exactly. A viewport of another shape shows more
+than its view — `planView.visible(view, size)` is what it shows. Leave `view` out and the viewport keeps its own.
+`useSeatMapView(plan)` keeps one for you with the controls around it: `zoomIn` and `zoomOut` about the middle, `fit`
+(the whole plan), `zoomTo(rects)` (e.g. `seatPlan.boundsOf` of the places to show), `level` (how far in — 1 is the
+whole plan; write it the way your app writes zoom), `canZoomIn` / `canZoomOut` for disabling buttons at the limits,
+and `viewProps` to spread into the viewport — the wheel and pinching change the same view.
 
 **Accessibility.** The viewport is a listbox: places are options with `aria-selected`; arrow keys move a focus ring
 to the nearest place in that direction and `aria-activedescendant` follows it. Focus from the keyboard shows the
@@ -228,23 +242,22 @@ For narrow screens, `seatPlan.sectionPlansOf(plan)` returns one crop per section
 'use client'
 import { labeling, layout } from 'ichno'
 import { useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
-import { SeatMap } from 'ichno/react'
+import { SeatMap, useSeatMapView } from 'ichno/react'
 
 const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 46 } })
-useSeatPlanEditorShortcuts(editor) // arrows, Delete, R / ⇧R, Escape, ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G, ⌘Z / ⇧⌘Z
+const map = useSeatMapView(editor.plan)
+// arrows, Delete, R / ⇧R, Escape, ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G / ⇧⌘G, ⌘Z / ⇧⌘Z — and with the view, + / − / ⇧1 / ⇧2
+useSeatPlanEditorShortcuts(editor, { view: map })
 
-<SeatMap.Viewport {...editor.viewportProps} wheel="pan">
+<SeatMap.Viewport {...editor.viewportProps} {...map.viewProps} wheel="pan">
   <SeatMap.Grid plan={editor.displayPlan} />
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} invalid={editor.conflictIds} />
   {editor.draft && (
-    <g opacity={0.5}>
+    <g opacity={0.5} pointerEvents="none">
       <SeatMap.Content plan={editor.draft} invalid={editor.conflictIds} />
     </g>
   )}
-  {editor.selection.length > 1 && editor.frames.map((points, i) => <SeatMap.Outline key={i} points={points} />)}
-  <SeatMap.Outline points={editor.hoverFrame} className="opacity-60" />
-  <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
-  <SeatMap.Marquee rect={editor.marquee} />
+  <SeatMap.EditorOverlay {...editor.overlayProps} />
 </SeatMap.Viewport>
 
 const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, curve: 0.2, count: 10, size: 40 })
@@ -259,17 +272,21 @@ const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, c
 Tapping a grouped object selects its group; tapping it again selects the object alone (shift/⌘ adds to the
 selection). Dragging moves the selection with the snapping the commit will use — with Shift along one axis.
 Dragging empty floor draws a marquee that selects everything it touches; a selected section moves instead. Space
-and the middle mouse button pan. Nothing stops you from dragging one place onto another; `conflictIds` lists the
+and the middle mouse button pan. `cancel()` (Escape) drops the drag, marquee or stroke under way — what was
+dragged goes back and letting go changes nothing. Nothing stops you from dragging one place onto another; `conflictIds` lists the
 places that overlap (the same check the schema runs on save) so you can mark them while arranging. A single
 selected item shows handles: an object resizes from its corners (in its own turned frame; Shift keeps its
 proportions) and turns from the knob above it (Shift: 15° steps), a group turns as one about the centre of its
 frame — the box around its members in the direction the group faces (`group.rotation`), which turns with it, so the
 centre stays put turn after turn — and a section's vertices reshape it. `frame` outlines the selected object or
 group; corner handles carry their turned `angle` so `SeatMap.Handles` shows matching resize cursors. `frames`
-outlines every selected item and `hoverFrame` what a tap would select — draw them with `SeatMap.Outline`, so
-fixtures and groups show they are selected too. `rotateSelected` turns one item about its own centre and several
-together about the middle of their centres. `displayPlan` is the plan with the drag in progress; `plan` is what
-you save. A selection never holds what an undo, a redo or an edit took away.
+outlines every selected item and `hoverFrame` what a tap would select, so fixtures and groups show they are
+selected too. `SeatMap.EditorOverlay` draws all of it in order — the selection's outlines, the hover outline, the
+handles, the marquee and a tool's stroke — from `overlayProps`; draw the pieces yourself with `SeatMap.Outline`,
+`SeatMap.Handles` and `SeatMap.Marquee` when you want another order or look. `selectionBounds` is what the
+selection covers, for `map.zoomTo`. `rotateSelected` turns one item about its own centre and several together about
+the middle of their centres. `displayPlan` is the plan with the drag in progress; `plan` is what you save. A
+selection never holds what an undo, a redo or an edit took away.
 
 ### Creation tools
 
@@ -305,6 +322,11 @@ standard size. `create` runs for every preview — keep it pure. `stroke` is the
 guide), `pointer` where a tap would draw — with `draft` null there, the tool can make nothing at that spot (say
 why). While a tool is active the handles hide; Escape drops the stroke, then the tool.
 
+The playground builds a full set this way — rows (a seat every step, lettered, with labels at both ends), blocks of
+rows, round and oval tables, desks with chairs, booths, standing areas sized by their floor, walls along a line — and
+grows a row or a table while keeping its numbering: [`site/app/playground/_lib/build.ts`](https://github.com/kecan0406/ichno/blob/main/site/app/playground/_lib/build.ts).
+Copy what fits; it is yours to change, not part of ichno.
+
 ### Saved objects and the clipboard
 
 `planEdits.templateOf(plan, ids)` keeps what a selection holds as a `PlanTemplate` — objects and the groups they
@@ -338,8 +360,8 @@ Operations take object and group ids alike — a group acts as one.
   get new places, surplus ones go from the end), `arrange(ids, boxes)`, `convert(ids, 'place' | 'fixture')` (book a
   table whole), `rotateSelected(degrees)`, `moveSelected(delta)` (objects, groups and sections), `alignSelected`,
   `distributeSelected`, `label(ids, sequence)` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or
-  `labeling.custom`, `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`, `moveSection`,
-  `reshapeSection`.
+  `labeling.custom`, `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
+  `ungroupSelected`, `moveSection`, `reshapeSection`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
 - **Select:** `select(target, additive)`, `selectAll()`.
 - **Remove:** `removeObjects`, `removeSelected`, `cutSelected` — return the ids they refused. Groups left empty go
@@ -348,8 +370,10 @@ Operations take object and group ids alike — a group acts as one.
 
 `useSeatPlanEditorShortcuts` binds the arrow keys (move the selection one unit — with Shift ten, or half a cell and
 a cell when snapping; with nothing selected they move the viewport's focus ring), Delete, R / ⇧R, Escape (the
-stroke, then the tool, then the selection), ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G and ⌘Z / ⇧⌘Z. It ignores keys typed into a
-field and keys a handler already took (`preventDefault`), so your own shortcuts can run first.
+stroke, drag or marquee under way, then the tool, then the selection), ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G / ⇧⌘G (group,
+ungroup) and ⌘Z / ⇧⌘Z. Given `{ view }` — `useSeatMapView`, or anything with `zoomIn`, `zoomOut`, `fit` and
+`zoomTo` (`ViewControls`) — + and − zoom, ⇧1 shows the whole plan and ⇧2 the selection. It ignores keys typed into
+a field and keys a handler already took (`preventDefault`), so your own shortcuts can run first.
 
 `lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or turned into a
 fixture, while labels stay free. Every operation is also available as a pure function in `planEdits` (plan in, plan

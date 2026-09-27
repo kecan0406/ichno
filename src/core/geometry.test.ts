@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GRID_CELL } from './grid'
 import { seatPlan, WALL_THICKNESS } from './geometry'
-import { layout } from './layout'
+import { TABLE_SEAT_GAP, layout } from './layout'
 import { arcPoints, offsetPolygon, polygonContains } from './math'
 import type { Fixture, Place, PlanObject, SeatPlan } from './types'
 
@@ -139,6 +139,42 @@ describe('table layout', () => {
       { x: 74, y: 150 },
     ])
     expect(boxes.map((b) => b.rotation ?? 0)).toEqual([0, 90, 180, 270])
+  })
+
+  it('spaces seats evenly along an oval table and turns each to face its edge squarely', () => {
+    const oval = { x: 0, y: 0, w: 300, h: 100 }
+    const boxes = layout.around({ table: oval, shape: 'ellipse', count: 14, size: 36 })
+    const c = centers(boxes)
+    const next = (i: number) => c[(i + 1) % c.length]!
+    const gaps = c.map((p, i) => Math.hypot(next(i).x - p.x, next(i).y - p.y))
+    // Chords shrink a little where the edge bends hardest; the seats never crowd the ends.
+    expect(Math.min(...gaps) / Math.max(...gaps)).toBeGreaterThan(0.85)
+    const seats = boxes.map((b, i) => place(`A${i + 1}`, 'A', b.x, b.y, { ...b, shape: 'ellipse' }))
+    expect(seatPlan.conflictsOf({ objects: seats })).toEqual([])
+    // Each seat sits the seat gap off the edge and faces the nearest point of it — not the middle of the table.
+    const edge = Array.from({ length: 3600 }, (_, k) => {
+      const t = (2 * Math.PI * k) / 3600
+      return { x: 150 + 150 * Math.cos(t), y: 50 + 50 * Math.sin(t) }
+    })
+    boxes.forEach((b, i) => {
+      const nearest = edge.reduce((best, q) =>
+        Math.hypot(q.x - c[i]!.x, q.y - c[i]!.y) < Math.hypot(best.x - c[i]!.x, best.y - c[i]!.y) ? q : best,
+      )
+      expect(Math.abs(Math.hypot(nearest.x - c[i]!.x, nearest.y - c[i]!.y) - (18 + TABLE_SEAT_GAP))).toBeLessThan(1)
+      // A seat's front is its local +y, turned with it.
+      const toward = (Math.atan2(nearest.y - c[i]!.y, nearest.x - c[i]!.x) * 180) / Math.PI
+      const off = (((b.rotation ?? 0) + 90 - toward + 540) % 360) - 180
+      expect(Math.abs(off)).toBeLessThan(3)
+    })
+    // A quarter of the way round from the top is the end of the long side.
+    const four = layout.around({ table: oval, shape: 'ellipse', count: 4, size: 36 })
+    expect(centers(four)).toEqual([
+      { x: 150, y: -24 },
+      { x: 324, y: 50 },
+      { x: 150, y: 124 },
+      { x: -24, y: 50 },
+    ])
+    expect(four.map((b) => b.rotation ?? 0)).toEqual([0, 90, 180, 270])
   })
 
   it('splits rectangular-table seats over the long sides, the first side taking the odd one', () => {

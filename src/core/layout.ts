@@ -46,9 +46,10 @@ function arc({
   )
 }
 
-// Seats around a table top, facing it. Round tops spread them evenly clockwise from the top; rectangular tops
-// split them over the two long sides (the first side takes the odd one), left to right / top to bottom. A turned
-// top turns its seats with it.
+// Seats around a table top, facing it. Round and oval tops spread them clockwise from the top, evenly along the
+// edge — an oval keeps them as far apart round its ends as along its sides — each `gap` from the edge and turned to
+// face it squarely. Rectangular tops split them over the two long sides (the first side takes the odd one), left to
+// right / top to bottom. A turned top turns its seats with it.
 function around({
   table,
   shape,
@@ -70,13 +71,9 @@ function around({
   const place = (point: PlanPoint, facing: number) =>
     boxAt(rotatePoint(point, center, rotation), seat.w, seat.h, facing + rotation)
   if (shape === 'ellipse') {
-    const rx = table.w / 2 + reach
-    const ry = table.h / 2 + reach
-    return Array.from({ length: count }, (_, i) => {
-      const angle = -Math.PI / 2 + (2 * Math.PI * i) / count
-      const point = { x: center.x + rx * Math.cos(angle), y: center.y + ry * Math.sin(angle) }
-      return place(point, (angle * 180) / Math.PI + 90)
-    })
+    return ringSteps(table.w / 2, table.h / 2, reach, count).map(({ point, facing }) =>
+      place({ x: center.x + point.x, y: center.y + point.y }, facing + 90),
+    )
   }
   const wide = table.w >= table.h
   const firstCount = Math.ceil(count / 2)
@@ -133,6 +130,44 @@ function curveOf(centers: readonly PlanPoint[]): number {
   const sagitta = radius - Math.sqrt(Math.max(0, radius * radius - half * half))
   return Math.round(Math.min(1, sagitta / half) * Math.sign(offset) * 100) / 100
 }
+
+// `count` points clockwise from the top of the curve that runs `offset` outside an ellipse with half-axes `a`, `b`
+// (about the origin), spaced evenly along that curve, each with the direction it faces out (degrees clockwise from
+// +x). Even steps of the ellipse's angle would crowd the ends of an oval, where its edge bends hardest.
+function ringSteps(a: number, b: number, offset: number, count: number): { point: PlanPoint; facing: number }[] {
+  const at = (t: number) => {
+    // The outward normal of the ellipse at angle t.
+    const nx = b * Math.cos(t)
+    const ny = a * Math.sin(t)
+    const n = Math.hypot(nx, ny) || 1
+    return {
+      point: { x: a * Math.cos(t) + (offset * nx) / n, y: b * Math.sin(t) + (offset * ny) / n },
+      facing: (Math.atan2(ny, nx) * 180) / Math.PI,
+    }
+  }
+  const top = -Math.PI / 2
+  // A circle is even in its angle already.
+  if (a === b) return Array.from({ length: count }, (_, i) => at(top + (2 * Math.PI * i) / count))
+  const step = (2 * Math.PI) / RING_SAMPLES
+  const lengths = [0]
+  let previous = at(top).point
+  for (let k = 1; k <= RING_SAMPLES; k++) {
+    const point = at(top + k * step).point
+    lengths.push(lengths[k - 1]! + Math.hypot(point.x - previous.x, point.y - previous.y))
+    previous = point
+  }
+  const total = lengths[RING_SAMPLES]!
+  let k = 0
+  return Array.from({ length: count }, (_, i) => {
+    const wanted = (total * i) / count
+    while (lengths[k + 1]! < wanted) k++
+    const part = (wanted - lengths[k]!) / (lengths[k + 1]! - lengths[k]! || 1)
+    return at(top + (k + part) * step)
+  })
+}
+
+// How finely `ringSteps` measures the length of an oval ring — far below a unit per step on any table.
+const RING_SAMPLES = 720
 
 function circumradius(a: PlanPoint, b: PlanPoint, c: PlanPoint): number {
   const ab = Math.hypot(b.x - a.x, b.y - a.y)

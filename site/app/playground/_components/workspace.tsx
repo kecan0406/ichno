@@ -2,7 +2,6 @@
 
 import {
   GRID_CELL,
-  planView,
   seatPlan,
   validateSelection,
   type Fixture,
@@ -10,17 +9,14 @@ import {
   type LintSeverity,
   type Place,
   type PlanPoint,
-  type PlanRect,
   type PlanTarget,
-  type PlanView,
 } from 'ichno'
 import { planEdits, useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
-import { SeatMap } from 'ichno/react'
+import { SeatMap, useSeatMapView } from 'ichno/react'
 import Link from 'next/link'
 import { useEffect, useEffectEvent, useState } from 'react'
 import { fixtureNames } from '../../_demo/plans'
 import { Logo } from '../../_ui/logo'
-import { rectOf } from '../_lib/build'
 import {
   DEFAULT_LINT,
   PRESETS,
@@ -56,7 +52,9 @@ export function Workspace({
   const [booked, setBooked] = useState<string[]>(initial.booked)
   const [snapping, setSnapping] = useState(true)
   const editor = useSeatPlanEditor({ initialPlan: initial.plan, lockedIds: booked, snap: snapping ? SNAP : undefined })
-  useSeatPlanEditorShortcuts(editor)
+  // One view for both modes — switching keeps where you were looking.
+  const map = useSeatMapView(editor.plan)
+  useSeatPlanEditorShortcuts(editor, { view: map })
   const { onTap, ...viewportProps } = editor.viewportProps
 
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
@@ -71,9 +69,6 @@ export function Workspace({
   const [rules, setRules] = useState<PickRules>({ max: 8, consecutive: false, noOrphans: true })
 
   const plan = editor.plan
-  const home = planView.home(plan)
-  const [view, setView] = useState<PlanView>(home)
-
   const checks = checksOf(plan, lint)
   const errorCount = checks.filter((check) => check.severity === 'error').length
   const bookedStatus = Object.fromEntries(booked.map((id) => [id, 'booked']))
@@ -98,16 +93,12 @@ export function Workspace({
     setLibrary(loadLibrary())
   }, [])
 
-  // The site's own keys — objects and the view.
+  // The site's own keys — its objects and the list of keys. The view's keys are ichno's (useSeatPlanEditorShortcuts).
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
     if (e.defaultPrevented || mode !== 'edit') return
     if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], dialog')) return
     if (e.metaKey || e.ctrlKey || e.altKey) return
-    if (e.shiftKey && e.code === 'Digit1') return fitPlan()
-    if (e.shiftKey && e.code === 'Digit2') return zoomToSelection()
     if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) return openDialog('shortcuts-dialog')
-    if (e.key === '=' || e.key === '+') return zoomBy(ZOOM_BUTTON_STEP)
-    if (e.key === '-' || e.key === '_') return zoomBy(1 / ZOOM_BUTTON_STEP)
     if (e.shiftKey) return
     const object = PLAYGROUND_OBJECTS.find((def) => def.key !== '' && def.key === e.key)
     if (object) return choose(object)
@@ -161,25 +152,7 @@ export function Workspace({
     selectionOf(plan, ids).forEach((id, i) =>
       editor.select(seatPlan.groupById(plan, id) ? { kind: 'group', id } : { kind: 'object', id }, i > 0),
     )
-    const next = planView.fitTo(boundsOfIds(plan, ids), 160, home)
-    if (next) setView(next)
-  }
-
-  function zoomBy(factor: number) {
-    setView((current) => planView.zoom(current, factor, centerOf(current), home))
-  }
-
-  function fitPlan() {
-    setView(home)
-  }
-
-  function zoomToSelection() {
-    const rects: PlanRect[] = [
-      ...editor.selectedObjects.map(seatPlan.boundsOf),
-      ...(editor.selectedSection ? [seatPlan.sectionBoundsOf(editor.selectedSection)] : []),
-    ]
-    const next = planView.fitTo(rects, 80, home)
-    if (next) setView(next)
+    map.zoomTo(boundsOfIds(plan, ids), 160)
   }
 
   function switchMode(next: 'edit' | 'preview') {
@@ -212,7 +185,6 @@ export function Workspace({
     onReplace(preset.workbench)
   }
 
-  const zoom = Math.round((home.w / view.w) * 100)
   // Over the plan with a tool that can make nothing there — its places need a section to belong to.
   const nowhere = activeTool !== null && editor.pointer !== null && editor.draft === null
   const status =
@@ -306,9 +278,8 @@ export function Workspace({
           {mode === 'edit' ? (
             <SeatMap.Viewport
               {...viewportProps}
+              {...map.viewProps}
               onTap={handleTap}
-              view={view}
-              onViewChange={setView}
               wheel="pan"
               className={styles.viewport}
               aria-label="Seat plan editor"
@@ -334,18 +305,12 @@ export function Workspace({
                   />
                 </g>
               )}
-              {editor.stroke && editor.tool?.draw === 'box' && <SeatMap.Marquee rect={rectOf(editor.stroke)} />}
-              {editor.selection.length > 1 &&
-                editor.frames.map((points, i) => <SeatMap.Outline key={i} points={points} />)}
-              <SeatMap.Outline points={editor.hoverFrame} className={styles.hoverOutline} />
-              <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
-              <SeatMap.Marquee rect={editor.marquee} />
+              <SeatMap.EditorOverlay {...editor.overlayProps} />
             </SeatMap.Viewport>
           ) : (
             <SeatMap.Viewport
               plan={plan}
-              view={view}
-              onViewChange={setView}
+              {...map.viewProps}
               onPlaceClick={previewTap}
               className={styles.viewport}
               aria-label="Seat plan preview"
@@ -374,14 +339,21 @@ export function Workspace({
               type="button"
               aria-label="Zoom out"
               title="Zoom out (−)"
-              onClick={() => zoomBy(1 / ZOOM_BUTTON_STEP)}
+              disabled={!map.canZoomOut}
+              onClick={map.zoomOut}
             >
               −
             </button>
-            <button type="button" className={styles.zoomLevel} title="Fit the plan (⇧1)" onClick={fitPlan}>
-              {zoom}%
+            <button type="button" className={styles.zoomLevel} title="Fit the plan (⇧1)" onClick={map.fit}>
+              {Math.round(map.level * 100)}%
             </button>
-            <button type="button" aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoomBy(ZOOM_BUTTON_STEP)}>
+            <button
+              type="button"
+              aria-label="Zoom in"
+              title="Zoom in (+)"
+              disabled={!map.canZoomIn}
+              onClick={map.zoomIn}
+            >
               +
             </button>
             {mode === 'edit' && (
@@ -390,7 +362,7 @@ export function Workspace({
                 aria-label="Zoom to the selection"
                 title="Zoom to the selection (⇧2)"
                 disabled={editor.selection.length === 0}
-                onClick={zoomToSelection}
+                onClick={() => map.zoomTo(editor.selectionBounds)}
               >
                 <Icon name="focus" />
               </button>
@@ -483,8 +455,3 @@ function fixtureVariant(fixture: Fixture): 'box' | 'wall' {
 
 // The editor snaps to the site's 46-unit cells when Snap is on.
 const SNAP = { cell: GRID_CELL }
-const ZOOM_BUTTON_STEP = 1.4
-
-function centerOf(view: PlanView): PlanPoint {
-  return { x: view.x + view.w / 2, y: view.y + view.h / 2 }
-}

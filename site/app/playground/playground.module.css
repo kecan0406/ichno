@@ -410,10 +410,9 @@
   pointer-events: none;
 }
 
-/* What a tap would select. */
-.hoverOutline polygon {
+/* What a tap would select — a little heavier than ichno draws it, so it reads on the grid. */
+.canvas [data-part='hover'] polygon {
   stroke-width: 1.5px;
-  stroke-opacity: 0.6;
 }
 
 .canvas [data-status='booked'] [data-part='shape'] {
