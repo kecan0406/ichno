@@ -3,20 +3,28 @@ import type { SeatPlanIssue } from 'ichno/schema'
 
 // ichno reports codes; every sentence the visitor reads is written here.
 
-// A place or object as people would name it — "Row A, seat 3", "Table T2, seat 1", a desk's label.
+// A place, object or group as people would name it — "Row A, seat 3", "Table T2, seat 1", a desk's label. Rows and
+// tables are this site's roles; ichno only knows groups.
 export function describe(plan: SeatPlan<string>, id: string): string {
-  const place = seatPlan.placesOf(plan).find((candidate) => candidate.id === id)
-  if (!place) {
-    const object = seatPlan.objectById(plan, id)
-    if (object?.kind === 'row') return `Row ${object.label ?? object.id}`
-    return id
+  const group = seatPlan.groupById(plan, id)
+  if (group) return groupName(group)
+  const object = seatPlan.objectById(plan, id)
+  if (!object) return id
+  const owner = object.group === undefined ? undefined : seatPlan.groupById(plan, object.group)
+  if (object.kind !== 'place') {
+    const what = object.kind === 'fixture' ? (object.role ?? 'fixture') : 'label'
+    return owner ? `${groupName(owner)}, ${what}` : what === 'fixture' ? id : what
   }
-  if (place.kind === 'row-seat' && place.parent) {
-    const row = seatPlan.objectById(plan, place.parent.id)
-    return `Row ${(row?.kind === 'row' && row.label) || place.parent.id}, seat ${place.label}`
-  }
-  if (place.kind === 'table-seat' && place.parent) return `Table ${place.parent.id}, seat ${place.label}`
-  return place.label
+  const label = object.label ?? object.id
+  if (owner?.role === 'row' || owner?.role === 'table') return `${groupName(owner)}, seat ${label}`
+  return label
+}
+
+function groupName(group: { id: string; label?: string; role?: string }): string {
+  const name = group.label ?? group.id
+  if (group.role === 'row') return `Row ${name}`
+  if (group.role === 'table') return `Table ${name}`
+  return name
 }
 
 export function selectionIssueText(plan: SeatPlan<string>, issue: SelectionIssue): string {
@@ -26,7 +34,7 @@ export function selectionIssueText(plan: SeatPlan<string>, issue: SelectionIssue
     case 'too_few':
       return `Pick at least ${issue.min} places.`
     case 'not_consecutive':
-      return 'Pick seats side by side in one row.'
+      return 'Pick seats side by side in one row or at one table.'
     case 'orphan_seat':
       return `${describe(plan, issue.id)} would be left on its own.`
   }
@@ -42,12 +50,12 @@ export function planIssueText(plan: SeatPlan<string>, issue: SeatPlanIssue): str
       return `Id ${issue.id} is used more than once.`
     case 'unknown_category':
       return `${describe(plan, issue.id)} uses category “${issue.category}”, which the plan does not list.`
+    case 'unknown_group':
+      return `${describe(plan, issue.id)} belongs to group “${issue.group}”, which the plan does not list.`
     case 'out_of_bounds':
       return `${describe(plan, issue.id)} reaches outside the plan.`
     case 'overlap':
       return `${describe(plan, issue.ids[0])} overlaps ${describe(plan, issue.ids[1])}.`
-    case 'fixture_overlap':
-      return `The ${issue.role} covers ${describe(plan, issue.id)}.`
   }
 }
 

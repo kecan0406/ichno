@@ -1,53 +1,53 @@
-import { DEFAULT_SEAT_CELLS, GRID_CELL, HALF_CELL, seatGrid } from './grid'
-import { arcPoints, boundsOfPoints, offsetPolygon, polygonContains, unionBounds } from './math'
+import { GRID_CELL } from './grid'
+import {
+  boundsOfBox,
+  boundsOfPoints,
+  boxContains,
+  centerOfBox,
+  offsetPolygon,
+  outlineOf,
+  polygonContains,
+  polygonsOverlap,
+  rotatePoint,
+  unionBounds,
+} from './math'
 import { spatialIndex } from './spatial'
 import type {
-  Desk,
   Fixture,
+  Group,
   Place,
+  PlanBox,
   PlanObject,
   PlanPoint,
   PlanRect,
-  PlanSize,
-  Row,
-  RowSeat,
-  SeatChairSide,
   SeatPlan,
   Section,
   SectionPlan,
-  Table,
-  TableSeat,
+  Shape,
 } from './types'
 
 // Seat plan geometry — zod-free so client bundles (seat pickers, viewers) never pull the schema in.
 
-// Id length limits — a place id is the booking key other records store (the 0.1 seat limit), other objects are
-// editor handles. The schema enforces them; id generators never exceed them.
+// Id length limits — a place id is the booking key other records store (the 0.1 seat limit), other ids (fixtures,
+// labels, groups) are editor handles. The schema enforces them; id generators never exceed them.
 export const PLACE_ID_MAX = 8
 export const OBJECT_ID_MAX = 16
 
-// Editor lower bound for desks — the smallest desk whose number still reads.
-export const MIN_SEAT_SIZE = 40
-
 // Drawing dimensions (plan units) — every renderer draws with the same values.
-// The outer wall wraps outside the section outline: places sit up to 2 units from the room corner, so an inside
-// wall would cover them.
+// The outer wall wraps outside the section outline, so it never covers places near the room edge.
 export const WALL_THICKNESS = 5
-// Wall fixtures sit on the half-cell (23) grid, but painting their full thickness blocks the aisle — only a
-// centre band is painted.
+// A wall fixture paints only a centre band this thick, so a thick wall box does not block the aisle.
 export const INNER_WALL_THICKNESS = 8
 // Section name — written above each section's outer wall when a plan holds more than one section. The band is
 // one line of text plus breathing room above the wall.
 export const SECTION_LABEL_FONT = 28
 export const SECTION_LABEL_BAND = 64
-// Gap between a table top and the seats around it.
-export const TABLE_SEAT_GAP = 6
+// Places overlap only when they cut into each other by more than this (plan units). Positions computed on arcs
+// and around tables are rounded to whole units, so neighbours that touch may cross by a fraction.
+export const OVERLAP_TOLERANCE = 1
 // Margin around the drawing — holds the outer wall plus a little air.
 const DRAWING_MARGIN = 8
-// One person's chair at a desk — independent of desk size. The chair band (depth) never exceeds 32% of the desk.
-const CHAIR_BAND = 28
-const CHAIR_LENGTH = 38
-// Crop padding — breathing room between the crop edge and the outermost object (before grid snapping).
+// Crop padding — breathing room between the crop edge and the outermost object (before cell snapping).
 const SECTION_PLAN_PADDING = 20
 
 const FIXTURE_LABEL_MAX_FONT = 20
@@ -55,7 +55,9 @@ const FIXTURE_LABEL_MIN_FONT = 10
 
 export const seatPlan = {
   objectById,
+  groupById,
   placesOf,
+  membersOf,
   idsOf,
   sectionAt,
   sectionOf,
@@ -63,22 +65,19 @@ export const seatPlan = {
   sectionWallOf,
   nextPlaceId,
   nextObjectId,
-  nextChairSide,
-  findFreeDeskPos,
-  findFreeFixturePos,
   fixtureLabelOf,
   sectionPlanOf,
   sectionPlansOf,
-  rowSeatsOf,
-  rowApexOf,
-  rowLabelAnchorsOf,
-  tableSeatsOf,
   objectsInRect,
-  furnitureOf,
   innerWallOf,
-  footprintOf,
-  footprintsOf,
+  shapeOf,
+  centerOf,
+  outlineOf: outlineOfObject,
   boundsOf,
+  extentOf,
+  frameOf,
+  contains,
+  overlaps,
   conflictsOf,
   translate,
   showsSectionLabels,
@@ -89,104 +88,26 @@ function objectById<S extends string>(plan: Pick<SeatPlan<S>, 'objects'>, id: st
   return plan.objects.find((object) => object.id === id)
 }
 
-// Every bookable unit with its geometry, in drawing order: desks, row seats (row order), table seats (clockwise
-// from the top) or whole tables, booths and areas. Fixtures are not places.
+function groupById(plan: Pick<SeatPlan, 'groups'>, id: string): Group | undefined {
+  return plan.groups.find((group) => group.id === id)
+}
+
+// Every bookable object, in drawing order.
 function placesOf<S extends string>(plan: Pick<SeatPlan<S>, 'objects'>): Place<S>[] {
-  const places: Place<S>[] = []
-  for (const object of plan.objects) {
-    switch (object.kind) {
-      case 'desk':
-        places.push({
-          ...bookableOf(object),
-          kind: 'desk',
-          section: object.section,
-          center: centerOf(object),
-          bounds: rectOf(object),
-          shape: 'rect',
-          capacity: 1,
-          chairSide: object.chairSide,
-        })
-        break
-      case 'row':
-        for (const [index, { seat, center }] of rowSeatsOf(object).entries()) {
-          places.push({
-            ...bookableOf(seat),
-            kind: 'row-seat',
-            section: object.section,
-            parent: { id: object.id, kind: 'row', index },
-            center,
-            bounds: circleBounds(center, object.seatSize),
-            shape: 'circle',
-            capacity: 1,
-          })
-        }
-        break
-      case 'table':
-        if (object.wholeBooking) {
-          places.push({
-            ...bookableOf(object),
-            kind: 'table',
-            section: object.section,
-            center: centerOf(object),
-            bounds: rectOf(object),
-            shape: object.shape === 'round' ? 'ellipse' : 'rect',
-            capacity: object.seats.length,
-          })
-          break
-        }
-        for (const [index, { seat, center }] of tableSeatsOf(object).entries()) {
-          places.push({
-            ...bookableOf(seat),
-            kind: 'table-seat',
-            section: object.section,
-            parent: { id: object.id, kind: 'table', index },
-            center,
-            bounds: circleBounds(center, object.seatSize),
-            shape: 'circle',
-            capacity: 1,
-          })
-        }
-        break
-      case 'booth':
-        places.push({
-          ...bookableOf(object),
-          kind: 'booth',
-          section: object.section,
-          center: centerOf(object),
-          bounds: rectOf(object),
-          shape: 'rect',
-          capacity: 1,
-        })
-        break
-      case 'area':
-        places.push({
-          ...bookableOf(object),
-          kind: 'area',
-          section: object.section,
-          center: centerOf(object),
-          bounds: rectOf(object),
-          shape: object.shape === 'ellipse' ? 'ellipse' : 'rect',
-          capacity: object.capacity,
-        })
-        break
-      case 'fixture':
-        break
-    }
-  }
-  return places
+  return plan.objects.filter((object) => object.kind === 'place')
 }
 
-// Every id in the document — objects and the seats inside rows and tables. They share one namespace.
-function idsOf(plan: Pick<SeatPlan, 'objects'>): string[] {
-  const ids: string[] = []
-  for (const object of plan.objects) {
-    ids.push(object.id)
-    if (object.kind === 'row' || object.kind === 'table') for (const seat of object.seats) ids.push(seat.id)
-  }
-  return ids
+// The objects of a group, in drawing order — a row's seats in row order when they were laid out in it.
+function membersOf<S extends string>(plan: Pick<SeatPlan<S>, 'objects'>, groupId: string): PlanObject<S>[] {
+  return plan.objects.filter((object) => object.group === groupId)
 }
 
-// The section containing a point — the editor re-homes a dragged desk to the section its centre lands in.
+// Every id in the document — objects and groups share one namespace.
+function idsOf(plan: Pick<SeatPlan, 'objects'> & Partial<Pick<SeatPlan, 'groups'>>): string[] {
+  return [...plan.objects.map((object) => object.id), ...(plan.groups ?? []).map((group) => group.id)]
+}
+
+// The section containing a point — the editor re-homes a moved place to the section its centre lands in.
 function sectionAt<S extends string>(plan: Pick<SeatPlan<S>, 'sections'>, point: PlanPoint): S | null {
   return plan.sections.find((section) => polygonContains(section.points, point))?.id ?? null
 }
@@ -208,59 +129,18 @@ function sectionWallOf(section: Pick<Section, 'points'>): PlanPoint[] {
 // Next place id — `<section><n>` with n = the highest number any id with that prefix carries + 1. Deleted numbers
 // are never reused, so "delete then add" in one editing session cannot silently reconnect to records that
 // referenced the old id.
-function nextPlaceId(plan: Pick<SeatPlan, 'objects'>, section: string): string {
+function nextPlaceId(plan: Pick<SeatPlan, 'objects' | 'groups'>, section: string): string {
   return `${section}${maxSuffix(plan, new RegExp(`^${escapeRegExp(section)}(\\d+)$`)) + 1}`
 }
 
-// Next non-place id — `<prefix>-<n>` (rows, fixtures), with the prefix shortened when the id would pass
-// OBJECT_ID_MAX. Callers check place ids against PLACE_ID_MAX themselves — a section id cannot be shortened.
-function nextObjectId(plan: Pick<SeatPlan, 'objects'>, prefix: string): string {
+// Next id for anything but a place — `<prefix>-<n>` (fixtures, labels, groups), with the prefix shortened when
+// the id would pass OBJECT_ID_MAX. Callers check place ids against PLACE_ID_MAX themselves — a section id cannot
+// be shortened.
+function nextObjectId(plan: Pick<SeatPlan, 'objects' | 'groups'>, prefix: string): string {
   const number = maxSuffix(plan, new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`)) + 1
   const room = OBJECT_ID_MAX - String(number).length - 1
   if (prefix.length <= room) return `${prefix}-${number}`
   return nextObjectId(plan, prefix.slice(0, Math.max(1, room)))
-}
-
-// Editor rotation — one edge clockwise.
-const NEXT_CHAIR_SIDE: Record<SeatChairSide, SeatChairSide> = { up: 'right', right: 'down', down: 'left', left: 'up' }
-
-function nextChairSide(side: SeatChairSide): SeatChairSide {
-  return NEXT_CHAIR_SIDE[side]
-}
-
-// Where a new standard desk (2×2 cells) goes — scans the section's cell origins row-major and returns the first
-// one inside the section that overlaps no place footprint. null when the section is full (or missing).
-function findFreeDeskPos<S extends string>(plan: Pick<SeatPlan<S>, 'sections' | 'objects'>, id: S): PlanPoint | null {
-  const section = sectionOf(plan, id)
-  if (!section) return null
-  const box = sectionBoundsOf(section)
-  const span = seatGrid.seatSpanPxOf(DEFAULT_SEAT_CELLS)
-  const taken = plan.objects.filter((o) => o.kind !== 'fixture').flatMap(footprintsOf)
-  // Start from the first cell whose origin is at or past the section origin — the cell just inside the corner
-  // when the section is grid-aligned.
-  const startX = seatGrid.seatPxOf(Math.ceil((box.x - 2) / GRID_CELL))
-  const startY = seatGrid.seatPxOf(Math.ceil((box.y - 2) / GRID_CELL))
-  for (let y = startY; y + span <= box.y + box.h; y += GRID_CELL) {
-    for (let x = startX; x + span <= box.x + box.w; x += GRID_CELL) {
-      const rect = { x, y, w: span, h: span }
-      if (!cornersOf(rect).every((corner) => polygonContains(section.points, corner))) continue
-      if (!taken.some((other) => seatGrid.rectsOverlap(other, rect))) return { x, y }
-    }
-  }
-  return null
-}
-
-// Where a new fixture goes — scans the whole plan by half cells row-major for a spot overlapping no object.
-// Fixtures may overlap each other, but a freshly added one should not hide under an existing one.
-function findFreeFixturePos(plan: Pick<SeatPlan, 'width' | 'height' | 'objects'>, size: PlanSize): PlanPoint | null {
-  const taken = plan.objects.map(footprintOf)
-  for (let y = 0; y + size.h <= plan.height; y += HALF_CELL) {
-    for (let x = 0; x + size.w <= plan.width; x += HALF_CELL) {
-      const rect = { x, y, ...size }
-      if (!taken.some((item) => seatGrid.rectsOverlap(item, rect))) return { x, y }
-    }
-  }
-  return null
 }
 
 // Fixture label layout — text runs along the long edge (tall fixtures read bottom-to-top), the font follows the
@@ -282,25 +162,32 @@ function fixtureLabelOf(
 // Section crop — bounded by the section's objects rather than its outline, because rooms keep wide empty floor
 // that would become empty crop height when crops are stacked on a narrow screen. The outer wall may be clipped
 // by the frame; a heading above the crop names the section.
-// Fixtures have no section, so those whose centre lies in the section belong to it (and extend the bounds so a
-// TV on the wall is not cut off). Bounds snap to GRID_CELL so desks stay on grid lines after translation.
-// null when the section does not exist (defensive — callers draw an empty state).
+// Places belong to their section. Fixtures and labels have none: one belongs to the section when a place of its
+// group does, or else when its centre lies in the outline (a stage on the wall). The crop origin snaps to whole
+// cells, so coordinates stay integers. null when the section does not exist.
 function sectionPlanOf<S extends string>(plan: SeatPlan<S>, id: S): SeatPlan<S> | null {
   const section = sectionOf(plan, id)
   if (!section) return null
-  const objects = plan.objects.filter((object) =>
-    object.kind === 'fixture' ? polygonContains(section.points, centerOf(object)) : object.section === id,
-  )
+  const places = placesOf(plan)
+  const groupsHere = new Set(places.flatMap((p) => (p.section === id && p.group !== undefined ? [p.group] : [])))
+  const groupsWithPlaces = new Set(places.flatMap((p) => (p.group === undefined ? [] : [p.group])))
+  const objects = plan.objects.filter((object) => {
+    if (object.kind === 'place') return object.section === id
+    if (object.group !== undefined && groupsWithPlaces.has(object.group)) return groupsHere.has(object.group)
+    return polygonContains(section.points, centerOf(object))
+  })
+  const used = new Set(objects.flatMap((object) => (object.group === undefined ? [] : [object.group])))
   // A section with nothing in it has nothing to crop to — its outline is the bound.
-  const bounds = unionBounds(objects.map(boundsOf)) ?? sectionBoundsOf(section)
+  const bounds = extentOf(objects) ?? sectionBoundsOf(section)
   const x0 = Math.floor((bounds.x - SECTION_PLAN_PADDING) / GRID_CELL) * GRID_CELL
   const y0 = Math.floor((bounds.y - SECTION_PLAN_PADDING) / GRID_CELL) * GRID_CELL
   return {
-    version: 2,
+    version: 3,
     width: Math.ceil((bounds.x + bounds.w + SECTION_PLAN_PADDING - x0) / GRID_CELL) * GRID_CELL,
     height: Math.ceil((bounds.y + bounds.h + SECTION_PLAN_PADDING - y0) / GRID_CELL) * GRID_CELL,
     sections: [{ ...section, points: section.points.map((p) => ({ x: p.x - x0, y: p.y - y0 })) }],
     categories: plan.categories,
+    groups: plan.groups.filter((group) => used.has(group.id)),
     objects: objects.map((object) => translate(object, -x0, -y0)),
   }
 }
@@ -332,112 +219,12 @@ function sectionPlansOf<S extends string>(plan: SeatPlan<S>): SectionPlan<S>[] {
   })
 }
 
-// Seat centres along a row — spread evenly over the arc from start to end.
-function rowSeatsOf(row: Pick<Row, 'start' | 'end' | 'curve' | 'seats'>): { seat: RowSeat; center: PlanPoint }[] {
-  const centers = arcPoints(row.start, row.end, row.curve, row.seats.length)
-  return row.seats.map((seat, i) => ({ seat, center: centers[i]! }))
-}
-
-// The middle of a row's arc — where its curve handle sits.
-function rowApexOf(row: Pick<Row, 'start' | 'end' | 'curve'>): PlanPoint {
-  return arcPoints(row.start, row.end, row.curve, 1)[0]!
-}
-
-// Where a row's label goes — one seat's width beyond the first and the last seat, along the row.
-function rowLabelAnchorsOf(row: Pick<Row, 'start' | 'end' | 'curve' | 'seats' | 'seatSize'>): {
-  start: PlanPoint
-  end: PlanPoint
-} {
-  const centers = rowSeatsOf(row).map(({ center }) => center)
-  const first = centers[0] ?? row.start
-  const last = centers.at(-1) ?? row.end
-  const outward = (from: PlanPoint, toward: PlanPoint | undefined, fallback: PlanPoint): PlanPoint => {
-    const dx = toward ? from.x - toward.x : fallback.x
-    const dy = toward ? from.y - toward.y : fallback.y
-    const length = Math.hypot(dx, dy)
-    if (length === 0) return { x: from.x, y: from.y }
-    return { x: from.x + (dx / length) * row.seatSize, y: from.y + (dy / length) * row.seatSize }
-  }
-  const along = { x: row.end.x - row.start.x || 1, y: row.end.y - row.start.y }
-  return {
-    start: outward(first, centers[1], { x: -along.x, y: -along.y }),
-    end: outward(last, centers.at(-2), along),
-  }
-}
-
-// The objects whose footprint touches a rectangle — marquee selection. Fixtures included.
+// The objects whose shape touches a rectangle — marquee selection. Every kind included.
 function objectsInRect(plan: Pick<SeatPlan, 'objects'>, rect: PlanRect): string[] {
-  const touches = (b: PlanRect) =>
-    b.x <= rect.x + rect.w && rect.x <= b.x + b.w && b.y <= rect.y + rect.h && rect.y <= b.y + b.h
-  return plan.objects.filter((object) => footprintsOf(object).some(touches)).map((object) => object.id)
-}
-
-// Seat centres around a table. Round tables spread seats evenly clockwise from the top; rectangular tables split
-// them over the two long sides (the first side takes the odd one), left to right / top to bottom.
-function tableSeatsOf(
-  table: Pick<Table, 'x' | 'y' | 'w' | 'h' | 'shape' | 'seatSize' | 'seats'>,
-): { seat: TableSeat; center: PlanPoint }[] {
-  const n = table.seats.length
-  const center = centerOf(table)
-  const reach = table.seatSize / 2 + TABLE_SEAT_GAP
-  if (table.shape === 'round') {
-    const rx = table.w / 2 + reach
-    const ry = table.h / 2 + reach
-    return table.seats.map((seat, i) => {
-      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n
-      return { seat, center: { x: center.x + rx * Math.cos(angle), y: center.y + ry * Math.sin(angle) } }
-    })
-  }
-  const wide = table.w >= table.h
-  const firstCount = Math.ceil(n / 2)
-  return table.seats.map((seat, i) => {
-    const first = i < firstCount
-    const count = first ? firstCount : n - firstCount
-    const k = first ? i : i - firstCount
-    const along = (k + 0.5) / count
-    if (wide) {
-      const x = table.x + table.w * along
-      return { seat, center: { x, y: first ? table.y - reach : table.y + table.h + reach } }
-    }
-    const y = table.y + table.h * along
-    return { seat, center: { x: first ? table.x + table.w + reach : table.x - reach, y } }
-  })
-}
-
-// The furniture of one desk — the chair in the band on its chair side, the desk top in the rest (local
-// coordinates, desk origin). The chair lies with its long edge along the desk.
-function furnitureOf(desk: Pick<Desk, 'w' | 'h' | 'chairSide'>): { desk: PlanRect; chair: PlanRect } {
-  const sideways = desk.chairSide === 'left' || desk.chairSide === 'right'
-  const depth = sideways ? desk.w : desk.h
-  const span = sideways ? desk.h : desk.w
-  const band = Math.min(CHAIR_BAND, depth * 0.32)
-  const gap = band * 0.2 // between desk and chair
-  const inset = band * 0.15 // between chair and the desk's outer edge
-  const thickness = band - gap - inset
-  const length = Math.min(CHAIR_LENGTH, span - 8)
-  const along = (span - length) / 2
-  switch (desk.chairSide) {
-    case 'up':
-      return {
-        desk: { x: 0, y: band, w: desk.w, h: desk.h - band },
-        chair: { x: along, y: inset, w: length, h: thickness },
-      }
-    case 'down':
-      return {
-        desk: { x: 0, y: 0, w: desk.w, h: desk.h - band },
-        chair: { x: along, y: desk.h - band + gap, w: length, h: thickness },
-      }
-    case 'left':
-      return {
-        desk: { x: band, y: 0, w: desk.w - band, h: desk.h },
-        chair: { x: inset, y: along, w: thickness, h: length },
-      }
-    case 'right':
-      return {
-        desk: { x: 0, y: 0, w: desk.w - band, h: desk.h },
-        chair: { x: desk.w - band + gap, y: along, w: thickness, h: length },
-      }
-  }
+  const band = outlineOf(rect, 'rect')
+  return plan.objects
+    .filter((object) => polygonsOverlap(outlineOfObject(object), band, true))
+    .map((object) => object.id)
 }
 
 // The painted band of a wall fixture — INNER_WALL_THICKNESS centred along the long edge (local coordinates).
@@ -448,83 +235,77 @@ function innerWallOf(fixture: Pick<Fixture, 'w' | 'h'>): PlanRect {
     : { x: (fixture.w - thickness) / 2, y: 0, w: thickness, h: fixture.h }
 }
 
-// The floor an object claims — overlap rules and free-spot search use it. A table claims its top (seats around
-// it may share the aisle), a row the extent of its seats.
-function footprintOf(object: PlanObject): PlanRect {
-  if (object.kind === 'row') return rowBounds(object)
-  return rectOf(object)
+// A group label is a text box — it tests as a rectangle.
+function shapeOf(object: PlanObject): Shape {
+  return object.kind === 'label' ? 'rect' : object.shape
 }
 
-// Footprints that overlap (touching edges do not), and fixtures standing on a place — the rules the schema
-// refuses to save and the editor marks while you drag. Pairs are in document order; a fixture reports the first
-// object it covers.
-function conflictsOf(plan: Pick<SeatPlan, 'objects'>): {
-  overlaps: [string, string][]
-  fixtures: { fixtureId: string; role: string; id: string }[]
-} {
-  const claimed = plan.objects.filter((object) => object.kind !== 'fixture')
-  const order = new Map(claimed.map((object, i) => [object.id, i]))
-  // One index item per footprint piece (a row has one per seat) — each object meets only its neighbours.
-  const pieces = claimed.flatMap((object, i) =>
-    footprintsOf(object).map((bounds, k) => ({ id: `${i}:${k}`, bounds, owner: object.id })),
-  )
-  const index = spatialIndex.create(pieces)
-  const ownerOf = new Map(pieces.map((piece) => [piece.id, piece.owner]))
-  const found = new Set<string>()
-  const overlaps: [string, string][] = []
-  for (const piece of pieces) {
-    for (const other of spatialIndex.query(index, piece.bounds)) {
-      const a = piece.owner
-      const b = ownerOf.get(other.id)!
-      if (a === b || !seatGrid.rectsOverlap(piece.bounds, other.bounds)) continue
-      const pair: [string, string] = order.get(a)! < order.get(b)! ? [a, b] : [b, a]
-      const key = pair.join('\u0000')
-      if (found.has(key)) continue
-      found.add(key)
-      overlaps.push(pair)
+function centerOf(box: PlanRect): PlanPoint {
+  return centerOfBox(box)
+}
+
+// The object's outline in plan coordinates — the turned rectangle's corners (nw, ne, se, sw of the unturned box),
+// or a polygon inscribed in the ellipse.
+function outlineOfObject(object: PlanObject): PlanPoint[] {
+  return outlineOf(object, shapeOf(object))
+}
+
+// The axis-aligned rectangle around what an object draws — turned shapes included.
+function boundsOf(object: PlanObject): PlanRect {
+  return boundsOfBox(object, shapeOf(object))
+}
+
+// The rectangle around several objects, or null when there are none.
+function extentOf(objects: readonly PlanObject[]): PlanRect | null {
+  return unionBounds(objects.map(boundsOf))
+}
+
+// The box around several objects, level in the direction `rotation` faces — a group's frame. Unlike their extent
+// (the level box around them), it turns with them: turning the objects and the direction together about the
+// frame's centre leaves the centre where it was. null when there are no objects.
+function frameOf(objects: readonly PlanObject[], rotation = 0): PlanBox | null {
+  const points = objects.flatMap(outlineOfObject).map((p) => rotatePoint(p, ORIGIN, -rotation))
+  if (points.length === 0) return null
+  const local = boundsOfPoints(points)
+  const center = rotatePoint({ x: local.x + local.w / 2, y: local.y + local.h / 2 }, ORIGIN, rotation)
+  const box = { x: center.x - local.w / 2, y: center.y - local.h / 2, w: local.w, h: local.h }
+  return rotation ? { ...box, rotation } : box
+}
+
+const ORIGIN: PlanPoint = { x: 0, y: 0 }
+
+// Whether a plan point lies on an object (its edge included).
+function contains(object: PlanObject, point: PlanPoint): boolean {
+  return boxContains(object, shapeOf(object), point)
+}
+
+// Whether two objects cut into each other by more than OVERLAP_TOLERANCE — touching is not overlapping.
+function overlaps(a: PlanObject, b: PlanObject): boolean {
+  const inset = OVERLAP_TOLERANCE / 2
+  return polygonsOverlap(outlineOf(a, shapeOf(a), inset), outlineOf(b, shapeOf(b), inset))
+}
+
+// Places that overlap — the rule the schema refuses to save and the editor marks while you drag. Fixtures and
+// labels may overlap anything (a chair at its desk, a stage behind the front row). Pairs are in document order.
+function conflictsOf(plan: Pick<SeatPlan, 'objects'>): [string, string][] {
+  const places = placesOf(plan)
+  const order = new Map(places.map((place, i) => [place.id, i]))
+  const byId = new Map(places.map((place) => [place.id, place]))
+  const index = spatialIndex.create(places.map((place) => ({ id: place.id, bounds: boundsOf(place) })))
+  const overlapping: [string, string][] = []
+  for (const place of places) {
+    for (const other of spatialIndex.query(index, boundsOf(place))) {
+      // Each pair once — from its earlier place.
+      if (order.get(other.id)! <= order.get(place.id)!) continue
+      if (overlaps(place, byId.get(other.id)!)) overlapping.push([place.id, other.id])
     }
   }
-  overlaps.sort((p, q) => order.get(p[1])! - order.get(q[1])! || order.get(p[0])! - order.get(q[0])!)
-  const fixtures: { fixtureId: string; role: string; id: string }[] = []
-  for (const fixture of plan.objects) {
-    if (fixture.kind !== 'fixture') continue
-    const hits = spatialIndex
-      .query(index, fixture)
-      .filter((piece) => seatGrid.rectsOverlap(piece.bounds, fixture))
-      .map((piece) => ownerOf.get(piece.id)!)
-    const first = hits.sort((a, b) => order.get(a)! - order.get(b)!)[0]
-    if (first !== undefined) fixtures.push({ fixtureId: fixture.id, role: fixture.role, id: first })
-  }
-  return { overlaps, fixtures }
-}
-
-// The floor an object claims, piece by piece — a row claims each seat (a curved row's bounding box covers floor
-// its seats never touch), anything else its footprint.
-function footprintsOf(object: PlanObject): PlanRect[] {
-  if (object.kind === 'row') return rowSeatsOf(object).map(({ center }) => circleBounds(center, object.seatSize))
-  return [footprintOf(object)]
-}
-
-// Everything an object draws — a table's seats included.
-function boundsOf(object: PlanObject): PlanRect {
-  if (object.kind === 'row') return rowBounds(object)
-  if (object.kind === 'table') {
-    const seats = tableSeatsOf(object).map(({ center }) => circleBounds(center, object.seatSize))
-    return unionBounds([rectOf(object), ...seats])!
-  }
-  return rectOf(object)
+  return overlapping.sort((p, q) => order.get(p[1])! - order.get(q[1])! || order.get(p[0])! - order.get(q[0])!)
 }
 
 // The same object moved by (dx, dy).
-function translate<O extends PlanObject<string>>(object: O, dx: number, dy: number): O {
-  if (object.kind === 'row') {
-    return {
-      ...object,
-      start: { x: object.start.x + dx, y: object.start.y + dy },
-      end: { x: object.end.x + dx, y: object.end.y + dy },
-    }
-  }
-  return { ...object, x: (object as PlanRect).x + dx, y: (object as PlanRect).y + dy }
+function translate<O extends PlanBox>(object: O, dx: number, dy: number): O {
+  return { ...object, x: object.x + dx, y: object.y + dy }
 }
 
 // Whether section names are drawn on the plan — not on a single-section crop, where there is nothing to tell
@@ -540,42 +321,7 @@ function drawingBoundsOf(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>):
   return { x: -DRAWING_MARGIN, y: -top, w: plan.width + DRAWING_MARGIN * 2, h: plan.height + top + DRAWING_MARGIN }
 }
 
-function bookableOf(item: { id: string; label?: string; category?: string; tags?: string[] }) {
-  return {
-    id: item.id,
-    label: item.label ?? item.id,
-    ...(item.category === undefined ? {} : { category: item.category }),
-    tags: item.tags ?? [],
-  }
-}
-
-function rowBounds(row: Row): PlanRect {
-  const seats = rowSeatsOf(row).map(({ center }) => circleBounds(center, row.seatSize))
-  return unionBounds(seats) ?? boundsOfPoints([row.start, row.end])
-}
-
-function circleBounds(center: PlanPoint, size: number): PlanRect {
-  return { x: center.x - size / 2, y: center.y - size / 2, w: size, h: size }
-}
-
-function rectOf(rect: PlanRect): PlanRect {
-  return { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
-}
-
-function centerOf(rect: PlanRect): PlanPoint {
-  return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 }
-}
-
-function cornersOf(rect: PlanRect): PlanPoint[] {
-  return [
-    { x: rect.x, y: rect.y },
-    { x: rect.x + rect.w, y: rect.y },
-    { x: rect.x + rect.w, y: rect.y + rect.h },
-    { x: rect.x, y: rect.y + rect.h },
-  ]
-}
-
-function maxSuffix(plan: Pick<SeatPlan, 'objects'>, pattern: RegExp): number {
+function maxSuffix(plan: Pick<SeatPlan, 'objects' | 'groups'>, pattern: RegExp): number {
   return idsOf(plan).reduce((acc, id) => {
     const match = pattern.exec(id)
     return match ? Math.max(acc, Number(match[1])) : acc

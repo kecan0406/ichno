@@ -45,7 +45,10 @@ export function VenueDemo() {
   }
 
   function showSelection() {
-    const rects = selected.flatMap((id) => placeById.get(id)?.bounds ?? [])
+    const rects = selected.flatMap((id) => {
+      const place = placeById.get(id)
+      return place ? [seatPlan.boundsOf(place)] : []
+    })
     const next = planView.fitTo(rects, 160, HOME)
     if (next) setView(next)
   }
@@ -99,7 +102,7 @@ export function VenueDemo() {
               status={venueStatus}
               selected={selected}
               sectionLabel={(section) => venueSectionNames[section.id]}
-              fixtureLabel={(fixture) => fixtureNames[fixture.role] ?? null}
+              fixtureLabel={(fixture) => fixtureNames[fixture.role ?? ''] ?? null}
               region={frame.region}
               scale={frame.scale}
             />

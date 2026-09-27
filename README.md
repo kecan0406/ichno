@@ -2,11 +2,11 @@
 
 Seat plans for React — one JSON document, headless primitives around it.
 
-- **`ichno`** — zod-free core: the document types, grid snapping, geometry (desks, curved rows, tables, section
-  crops), soft lint rules, selection rules and a renderer-independent interaction core (hit-testing, gestures,
-  keyboard movement)
+- **`ichno`** — zod-free core: the document types, geometry (turned shapes, overlap, section crops), layouts (rows
+  on an arc, seats around a table, blocks), soft lint rules, selection rules and a renderer-independent interaction
+  core (hit-testing, gestures, keyboard movement)
 - **`ichno/schema`** — `createSeatPlanSchema({ sectionIds })`: zod validation with structured issue codes; upgrades
-  documents stored by ichno 0.1
+  documents stored by ichno 0.1 and 0.2
 - **`ichno/react`** — `SeatMap.*`: headless SVG components. The parts render as React Server Components; the
   `Viewport` adds pan, zoom, taps, drags and keyboard movement on the client
 - **`ichno/editor`** — `useSeatPlanEditor`: headless editor state and operations; you build the panels
@@ -23,38 +23,72 @@ Compiler.
 
 ## The document
 
+The document holds primitives only — what is where, and what can be booked. A row, a table or a desk is not a kind
+ichno decides; it is a group of places and fixtures, and `role` carries your word for each.
+
 ```ts
 type SeatPlan<S extends string> = {
-  version: 2
+  version: 3
   width: number
   height: number
   sections: { id: S; points: { x: number; y: number }[] }[] // venue sections — composition fixed by you
   categories: { key: string; accessible?: boolean }[] // names, colours and prices are yours
+  groups: { id: string; label?: string; role?: string; rotation?: number }[] // a row, a table with its chairs, …
   objects: PlanObject<S>[] // drawing order
 }
 
+// Every object is a box: integer x, y, w, h, turned `rotation` degrees clockwise about its centre.
 type PlanObject<S> =
-  | { kind: 'desk'; id; section: S; x; y; w; h; chairSide: 'up' | 'right' | 'down' | 'left' } // one person
-  | { kind: 'row'; id; section: S; start; end; curve; seatSize; seats: { id }[] } // seats spread along an arc
-  | { kind: 'table'; id; section: S; shape: 'round' | 'rect'; x; y; w; h; seatSize; seats: { id }[]; wholeBooking? }
-  | { kind: 'booth'; id; section: S; x; y; w; h }
-  | { kind: 'area'; id; section: S; shape: 'rect' | 'ellipse'; x; y; w; h; capacity; wholeBooking? }
-  | { kind: 'fixture'; id; role: string; x; y; w; h } // walls, TVs, stages — never capacity
+  | {
+      kind: 'place'
+      id
+      section: S
+      shape: 'rect' | 'ellipse'
+      capacity
+      x
+      y
+      w
+      h
+      rotation?
+      label?
+      group?
+      role?
+      category?
+      tags?
+    }
+  | { kind: 'fixture'; id; shape: 'rect' | 'ellipse'; x; y; w; h; rotation?; group?; role? } // stage, wall, chair — never capacity
+  | { kind: 'label'; id; group; x; y; w; h } // where a group's label is written (a row's ends)
 ```
 
-Every bookable unit also takes `label`, `category` and `tags`. Coordinates are integer plan units.
-
 - **Ids are booking keys.** A place's `id` (1–8 characters) is what your other records (bookings, sessions) point
-  at — keep it stable. `label` is what people read and may change freely; it defaults to the id. Ids share one
-  namespace across the document, seats inside rows and tables included.
-- **Row seats are computed.** A row stores its end points, `curve` (0 straight, ±1 a half circle, positive bows to
-  the left of start → end) and its seat list; `seatPlan.rowSeatsOf(row)` returns the positions.
+  at — keep it stable. `label` is what people read and may change freely; it defaults to the id. Objects and groups
+  share one id namespace.
+- **Places are stored as they are drawn.** A seat in a curved row is a place with its own box; `layout` (below)
+  computes those boxes, and nothing about how they were made is kept. `capacity` is how many people a place holds —
+  1 for a seat, more for a standing area or a table booked whole.
+- **Groups move as one.** A group's members are the objects pointing at it; the editor selects, moves, turns and
+  copies them together, and selection rules read a group's places as a line.
 - **Status stays outside.** Taken, held or blocked are yours to keep; renderers take them as props.
-- **Desks use the grid.** Desks snap to a 46-unit cell grid (a standard desk is 2×2 cells = 88 units with a 4-unit
-  gap), fixtures to half cells, section outlines to cell corners.
+- **No grid in the document.** Coordinates are whole plan units; the editor snaps to a cell grid only when asked.
 
-`seatPlan.placesOf(plan)` flattens every bookable unit — desks, row seats, table seats (or whole tables), booths
-and areas — with its section, label, centre, bounds and capacity.
+`seatPlan.placesOf(plan)` lists the places; `seatPlan.membersOf(plan, groupId)` a group's objects;
+`seatPlan.boundsOf(object)`, `contains` and `overlaps` work on the turned shape.
+
+## Layouts
+
+Rows, tables and blocks of desks are layouts — functions that return the boxes to create places (or fixtures) on:
+
+```ts
+import { layout } from 'ichno'
+
+layout.arc({ start, end, curve: -0.1, count: 12, size: 40 }) // a row, seats turned along the arc
+layout.line({ start, end, count: 8, size: 40 }) // a straight row
+layout.around({ table: top, shape: 'ellipse', count: 6, size: 36 }) // seats around a table top, facing it
+layout.grid({ origin, columns: 4, rows: 2, size: { w: 88, h: 60 }, gap: 4 }) // a block of desks
+layout.curveOf(centres) // the curve of an existing row — the inverse of `arc`
+```
+
+`curve` is 0 for a straight row and ±1 for a half circle; positive bows to the left of start → end.
 
 ## Validate
 
@@ -63,7 +97,7 @@ import { createSeatPlanSchema, seatPlanIssueOf } from 'ichno/schema'
 
 export const { SeatPlan } = createSeatPlanSchema({ sectionIds: ['A', 'B'] as const })
 
-const result = SeatPlan.safeParse(input) // 0.1 documents (rooms under `zones`) are upgraded here
+const result = SeatPlan.safeParse(input) // 0.1 and 0.2 documents are upgraded here
 if (!result.success) {
   for (const issue of result.error.issues) {
     const planIssue = seatPlanIssueOf(issue) // null for ordinary zod issues (types, sizes)
@@ -73,7 +107,9 @@ if (!result.success) {
 ```
 
 Plan-level issue codes: `duplicate_section`, `duplicate_category`, `duplicate_id`, `unknown_category`,
-`out_of_bounds`, `overlap`, `fixture_overlap`. Callers holding a trusted 0.1 document can use `upgradeSeatPlan`.
+`unknown_group`, `out_of_bounds` (places and fixtures; group labels may sit in the margin) and `overlap` (places
+only, on their turned shapes — touching, or crossing by less than `OVERLAP_TOLERANCE`, is fine). Callers holding a
+trusted older document can use `upgradeSeatPlan`.
 
 Softer rules warn instead of refusing a save. Each has a severity you can change:
 
@@ -96,8 +132,9 @@ validateSelection(plan, { selected, unavailable }, { max: 4, consecutive: true, 
 // [{ code: 'orphan_seat', id: 'A2' }]
 ```
 
-Codes: `too_few`, `too_many`, `not_consecutive` (row seats side by side in one row) and `orphan_seat` (a free
-seat the selection strands between taken seats or a row end).
+Codes: `too_few`, `too_many`, `not_consecutive` (places side by side in one group) and `orphan_seat` (a free place
+the selection strands between taken places or a group's end). A group's places, in document order, form the line;
+a group with a single place (a desk) forms none.
 
 ## Interaction core
 
@@ -120,6 +157,7 @@ import { SeatMap } from 'ichno/react'
     status={{ A2: 'booked' }} // your words — exposed as data-status; places with a status are disabled
     selected={['B4']}
     sectionLabel={(section) => names[section.id]}
+    groupLabel={(group) => group.label} // what a group's labels say (defaults to its label, or id)
     fixtureVariant={(fixture) => (fixture.role === 'wall' ? 'wall' : 'box')}
   />
 </SeatMap.Root>
@@ -135,14 +173,15 @@ import { SeatMap } from 'ichno/react'
 ```
 
 `SeatMap.Content` is a convenience; compose the parts yourself when you need something else —
-`SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Table`, `SeatMap.RowLabel`, `SeatMap.Grid`,
-`SeatMap.Handles` and `SeatMap.Marquee`, fed by
-`seatPlan.placesOf(plan)`. `renderPlace` swaps one place's drawing while keeping the rest.
+`SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Label`, `SeatMap.Grid`, `SeatMap.Handles` and
+`SeatMap.Marquee`, fed by `plan.objects`. `renderPlace` swaps one place's drawing while keeping the rest. Turned
+places keep their label level.
 
 **Styling.** Parts paint with presentation attributes that read the theme variables, so any class overrides them.
-State is on the element: `data-kind`, `data-status`, `data-selected`, `data-disabled`, `data-highlighted`,
-`data-dimmed`, `data-invalid`, `data-category`, `data-chair-side`; pieces are named by `data-part` (`shape`, `chair`, `label`,
-`floor`, `wall`, `top`, `row-label`, `handle`, `marquee`, `focus-ring`).
+State is on the element: `data-kind` (`place`, `fixture`, `label`), `data-role`, `data-group`, `data-shape`,
+`data-status`, `data-selected`, `data-disabled`, `data-highlighted`, `data-dimmed`, `data-invalid`,
+`data-category`; pieces are named by `data-part` (`shape`, `label`, `hit`, `floor`, `wall`, `handle`, `marquee`,
+`focus-ring`). Style your roles by `data-role` — `[data-role='chair'] [data-part='shape']`.
 
 ```tsx
 <SeatMap.Place
@@ -174,49 +213,59 @@ For narrow screens, `seatPlan.sectionPlansOf(plan)` returns one crop per section
 
 ```tsx
 'use client'
-import { labeling } from 'ichno'
+import { labeling, layout } from 'ichno'
 import { useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
 import { SeatMap } from 'ichno/react'
 
-const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds })
-useSeatPlanEditorShortcuts(editor) // Delete, R (turn chair), ⌘Z / ⇧⌘Z, ⌘D (duplicate)
+const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 46 } })
+useSeatPlanEditorShortcuts(editor) // Delete, R / ⇧R (turn), ⌘Z / ⇧⌘Z, ⌘D (duplicate), ⌘G (group)
 
 <SeatMap.Viewport {...editor.viewportProps}>
   <SeatMap.Grid plan={editor.displayPlan} />
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} invalid={editor.conflictIds} />
-  <SeatMap.Handles handles={editor.handles} />
+  <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
   <SeatMap.Marquee rect={editor.marquee} />
 </SeatMap.Viewport>
 
-<button onClick={() => editor.addDesk('A') ?? alert('No free 2×2 spot')}>Add desk</button>
-<button onClick={() => editor.addRow('B', { start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, seats: 10, curve: 0.2 })}>
+const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, curve: 0.2, count: 10, size: 40 })
+<button onClick={() => editor.addPlaces('B', seats, { role: 'seat', group: { role: 'row', label: 'A' } })}>
   Add row
 </button>
-<button onClick={() => editor.labelSeats(rowId, labeling.numbers({ reverse: true }))}>Number right to left</button>
+<button onClick={() => editor.label(seatIds, labeling.numbers({ reverse: true }))}>Number right to left</button>
 <button disabled={!editor.canUndo} onClick={editor.undo}>Undo</button>
 <button disabled={!editor.dirty} onClick={() => save(editor.plan)}>Save</button>
 ```
 
-Tapping selects (a seat selects its row or table; shift/⌘ adds to the selection) and dragging moves the selection
-with the snapping the commit will use. Dragging on a section's floor draws a marquee that selects everything it
-touches; a selected section moves instead. Space outside every section and the middle mouse button pan.
-Nothing stops you from dragging one object onto another; `conflictIds` lists the objects that overlap (the same
-check the schema runs on save) so you can mark them while arranging. A single selected item shows handles: corners resize rectangles (desks by whole cells), a row's ends set its
-length and direction and its middle handle sets the curve, a section's vertices reshape it. `displayPlan` is the plan with the drag in
+Tapping a grouped object selects its group; tapping it again selects the object alone (shift/⌘ adds to the
+selection). Dragging moves the selection with the snapping the commit will use. Dragging on a section's floor
+draws a marquee that selects everything it touches; a selected section moves instead. Space outside every section
+and the middle mouse button pan. Nothing stops you from dragging one place onto another; `conflictIds` lists the
+places that overlap (the same check the schema runs on save) so you can mark them while arranging. A single
+selected item shows handles: an object resizes from its corners (in its own turned frame) and turns from the knob
+above it, a group turns as one about the centre of its frame — the box around its members in the direction the
+group faces (`group.rotation`), which turns with it, so the centre stays put turn after turn — and a section's
+vertices reshape it. `frame` outlines the selected object or group; corner handles carry their turned `angle` so
+`SeatMap.Handles` shows matching resize cursors. `rotateSelected` turns one item about its own centre and several
+together about the middle of their centres. `displayPlan` is the plan with the drag in
 progress; `plan` is what you save. `onTap` also reports the plan point, for tools that place things where you click.
 
-- **Create:** `addDesk`, `addFixture(role, size)`, `addRow`, `addTable`, `addBooth`, `addArea`,
-  `duplicateSelected` — each returns the new id (or null) and selects it. New places continue the section numbering.
-- **Change:** `moveObject`, `moveSection`, `reshapeSection`, `rotateDesk`, `setSeatCount` (a row keeps its length),
-  `labelSeats` / `labelObjects` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or `labeling.custom`,
-  `alignSelected`, `distributeSelected`, `renameObject`, `updateObject`.
-- **Remove:** `removeObjects`, `removeSelected` — return the ids they refused.
+Operations take object and group ids alike — a group acts as one.
+
+- **Create:** `addPlaces(section, boxes, { shape, capacity, role, category, group })`, `addFixtures(boxes, …)`,
+  `addLabels(groupId, boxes)`, `duplicateSelected`, `groupSelected` — each returns the new ids and selects them
+  (`group: { role, label }` makes a new group in the same step). New places continue the section numbering.
+- **Change:** `layoutGroup(groupId, boxes)` (grow, shrink or bend a row — members move onto the boxes, extra boxes
+  get new places, surplus ones go from the end), `arrange(ids, boxes)`, `convert(ids, 'place' | 'fixture')` (book a
+  table whole), `rotateSelected(degrees)`, `moveSelected`, `alignSelected`, `distributeSelected`, `label(ids,
+sequence)` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or `labeling.custom`, `renameObject`
+  (objects and groups), `updateObject`, `updateGroup`, `ungroup`, `moveSection`, `reshapeSection`.
+- **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
+- **Remove:** `removeObjects`, `removeSelected` — return the ids they refused. Groups left empty go too.
 - **History:** `undo`, `redo`, `canUndo`, `canRedo`, `reset`.
 
-`lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or shrunk past it,
-while labels stay free. Every operation is also available as a pure function in `planEdits` (plan in, plan out) for
-imports and scripts. The plan is grid-normalized on open. To adopt a new baseline after saving, remount the editor
-(key it by the saved version).
+`lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or turned into a
+fixture, while labels stay free. Every operation is also available as a pure function in `planEdits` (plan in, plan
+out) for imports and scripts. To adopt a new baseline after saving, remount the editor (key it by the saved version).
 
 ## Theme
 
@@ -225,10 +274,10 @@ defaults (`themeVars` lists them). Classes on parts override them outright.
 
 | Variable                    | Role                                            |
 | --------------------------- | ----------------------------------------------- |
-| `--ichno-surface`           | section floor, desks, empty chairs              |
+| `--ichno-surface`           | section floor, empty places                     |
 | `--ichno-fixture`           | fixture faces                                   |
 | `--ichno-grid`              | editor grid                                     |
-| `--ichno-label`             | furniture outlines, seat numbers, fixture names |
+| `--ichno-label`             | outlines, seat numbers, group and fixture names |
 | `--ichno-ink`               | walls, taken places, selection rings            |
 | `--ichno-ink-foreground`    | numbers on ink-filled places                    |
 | `--ichno-accent`            | picked places, editor selection                 |

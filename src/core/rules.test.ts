@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { lintSeatPlan } from './lint'
+import { layout } from './layout'
 import { validateSelection } from './selection'
 import type { PlanObject, SeatPlan } from './types'
 
@@ -12,7 +13,7 @@ const square = [
 
 function planOf(objects: PlanObject[], extra: Partial<SeatPlan> = {}): SeatPlan {
   return {
-    version: 2,
+    version: 3,
     width: 1000,
     height: 600,
     sections: [
@@ -20,33 +21,33 @@ function planOf(objects: PlanObject[], extra: Partial<SeatPlan> = {}): SeatPlan 
       { id: 'B', points: square.map((p) => ({ x: p.x + 500, y: p.y })) },
     ],
     categories: [],
+    groups: [{ id: 'row-a' }, { id: 'row-b' }, { id: 'desk-1' }],
     objects,
     ...extra,
   }
 }
 
 function desk(id: string, x: number, extra: object = {}): PlanObject {
-  return { kind: 'desk', id, section: 'A', x, y: 20, w: 80, h: 80, chairSide: 'down', ...extra }
+  return { kind: 'place', id, section: 'A', x, y: 20, w: 80, h: 80, shape: 'rect', capacity: 1, ...extra }
 }
 
-// Row A: seats A1…A6 left to right.
-const rowA: PlanObject = {
-  kind: 'row',
-  id: 'row-a',
-  section: 'A',
-  start: { x: 40, y: 300 },
-  end: { x: 440, y: 300 },
-  curve: 0,
-  seatSize: 40,
-  seats: ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'].map((id) => ({ id })),
+function row(group: string, y: number, ids: string[]): PlanObject[] {
+  const boxes = layout.line({ start: { x: 40, y }, end: { x: 440, y }, count: ids.length, size: 40 })
+  return boxes.map((box, i) => ({
+    kind: 'place',
+    id: ids[i]!,
+    section: 'A',
+    shape: 'ellipse',
+    capacity: 1,
+    group,
+    ...box,
+  }))
 }
-const rowB: PlanObject = {
-  ...rowA,
-  id: 'row-b',
-  start: { x: 40, y: 400 },
-  end: { x: 440, y: 400 },
-  seats: [{ id: 'B1' }, { id: 'B2' }],
-}
+
+// Row A: seats A1…A6 left to right, in a group; row B: two seats; a desk alone in its own group.
+const rowA = row('row-a', 300, ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'])
+const rowB = row('row-b', 400, ['B1', 'B2'])
+const lone = desk('D1', 20, { group: 'desk-1' })
 
 describe('lintSeatPlan', () => {
   it('reports places that read the same', () => {
@@ -85,7 +86,7 @@ describe('lintSeatPlan', () => {
 })
 
 describe('validateSelection', () => {
-  const plan = planOf([rowA, rowB])
+  const plan = planOf([...rowA, ...rowB, lone])
 
   it('checks the count limits', () => {
     expect(validateSelection(plan, { selected: ['A1'] }, { min: 2, max: 4 })).toEqual([{ code: 'too_few', min: 2 }])
@@ -94,13 +95,19 @@ describe('validateSelection', () => {
     ])
   })
 
-  it('requires consecutive seats to be side by side in one row', () => {
+  it('requires consecutive seats to be side by side in one group', () => {
     expect(validateSelection(plan, { selected: ['A2', 'A3', 'A4'] }, { consecutive: true })).toEqual([])
     expect(validateSelection(plan, { selected: ['A2', 'A4'] }, { consecutive: true })).toEqual([
       { code: 'not_consecutive' },
     ])
     expect(validateSelection(plan, { selected: ['A1', 'B1'] }, { consecutive: true })).toEqual([
       { code: 'not_consecutive' },
+    ])
+  })
+
+  it('reads a group with a single place (a desk) as no line at all', () => {
+    expect(validateSelection(plan, { selected: ['A2', 'A3', 'D1'] }, { consecutive: true, noOrphans: true })).toEqual([
+      { code: 'orphan_seat', id: 'A1' },
     ])
   })
 

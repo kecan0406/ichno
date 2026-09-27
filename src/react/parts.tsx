@@ -1,7 +1,17 @@
 import type { ComponentProps, CSSProperties, ReactNode } from 'react'
 import { SECTION_LABEL_BAND, SECTION_LABEL_FONT, WALL_THICKNESS, seatPlan } from '../core/geometry'
 import { GRID_CELL } from '../core/grid'
-import type { Fixture, Place, PlanHandle, PlanPoint, PlanRect, Row, SeatPlan, Section, Table } from '../core/types'
+import type {
+  Fixture,
+  GroupLabel,
+  Place,
+  PlanBox,
+  PlanHandle,
+  PlanPoint,
+  PlanRect,
+  SeatPlan,
+  Section,
+} from '../core/types'
 import { planView, type PlanView } from '../core/view'
 import { FONT_VAR, NUMBER_FONT_VAR, cssVar } from '../theme/vars'
 
@@ -81,16 +91,16 @@ export type PlaceProps = GProps & {
   highlighted?: boolean
   // Pushed back (filtered out, spotlight elsewhere).
   dimmed?: boolean
-  // In conflict — overlapping another object (the editor's `conflictIds`).
+  // In conflict — overlapping another place (the editor's `conflictIds`).
   invalid?: boolean
-  // What to write on the place. Defaults to its label; null draws none.
+  // What to write on the place. Defaults to its label (or id); null draws none.
   label?: ReactNode
-  // Extra drawing in the place's local coordinates (origin at the top-left of `place.bounds`).
+  // Extra drawing in the place's local coordinates (origin at its top-left, turned with it).
   children?: ReactNode
 }
 
-// One bookable place — a desk with its chair, a seat, a booth, an area or a whole table. The outer <g> carries
-// the state as data attributes and listbox-option semantics for the viewport.
+// One bookable place — a seat, a desk, a booth, an area, a whole table. The outer <g> carries the state as data
+// attributes and listbox-option semantics for the viewport. The label stays upright when the place is turned.
 export function PlacePart({
   place,
   status,
@@ -103,10 +113,10 @@ export function PlacePart({
   children,
   ...rest
 }: PlaceProps) {
-  const { w, h } = place.bounds
+  const { w, h } = place
   const tone = selected ? TONES.selected : disabled ? TONES.disabled : TONES.idle
   const stroke = invalid ? cssVar('warning') : highlighted && !selected ? cssVar('accent') : tone.stroke
-  const text = label === undefined ? place.label : label
+  const text = label === undefined ? (place.label ?? place.id) : label
   const shapeProps = {
     'data-part': 'shape',
     fill: tone.fill,
@@ -116,13 +126,14 @@ export function PlacePart({
   }
   return (
     <g
-      transform={`translate(${round(place.bounds.x)} ${round(place.bounds.y)})`}
+      transform={transformOf(place)}
       data-ichno-id={place.id}
-      data-ichno-object={place.parent?.id ?? place.id}
-      data-kind={place.kind}
+      data-kind="place"
+      data-shape={place.shape}
+      data-role={place.role}
+      data-group={place.group}
       data-status={status}
       data-category={place.category}
-      data-chair-side={place.chairSide}
       data-selected={selected ? '' : undefined}
       data-disabled={disabled ? '' : undefined}
       data-highlighted={highlighted ? '' : undefined}
@@ -131,23 +142,30 @@ export function PlacePart({
       role="option"
       aria-selected={selected ?? false}
       aria-disabled={disabled || undefined}
-      aria-label={place.label}
+      aria-label={place.label ?? place.id}
       opacity={dimmed ? DIMMED_OPACITY : undefined}
       {...rest}
     >
-      {place.kind === 'desk' && place.chairSide ? (
-        <DeskShape w={w} h={h} chairSide={place.chairSide} tone={tone} stroke={stroke} />
-      ) : place.shape === 'circle' ? (
-        <circle {...shapeProps} cx={w / 2} cy={h / 2} r={w / 2} />
-      ) : place.shape === 'ellipse' ? (
+      {place.shape === 'ellipse' ? (
         <ellipse {...shapeProps} cx={w / 2} cy={h / 2} rx={w / 2} ry={h / 2} />
       ) : (
         <rect {...shapeProps} width={w} height={h} rx={RECT_RADIUS} />
       )}
       {text != null && text !== false && (
-        <PlaceLabel place={place} fill={tone.label}>
+        <text
+          data-part="label"
+          x={w / 2}
+          y={h / 2}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={placeLabelFont(place)}
+          fontWeight={600}
+          fill={tone.label}
+          transform={uprightOf(place)}
+          style={NUMBER_FONT_STYLE}
+        >
           {text}
-        </PlaceLabel>
+        </text>
       )}
       {children}
     </g>
@@ -160,45 +178,40 @@ type FixtureProps = GProps & {
   variant?: 'box' | 'wall'
   // Name written along the long edge (box only) — dropped when it does not fit.
   label?: string | null
-  // In conflict — standing on a place (the editor's `conflictIds`).
-  invalid?: boolean
 }
 
-// A non-bookable element (wall, TV, counter, stage, …) — its role is exposed as data-role.
-export function FixturePart({ fixture, variant = 'box', label, invalid, ...rest }: FixtureProps) {
+// A non-bookable element (wall, stage, table top, chair, …) — its role is exposed as data-role.
+export function FixturePart({ fixture, variant = 'box', label, ...rest }: FixtureProps) {
   const layout = variant === 'box' ? seatPlan.fixtureLabelOf(fixture, label) : null
   const cx = fixture.w / 2
   const cy = fixture.h / 2
+  const face = {
+    'data-part': 'shape',
+    fill: cssVar('fixture'),
+    stroke: cssVar('label'),
+    strokeWidth: LINE_WIDTH,
+    vectorEffect: 'non-scaling-stroke' as const,
+  }
   return (
     <g
-      transform={`translate(${fixture.x} ${fixture.y})`}
+      transform={transformOf(fixture)}
       data-ichno-object={fixture.id}
       data-kind="fixture"
+      data-shape={fixture.shape}
       data-role={fixture.role}
-      data-invalid={invalid ? '' : undefined}
+      data-group={fixture.group}
       {...rest}
     >
       {variant === 'wall' ? (
         <>
           {/* The wall paints only a band — the whole rectangle stays grabbable. */}
           <rect data-part="hit" width={fixture.w} height={fixture.h} fill="transparent" />
-          <rect
-            data-part="shape"
-            {...rectOf(seatPlan.innerWallOf(fixture))}
-            fill={invalid ? cssVar('warning') : cssVar('ink')}
-          />
+          <rect data-part="shape" {...rectOf(seatPlan.innerWallOf(fixture))} fill={cssVar('ink')} />
         </>
+      ) : fixture.shape === 'ellipse' ? (
+        <ellipse {...face} cx={cx} cy={cy} rx={cx} ry={cy} />
       ) : (
-        <rect
-          data-part="shape"
-          width={fixture.w}
-          height={fixture.h}
-          rx={2}
-          fill={cssVar('fixture')}
-          stroke={invalid ? cssVar('warning') : cssVar('label')}
-          strokeWidth={LINE_WIDTH}
-          vectorEffect="non-scaling-stroke"
-        />
+        <rect {...face} width={fixture.w} height={fixture.h} rx={2} />
       )}
       {layout && (
         <text
@@ -220,48 +233,50 @@ export function FixturePart({ fixture, variant = 'box', label, invalid, ...rest 
   )
 }
 
-// A table's furniture — the top when its seats are booked one by one (the seats are places), or the chairs when
-// the whole table is one place (the top is the place).
-export function TablePart({ table, ...rest }: GProps & { table: Table }) {
-  const shape = { fill: cssVar('surface'), stroke: cssVar('label'), strokeWidth: LINE_WIDTH }
+type LabelProps = GProps & {
+  label: GroupLabel
+  // The text — the group's label, or its id.
+  children: ReactNode
+}
+
+// A group's name written where the document puts it (beside a row's end seats) — tapping it selects the group.
+// The text stays upright.
+export function LabelPart({ label, children, ...rest }: LabelProps) {
+  const { w, h } = label
   return (
-    <g data-ichno-object={table.id} data-kind="table" {...rest}>
-      {table.wholeBooking ? (
-        seatPlan
-          .tableSeatsOf(table)
-          .map(({ seat, center }) => (
-            <circle
-              key={seat.id}
-              data-part="chair"
-              cx={round(center.x)}
-              cy={round(center.y)}
-              r={table.seatSize / 2}
-              {...shape}
-              vectorEffect="non-scaling-stroke"
-            />
-          ))
-      ) : table.shape === 'round' ? (
-        <ellipse
-          data-part="top"
-          cx={table.x + table.w / 2}
-          cy={table.y + table.h / 2}
-          rx={table.w / 2}
-          ry={table.h / 2}
-          {...shape}
-          vectorEffect="non-scaling-stroke"
-        />
-      ) : (
-        <rect data-part="top" {...rectOf(table)} rx={RECT_RADIUS} {...shape} vectorEffect="non-scaling-stroke" />
-      )}
+    <g
+      transform={`translate(${label.x} ${label.y})`}
+      data-ichno-object={label.id}
+      data-kind="label"
+      data-group={label.group}
+      {...rest}
+    >
+      <rect data-part="hit" width={w} height={h} fill="transparent" />
+      <text
+        data-part="label"
+        x={w / 2}
+        y={h / 2}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={groupLabelFont(label)}
+        fontWeight={700}
+        fill={cssVar('label')}
+      >
+        {children}
+      </text>
     </g>
   )
 }
 
 // The editor's cell grid — cell edges plus the plan outline, 1px on screen at any zoom. Not part of the drawing.
-export function GridPart({ plan, ...rest }: GProps & { plan: Pick<SeatPlan, 'width' | 'height'> }) {
+export function GridPart({
+  plan,
+  cell = GRID_CELL,
+  ...rest
+}: GProps & { plan: Pick<SeatPlan, 'width' | 'height'>; cell?: number }) {
   let d = ''
-  for (let x = GRID_CELL; x < plan.width; x += GRID_CELL) d += `M${x} 0V${plan.height}`
-  for (let y = GRID_CELL; y < plan.height; y += GRID_CELL) d += `M0 ${y}H${plan.width}`
+  for (let x = cell; x < plan.width; x += cell) d += `M${x} 0V${plan.height}`
+  for (let y = cell; y < plan.height; y += cell) d += `M0 ${y}H${plan.width}`
   return (
     <g data-part="grid" pointerEvents="none" {...rest}>
       <path d={d} stroke={cssVar('grid')} strokeWidth={1} vectorEffect="non-scaling-stroke" fill="none" />
@@ -277,49 +292,34 @@ export function GridPart({ plan, ...rest }: GProps & { plan: Pick<SeatPlan, 'wid
   )
 }
 
-type RowLabelProps = GProps & {
-  row: Row
-  // Defaults to the row's label; nothing is drawn without one.
-  label?: ReactNode
-  // Which ends of the row carry the label.
-  ends?: 'both' | 'start' | 'end'
-}
-
-// A row's label beside its first and last seat — tapping it selects the row.
-export function RowLabelPart({ row, label, ends = 'both', ...rest }: RowLabelProps) {
-  const text = label === undefined ? row.label : label
-  if (text == null || text === false || text === '') return null
-  const anchors = seatPlan.rowLabelAnchorsOf(row)
-  const points = ends === 'both' ? [anchors.start, anchors.end] : [anchors[ends]]
-  const fontSize = rowLabelFont(row)
-  return (
-    <g data-ichno-object={row.id} data-kind="row" data-part="row-label" {...rest}>
-      {points.map((point, i) => (
-        <text
-          key={i}
-          x={round(point.x)}
-          y={round(point.y)}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontSize={fontSize}
-          fontWeight={700}
-          fill={cssVar('label')}
-        >
-          {text}
-        </text>
-      ))}
-    </g>
-  )
-}
-
-// Editing handles — squares for corners and row ends, a dot for a row's curve. They keep a fixed screen size at
+// Editing handles — squares for corners and vertices, a dot for the rotation knob. They keep a fixed screen size at
 // any zoom (a zero-length stroke that does not scale), and carry the attributes the viewport reads to drag them.
-export function HandlesPart({ handles, ...rest }: GProps & { handles: readonly PlanHandle[] }) {
+// `frame` (the editor's) outlines what the handles belong to — a turned object, or the frame a group turns about —
+// with a stem up to the knob. Corner cursors follow the corner's turned direction.
+export function HandlesPart({
+  handles,
+  frame,
+  ...rest
+}: GProps & { handles: readonly PlanHandle[]; frame?: readonly PlanPoint[] | null }) {
+  const knob = handles.find((handle) => handle.name === 'rotate')
+  const [nw, ne] = frame ?? []
+  const line = { stroke: cssVar('accent'), strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const, fill: 'none' }
   return (
     <g data-part="handles" {...rest}>
+      {frame && frame.length > 2 && (
+        <g data-part="frame" pointerEvents="none">
+          <polygon points={pointsOf(frame)} strokeDasharray="4 3" {...line} />
+          {knob && nw && ne && (
+            <path
+              d={`M${round((nw.x + ne.x) / 2)} ${round((nw.y + ne.y) / 2)}L${round(knob.point.x)} ${round(knob.point.y)}`}
+              {...line}
+            />
+          )}
+        </g>
+      )}
       {handles.map((handle) => {
         const d = `M${round(handle.point.x)} ${round(handle.point.y)}h0`
-        const cap = handle.name === 'curve' ? 'round' : 'square'
+        const cap = handle.name === 'rotate' ? 'round' : 'square'
         return (
           <g
             key={`${handle.owner.kind}:${handle.owner.id}:${handle.name}`}
@@ -327,7 +327,7 @@ export function HandlesPart({ handles, ...rest }: GProps & { handles: readonly P
             data-ichno-handle={handle.name}
             data-ichno-owner={handle.owner.id}
             data-ichno-owner-kind={handle.owner.kind}
-            style={{ cursor: HANDLE_CURSORS[handle.name] ?? 'move' }}
+            style={{ cursor: cursorOf(handle) }}
           >
             <path
               d={d}
@@ -368,80 +368,39 @@ export function MarqueePart({ rect, ...rest }: GProps & { rect: PlanRect | null 
   )
 }
 
-function DeskShape({
-  w,
-  h,
-  chairSide,
-  tone,
-  stroke,
-}: {
-  w: number
-  h: number
-  chairSide: NonNullable<Place['chairSide']>
-  tone: Tone
-  stroke: string
-}) {
-  const { desk, chair } = seatPlan.furnitureOf({ w, h, chairSide })
-  const line = { strokeWidth: LINE_WIDTH, vectorEffect: 'non-scaling-stroke' as const }
-  return (
-    <>
-      <rect data-part="shape" {...rectOf(desk)} rx={RECT_RADIUS} fill={tone.fill} stroke={stroke} {...line} />
-      <rect data-part="chair" {...rectOf(chair)} rx={CHAIR_RADIUS} fill={tone.chair} stroke={tone.stroke} {...line} />
-    </>
-  )
-}
-
-// Labels sit in the middle of the desk top (not the chair) or of the shape, sized to fit small seats.
-function PlaceLabel({ place, fill, children }: { place: Place; fill: string; children: ReactNode }) {
-  const { w, h } = place.bounds
-  const center: PlanPoint =
-    place.kind === 'desk' && place.chairSide
-      ? centerOf(seatPlan.furnitureOf({ w, h, chairSide: place.chairSide }).desk)
-      : { x: w / 2, y: h / 2 }
-  const fontSize = placeLabelFont(place)
-  return (
-    <text
-      data-part="label"
-      x={center.x}
-      y={center.y}
-      textAnchor="middle"
-      dominantBaseline="central"
-      fontSize={fontSize}
-      fontWeight={600}
-      fill={fill}
-      style={NUMBER_FONT_STYLE}
-    >
-      {children}
-    </text>
-  )
-}
-
 // A place label's font size in plan units — small seats get a smaller number.
-export function placeLabelFont(place: Pick<Place, 'shape' | 'bounds'>): number {
-  return place.shape === 'circle' ? Math.min(SEAT_LABEL_FONT, Math.max(8, place.bounds.w * 0.42)) : SEAT_LABEL_FONT
+export function placeLabelFont(place: Pick<Place, 'w' | 'h'>): number {
+  return Math.min(SEAT_LABEL_FONT, Math.max(8, Math.min(place.w, place.h) * 0.42))
 }
 
-// A row label's font size in plan units.
-export function rowLabelFont(row: Pick<Row, 'seatSize'>): number {
-  return Math.min(SEAT_LABEL_FONT, Math.max(10, row.seatSize * 0.5))
+// A group label's font size in plan units — half its box, within reading bounds.
+export function groupLabelFont(label: Pick<GroupLabel, 'w' | 'h'>): number {
+  return Math.min(SEAT_LABEL_FONT, Math.max(10, Math.min(label.w, label.h) * 0.5))
 }
 
-type Tone = { fill: string; chair: string; stroke: string; label: string }
+// Where a box is drawn — moved to its origin and turned about its centre.
+function transformOf(box: PlanBox): string {
+  const move = `translate(${box.x} ${box.y})`
+  return box.rotation ? `${move} rotate(${box.rotation} ${box.w / 2} ${box.h / 2})` : move
+}
+
+// Turns a turned box's text back, so labels read level.
+function uprightOf(box: PlanBox): string | undefined {
+  return box.rotation ? `rotate(${-box.rotation} ${box.w / 2} ${box.h / 2})` : undefined
+}
+
+type Tone = { fill: string; stroke: string; label: string }
 
 // Default looks per state — presentation attributes, so consumer CSS wins over all of them.
 const TONES = {
-  idle: { fill: cssVar('surface'), chair: cssVar('surface'), stroke: cssVar('label'), label: cssVar('label') },
-  selected: {
-    fill: cssVar('accent'),
-    chair: cssVar('surface'),
-    stroke: cssVar('accent'),
-    label: cssVar('accentForeground'),
-  },
-  disabled: { fill: cssVar('ink'), chair: cssVar('ink'), stroke: cssVar('ink'), label: cssVar('inkForeground') },
+  idle: { fill: cssVar('surface'), stroke: cssVar('label'), label: cssVar('label') },
+  selected: { fill: cssVar('accent'), stroke: cssVar('accent'), label: cssVar('accentForeground') },
+  disabled: { fill: cssVar('ink'), stroke: cssVar('ink'), label: cssVar('inkForeground') },
 } satisfies Record<string, Tone>
 
-// Printed coordinates — rounded to hundredths. Row and table seats come from trigonometry, whose last bits differ
-// between JavaScript engines; unrounded, a server-rendered plan would not match the browser's and fail hydration.
+// Printed coordinates — rounded to hundredths. Wall outlines and handle positions come from trigonometry, whose
+// last bits differ between JavaScript engines; unrounded, a server-rendered plan would not match the browser's
+// and fail hydration.
 function pointsOf(points: readonly PlanPoint[]): string {
   return points.map((p) => `${round(p.x)},${round(p.y)}`).join(' ')
 }
@@ -454,26 +413,21 @@ function rectOf(rect: PlanRect) {
   return { x: rect.x, y: rect.y, width: rect.w, height: rect.h }
 }
 
-function centerOf(rect: PlanRect): PlanPoint {
-  return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 }
-}
-
 // Seat number font (plan units) — always drawn regardless of scale; a small number beats none.
 const SEAT_LABEL_FONT = 20
 const RECT_RADIUS = 4
-const CHAIR_RADIUS = 7
 const LINE_WIDTH = 1.5
 const DIMMED_OPACITY = 0.35
 // Handle size in screen pixels.
 const HANDLE_PX = 12
-const HANDLE_CURSORS: Partial<Record<string, string>> = {
-  nw: 'nwse-resize',
-  se: 'nwse-resize',
-  ne: 'nesw-resize',
-  sw: 'nesw-resize',
-  curve: 'grab',
-  start: 'grab',
-  end: 'grab',
+// Resize cursors by the direction a corner points, in 45° sectors from +x.
+const RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'] as const
+
+function cursorOf(handle: PlanHandle): string {
+  if (handle.name === 'rotate') return 'grab'
+  if (handle.angle === undefined) return 'move'
+  const sector = Math.round((((handle.angle % 180) + 180) % 180) / 45) % 4
+  return RESIZE_CURSORS[sector]!
 }
 // Unset variables are invalid at computed-value time, so the number font falls back to the inherited font.
 const NUMBER_FONT_STYLE: CSSProperties = { fontFamily: `var(${NUMBER_FONT_VAR}, var(${FONT_VAR}))` }

@@ -20,11 +20,11 @@ createSeatPlanSchema({ sectionIds: ['R'] }).SeatPlan.parse(roomPlan)
 const lounge = seatPlan.sectionPlanOf(venuePlan, 'L')!
 
 const PLAYGROUND_POINTS = [
-  'Rows, tables, desks, booths, standing areas and fixtures',
-  'An inspector for ids, labels, categories, seat counts and curves',
+  'Rows, tables, desks, booths and standing areas — laid out as plain places and fixtures',
+  'An inspector for ids, labels, categories, seat counts, curves and turns',
   'Schema errors and lint warnings as you edit, with severities you choose',
   'A customer preview with selection rules and bookings that lock the editor',
-  'JSON export and import — including documents from ichno 0.1',
+  'JSON export and import — including documents from ichno 0.1 and 0.2',
 ]
 
 const GITHUB = 'https://github.com/kecan0406/ichno'
@@ -33,7 +33,7 @@ const NPM = 'https://www.npmjs.com/package/ichno'
 const FEATURES = [
   {
     title: 'One JSON document',
-    body: 'Desks, curved rows, tables, booths, standing areas and fixtures in one versioned document. Your database keeps it for years; old documents keep parsing.',
+    body: 'Places, fixtures and groups in one versioned document — a row, a table or a desk is a role you name, not a kind ichno decides. Your database keeps it for years; old documents keep parsing.',
   },
   {
     title: 'Headless SVG',
@@ -61,12 +61,12 @@ const ENTRY_POINTS = [
   {
     name: 'ichno',
     deps: 'no dependencies',
-    body: 'Types, grid, geometry, lint and selection rules, view math, the interaction core.',
+    body: 'Types, geometry, layouts, lint and selection rules, view math, the interaction core.',
   },
   {
     name: 'ichno/schema',
     deps: 'zod',
-    body: 'createSeatPlanSchema with structured issue codes; upgrades documents from 0.1.',
+    body: 'createSeatPlanSchema with structured issue codes; upgrades documents from 0.1 and 0.2.',
   },
   {
     name: 'ichno/react',
@@ -121,17 +121,19 @@ validateSelection(plan, { selected, unavailable }, { max: 8, consecutive: true, 
     id: 'edit',
     title: 'Edit',
     caption: 'The hook holds the state; the buttons are yours.',
-    code: `import { useSeatPlanEditor } from 'ichno/editor'
+    code: `import { layout } from 'ichno'
+import { useSeatPlanEditor } from 'ichno/editor'
 
-const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds })
+const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 46 } })
+const seats = layout.arc({ start, end, curve: -0.1, count: 12, size: 40 })
 
 <SeatMap.Viewport {...editor.viewportProps}>
   <SeatMap.Grid plan={editor.displayPlan} />
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} invalid={editor.conflictIds} />
-  <SeatMap.Handles handles={editor.handles} />
+  <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
 </SeatMap.Viewport>
 
-<button onClick={() => editor.addRow('hall', { start, end, seats: 12, curve: -0.1 })}>Add row</button>
+<button onClick={() => editor.addPlaces('hall', seats, { group: { role: 'row', label: 'A' } })}>Add row</button>
 <button disabled={!editor.dirty} onClick={() => save(editor.plan)}>Save</button>`,
   },
   {
@@ -223,7 +225,7 @@ export default function Home() {
                   <SeatMap.Content
                     plan={lounge}
                     status={venueStatus}
-                    fixtureLabel={(fixture) => fixtureNames[fixture.role] ?? null}
+                    fixtureLabel={(fixture) => fixtureNames[fixture.role ?? ''] ?? null}
                   />
                 </SeatMap.Root>
               </div>
@@ -259,10 +261,8 @@ export default function Home() {
                 <SeatMap.Grid plan={roomPlan} />
                 <SeatMap.Content
                   plan={roomPlan}
-                  selected={seatPlan
-                    .placesOf(roomPlan)
-                    .flatMap((place) => (place.parent?.id === 'row-1' ? [place.id] : []))}
-                  fixtureLabel={(fixture) => fixtureNames[fixture.role] ?? null}
+                  selected={seatPlan.membersOf(roomPlan, 'row-1').flatMap((o) => (o.kind === 'place' ? [o.id] : []))}
+                  fixtureLabel={(fixture) => fixtureNames[fixture.role ?? ''] ?? null}
                 />
               </SeatMap.Root>
             </div>

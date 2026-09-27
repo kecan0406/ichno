@@ -7,6 +7,7 @@ import {
   type PlanRect,
   type SeatPlan,
   type SeatPlanV1,
+  type SeatPlanV2,
 } from 'ichno'
 import { createSeatPlanSchema, seatPlanIssueOf, type SeatPlanIssue } from 'ichno/schema'
 import { blankPlan, roomPlan, venuePlan, venueSectionNames } from '../../_demo/plans'
@@ -61,29 +62,29 @@ export function checksOf(plan: SeatPlan<string>, lint: Record<LintCode, LintSeve
   return checks
 }
 
-// The objects a set of ids belongs to — a seat id resolves to its row or table.
-export function objectIdsOf(plan: SeatPlan<string>, ids: readonly string[]): string[] {
-  const places = seatPlan.placesOf(plan)
+// The selection a set of ids stands for — a grouped object is picked by its group, the way a tap picks it.
+export function selectionOf(plan: SeatPlan<string>, ids: readonly string[]): string[] {
   return [
     ...new Set(
       ids.flatMap((id) => {
-        if (seatPlan.objectById(plan, id)) return [id]
-        const place = places.find((candidate) => candidate.id === id)
-        return place ? [place.parent?.id ?? place.id] : []
+        if (seatPlan.groupById(plan, id)) return [id]
+        const object = seatPlan.objectById(plan, id)
+        return object ? [object.group ?? object.id] : []
       }),
     ),
   ]
 }
 
 export function boundsOfIds(plan: SeatPlan<string>, ids: readonly string[]): PlanRect[] {
-  return objectIdsOf(plan, ids).flatMap((id) => {
+  return ids.flatMap((id) => {
+    const members = seatPlan.groupById(plan, id) ? seatPlan.membersOf(plan, id) : []
     const object = seatPlan.objectById(plan, id)
-    return object ? [seatPlan.boundsOf(object)] : []
+    return (object ? [object] : members).map(seatPlan.boundsOf)
   })
 }
 
 // Parses pasted or stored JSON with a schema built from the document's own section ids (the playground has no
-// fixed composition). Documents from ichno 0.1 keep their rooms under `zones`; the schema upgrades them.
+// fixed composition). Documents from ichno 0.1 (rooms under `zones`) and 0.2 are upgraded by the schema.
 // A document whose only problems are plan rules (overlaps, unknown categories, …) still opens — the playground is
 // where you fix those, and the Checks panel lists them. A broken structure does not.
 export function parseDocument(text: string): { plan: SeatPlan<string> } | { errors: string[] } {
@@ -100,7 +101,9 @@ export function parseDocument(text: string): { plan: SeatPlan<string> } | { erro
   if (result.success) return { plan: result.data as SeatPlan<string> }
   if (result.error.issues.every((issue) => seatPlanIssueOf(issue) !== null)) {
     const record = input as { version?: unknown }
-    return { plan: record.version === 2 ? (input as SeatPlan<string>) : upgradeSeatPlan(input as SeatPlanV1) }
+    return {
+      plan: record.version === 3 ? (input as SeatPlan<string>) : upgradeSeatPlan(input as SeatPlanV1 | SeatPlanV2),
+    }
   }
   const plan = input as SeatPlan<string>
   return {
@@ -163,10 +166,9 @@ function idsOf(issue: SeatPlanIssue): string[] {
   switch (issue.code) {
     case 'overlap':
       return [...issue.ids]
-    case 'fixture_overlap':
-      return [issue.fixtureId, issue.id]
     case 'duplicate_id':
     case 'unknown_category':
+    case 'unknown_group':
     case 'out_of_bounds':
       return [issue.id]
     default:

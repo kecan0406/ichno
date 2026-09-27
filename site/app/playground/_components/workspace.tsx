@@ -1,10 +1,11 @@
 'use client'
 
 import {
-  HALF_CELL,
+  GRID_CELL,
   planView,
   seatPlan,
   validateSelection,
+  type Fixture,
   type LintCode,
   type LintSeverity,
   type Place,
@@ -18,13 +19,14 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { fixtureNames } from '../../_demo/plans'
 import { Logo } from '../../_ui/logo'
+import { fixtureAt, placeAt, type Made, type Placing } from '../_lib/build'
 import {
   DEFAULT_LINT,
   PRESETS,
   boundsOfIds,
   checksOf,
-  objectIdsOf,
   saveWorkbench,
+  selectionOf,
   type Workbench,
 } from '../_lib/documents'
 import styles from '../playground.module.css'
@@ -32,14 +34,21 @@ import { Icon, type IconName } from './icons'
 import { Inspector } from './inspector'
 import { ChecksPanel, ImportDialog, JsonPanel, PreviewPanel, type PickRules } from './panels'
 
-type Tool = 'select' | 'row' | 'table' | 'booth' | 'area'
+type Tool = 'select' | Placing | 'fixture'
 type Panel = 'inspect' | 'checks' | 'json'
 
-// Tap-to-place tools — the object lands where the floor is tapped, in the section under it.
+// Tap-to-place tools — the thing lands where the floor is tapped, in the section under it. ichno stores places,
+// fixtures and groups; these tools (../_lib/build) assemble this site's rows, tables and desks from them.
 const PLACING: { tool: Tool; name: string; icon: IconName; hint: string }[] = [
-  { tool: 'select', name: 'Select', icon: 'select', hint: 'Tap to select, drag to move, drag the floor to marquee.' },
+  {
+    tool: 'select',
+    name: 'Select',
+    icon: 'select',
+    hint: 'Tap to select (again to pick one seat of a group), drag to move, drag the floor to marquee.',
+  },
   { tool: 'row', name: 'Row', icon: 'row', hint: 'Tap the floor to drop a row of seven seats.' },
   { tool: 'table', name: 'Table', icon: 'table', hint: 'Tap the floor to drop a round table for six.' },
+  { tool: 'desk', name: 'Desk', icon: 'desk', hint: 'Tap the floor to drop a desk with its chair.' },
   { tool: 'booth', name: 'Booth', icon: 'booth', hint: 'Tap the floor to drop a booth.' },
   { tool: 'area', name: 'Area', icon: 'area', hint: 'Tap the floor to drop a standing area for forty.' },
 ]
@@ -64,7 +73,7 @@ export function Workspace({
   onReplace(next: Workbench): void
 }) {
   const [booked, setBooked] = useState<string[]>(initial.booked)
-  const editor = useSeatPlanEditor({ initialPlan: initial.plan, lockedIds: booked })
+  const editor = useSeatPlanEditor({ initialPlan: initial.plan, lockedIds: booked, snap: SNAP })
   useSeatPlanEditorShortcuts(editor)
   const { onTap, ...viewportProps } = editor.viewportProps
 
@@ -72,6 +81,7 @@ export function Workspace({
   const [tool, setTool] = useState<Tool>('select')
   const [panel, setPanel] = useState<Panel>('inspect')
   const [fixtureMenu, setFixtureMenu] = useState(false)
+  const [fixture, setFixture] = useState<(typeof FIXTURES)[number] | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [lint, setLint] = useState<Record<LintCode, LintSeverity>>(DEFAULT_LINT)
   const [picking, setPicking] = useState<'pick' | 'book'>('pick')
@@ -117,45 +127,41 @@ export function Workspace({
   }
 
   function place(kind: Exclude<Tool, 'select'>, point: PlanPoint) {
-    const section = seatPlan.sectionAt(plan, point)
-    if (section === null) {
-      setNotice('Tap inside a section — every place belongs to one.')
+    const at = { x: snap(point.x), y: snap(point.y) }
+    let made: Made | null
+    if (kind === 'fixture') {
+      if (!fixture) return
+      made = fixtureAt(plan, fixture.role, fixture.size, at)
+    } else {
+      const section = seatPlan.sectionAt(plan, point)
+      if (section === null) {
+        setNotice('Tap inside a section — every place belongs to one.')
+        return
+      }
+      made = placeAt(plan, kind, section, at)
+    }
+    if (!made) {
+      setNotice('Could not place it there — its ids would be too long.')
       return
     }
-    const at = { x: snap(point.x), y: snap(point.y) }
-    const id =
-      kind === 'row'
-        ? editor.addRow(section, { start: { x: at.x - 138, y: at.y }, end: { x: at.x + 138, y: at.y }, seats: 7 })
-        : kind === 'table'
-          ? editor.addTable(section, { center: at, seats: 6 })
-          : kind === 'booth'
-            ? editor.addBooth(section, { x: at.x - 92, y: at.y - 69, w: 184, h: 138 })
-            : editor.addArea(section, { rect: { x: at.x - 138, y: at.y - 69, w: 276, h: 138 }, capacity: 40 })
-    setNotice(id ? null : 'Could not place it there.')
-    if (id) setPanel('inspect')
+    const { plan: next, select } = made
+    // One undo step for everything the tool builds (a row with its labels, a table with its top).
+    editor.edit(() => next)
+    editor.select(select)
+    setNotice(null)
+    setPanel('inspect')
   }
 
-  function addDesk() {
-    const target =
-      editor.selectedSection?.id ??
-      editor.selectedObjects.flatMap((object) => (object.kind === 'fixture' ? [] : [object.section]))[0] ??
-      plan.sections[0]?.id
-    if (target === undefined) return
-    const id = editor.addDesk(target)
-    setNotice(id ? null : `No free 2×2 spot left in ${sectionLabel({ id: target })}.`)
-    if (id) setPanel('inspect')
-  }
-
-  function addFixture(role: string, size: { w: number; h: number }) {
+  function chooseFixture(choice: (typeof FIXTURES)[number]) {
     setFixtureMenu(false)
-    const id = editor.addFixture(role, size)
-    setNotice(id ? null : 'No room left for that fixture.')
-    if (id) setPanel('inspect')
+    setFixture(choice)
+    setTool('fixture')
   }
 
   function focus(ids: string[]) {
-    const objectIds = objectIdsOf(plan, ids)
-    objectIds.forEach((id, i) => editor.select({ kind: 'object', id }, i > 0))
+    selectionOf(plan, ids).forEach((id, i) =>
+      editor.select(seatPlan.groupById(plan, id) ? { kind: 'group', id } : { kind: 'object', id }, i > 0),
+    )
     const next = planView.fitTo(boundsOfIds(plan, ids), 160, home)
     if (next) setView(next)
   }
@@ -189,7 +195,10 @@ export function Workspace({
   }
 
   const zoomed = view.w < home.w - 1
-  const activeHint = PLACING.find((option) => option.tool === tool)?.hint
+  const activeHint =
+    tool === 'fixture' && fixture
+      ? `Tap the floor to place the ${(fixtureNames[fixture.role] ?? fixture.role).toLowerCase()}.`
+      : PLACING.find((option) => option.tool === tool)?.hint
 
   return (
     <div className={styles.app}>
@@ -250,14 +259,11 @@ export function Workspace({
               </button>
             ))}
             <span className={styles.railRule} />
-            <button type="button" className={styles.tool} onClick={addDesk} title="Adds a desk at the first free spot">
-              <Icon name="desk" />
-              <span>Desk</span>
-            </button>
             <div className={styles.menuAnchor}>
               <button
                 type="button"
                 className={styles.tool}
+                aria-pressed={tool === 'fixture'}
                 aria-expanded={fixtureMenu}
                 onClick={() => setFixtureMenu((open) => !open)}
               >
@@ -266,14 +272,9 @@ export function Workspace({
               </button>
               {fixtureMenu && (
                 <div className={styles.menu} role="menu">
-                  {FIXTURES.map((fixture) => (
-                    <button
-                      key={fixture.role}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => addFixture(fixture.role, fixture.size)}
-                    >
-                      {fixtureNames[fixture.role] ?? fixture.role}
+                  {FIXTURES.map((choice) => (
+                    <button key={choice.role} type="button" role="menuitem" onClick={() => chooseFixture(choice)}>
+                      {fixtureNames[choice.role] ?? choice.role}
                     </button>
                   ))}
                 </div>
@@ -300,10 +301,10 @@ export function Workspace({
                 status={bookedStatus}
                 isDisabled={never}
                 sectionLabel={sectionLabel}
-                fixtureLabel={(fixture) => fixtureNames[fixture.role] ?? fixture.role}
-                fixtureVariant={(fixture) => (fixture.role === 'wall' ? 'wall' : 'box')}
+                fixtureLabel={fixtureLabel}
+                fixtureVariant={fixtureVariant}
               />
-              <SeatMap.Handles handles={editor.handles} />
+              <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
               <SeatMap.Marquee rect={editor.marquee} />
             </SeatMap.Viewport>
           ) : (
@@ -322,8 +323,8 @@ export function Workspace({
                 selected={picked}
                 isDisabled={picking === 'book' ? never : undefined}
                 sectionLabel={sectionLabel}
-                fixtureLabel={(fixture) => fixtureNames[fixture.role] ?? fixture.role}
-                fixtureVariant={(fixture) => (fixture.role === 'wall' ? 'wall' : 'box')}
+                fixtureLabel={fixtureLabel}
+                fixtureVariant={fixtureVariant}
               />
             </SeatMap.Viewport>
           )}
@@ -423,8 +424,21 @@ function never(): boolean {
   return false
 }
 
+// Loose fixtures are named; the furniture in a group (chairs, table tops) goes unlabelled.
+function fixtureLabel(fixture: Fixture): string | null {
+  if (fixture.group !== undefined || fixture.role === undefined) return null
+  return fixtureNames[fixture.role] ?? fixture.role
+}
+
+function fixtureVariant(fixture: Fixture): 'box' | 'wall' {
+  return fixture.role === 'wall' ? 'wall' : 'box'
+}
+
+// The editor snaps to the site's 46-unit cells; taps place things on half cells.
+const SNAP = { cell: GRID_CELL }
+
 function snap(value: number): number {
-  return Math.round(value / HALF_CELL) * HALF_CELL
+  return Math.round(value / (GRID_CELL / 2)) * (GRID_CELL / 2)
 }
 
 function centerOf(view: PlanView): PlanPoint {

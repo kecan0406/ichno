@@ -63,6 +63,11 @@
   box-sizing: border-box;
 }
 
+/* Chairs and table tops are fixtures with this site's roles — drawn like furniture, not like floor fixtures. */
+[data-kind='fixture']:is([data-role='chair'], [data-role='table']) [data-part='shape'] {
+  fill: var(--ichno-surface);
+}
+
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;

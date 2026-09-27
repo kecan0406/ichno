@@ -1,139 +1,172 @@
 import { describe, expect, it } from 'vitest'
-import { TABLE_SEAT_GAP, seatPlan } from '../core/geometry'
-import type { Desk, Fixture, PlanObject, Row, SeatPlan, Table } from '../core/types'
+import { seatPlan } from '../core/geometry'
+import { layout } from '../core/layout'
+import { rotatePoint } from '../core/math'
+import type { Fixture, Place, PlanObject, SeatPlan } from '../core/types'
 import { planHandles } from './handles'
 
 type S = 'A'
 
-function planOf(objects: PlanObject<S>[]): SeatPlan<S> {
+function planOf(objects: PlanObject<S>[], groups: SeatPlan<S>['groups'] = []): SeatPlan<S> {
   const points = [
     { x: 0, y: 0 },
     { x: 920, y: 0 },
     { x: 920, y: 690 },
     { x: 0, y: 690 },
   ]
-  return { version: 2, width: 1012, height: 828, sections: [{ id: 'A', points }], categories: [], objects }
+  return { version: 3, width: 1012, height: 828, sections: [{ id: 'A', points }], categories: [], groups, objects }
 }
 
-const desk: Desk<S> = { kind: 'desk', id: 'A1', section: 'A', x: 94, y: 94, w: 88, h: 88, chairSide: 'down' }
-const tv: Fixture = { kind: 'fixture', id: 'tv-1', role: 'tv', x: 230, y: 0, w: 138, h: 23 }
-const row: Row<S> = {
-  kind: 'row',
-  id: 'row-1',
+const desk: Place<S> = { kind: 'place', id: 'A1', section: 'A', x: 94, y: 94, w: 88, h: 88, shape: 'rect', capacity: 1 }
+const tv: Fixture = { kind: 'fixture', id: 'tv-1', shape: 'rect', role: 'tv', x: 230, y: 0, w: 138, h: 23 }
+const seat = (id: string, x: number): Place<S> => ({
+  kind: 'place',
+  id,
   section: 'A',
-  start: { x: 92, y: 460 },
-  end: { x: 460, y: 460 },
-  curve: 0,
-  seatSize: 40,
-  seats: [{ id: 'A2' }, { id: 'A3' }, { id: 'A4' }],
-}
+  x,
+  y: 440,
+  w: 40,
+  h: 40,
+  shape: 'ellipse',
+  capacity: 1,
+  group: 'row-1',
+})
+const row = [seat('A2', 92), seat('A3', 184), seat('A4', 276)]
 const owner = (id: string) => ({ kind: 'object' as const, id })
+const snap = { cell: 46 }
 
 describe('planHandles.of', () => {
-  it('shows corners for a rectangle, ends and curve for a row, vertices for a section — for one item only', () => {
-    const plan = planOf([desk, row])
-    expect(planHandles.of(plan, [{ kind: 'object', id: 'A1' }]).map((h) => h.name)).toEqual(['nw', 'ne', 'se', 'sw'])
-    expect(planHandles.of(plan, [{ kind: 'object', id: 'row-1' }]).map((h) => h.name)).toEqual([
-      'start',
-      'end',
-      'curve',
-    ])
-    expect(planHandles.of(plan, [{ kind: 'section', id: 'A' }])).toHaveLength(4)
-    expect(
-      planHandles.of(plan, [
-        { kind: 'object', id: 'A1' },
-        { kind: 'object', id: 'row-1' },
-      ]),
-    ).toEqual([])
+  it('points corner handles the way the turned object points them, for resize cursors', () => {
+    const [nw] = planHandles.of(planOf([{ ...desk, rotation: 90 }]), [owner('A1')])
+    // A square's top-left points up-left (−135°); turned a quarter clockwise it points up-right (−45°).
+    expect(nw!.angle).toBeCloseTo(-45, 6)
   })
 
-  it('keeps table corner handles off the seats around the top — round and rectangular', () => {
-    const seats = (prefix: string) => Array.from({ length: 6 }, (_, i) => ({ id: `${prefix}${i + 1}` }))
-    const round: Table<S> = {
-      kind: 'table',
-      id: 'T1',
-      section: 'A',
-      shape: 'round',
-      x: 276,
-      y: 276,
-      w: 92,
-      h: 92,
-      seatSize: 36,
-      seats: seats('R'),
-    }
-    const rect: Table<S> = {
-      kind: 'table',
-      id: 'T2',
-      section: 'A',
-      shape: 'rect',
-      x: 552,
-      y: 276,
-      w: 138,
-      h: 92,
-      seatSize: 36,
-      seats: seats('Q'),
-    }
-    for (const table of [round, rect]) {
-      const handles = planHandles.of(planOf([table]), [{ kind: 'object', id: table.id }])
-      expect(handles).toHaveLength(4)
-      for (const { point } of handles) {
-        for (const { center } of seatPlan.tableSeatsOf(table)) {
-          // Distance from the handle to the seat's bounding square — at least the gap seats keep from the top.
-          const outside = Math.max(Math.abs(point.x - center.x), Math.abs(point.y - center.y)) - table.seatSize / 2
-          expect(outside).toBeGreaterThanOrEqual(TABLE_SEAT_GAP)
-        }
-      }
-    }
+  it('shows corners and a knob for an object, a knob for a group, vertices for a section — for one item only', () => {
+    const plan = planOf([desk, ...row], [{ id: 'row-1' }])
+    expect(planHandles.of(plan, [owner('A1')]).map((h) => h.name)).toEqual(['nw', 'ne', 'se', 'sw', 'rotate'])
+    expect(planHandles.of(plan, [{ kind: 'group', id: 'row-1' }]).map((h) => h.name)).toEqual(['rotate'])
+    expect(planHandles.of(plan, [{ kind: 'section', id: 'A' }])).toHaveLength(4)
+    expect(planHandles.of(plan, [owner('A1'), { kind: 'group', id: 'row-1' }])).toEqual([])
+  })
+
+  it('puts the corners of a turned object on its turned outline', () => {
+    const turned = { ...desk, rotation: 90 }
+    const [nw] = planHandles.of(planOf([turned]), [owner('A1')])
+    // A quarter turn clockwise brings the top-left corner to the top-right.
+    expect(nw!.point).toEqual({ x: expect.closeTo(182, 6), y: expect.closeTo(94, 6) })
   })
 })
 
 describe('planHandles.drag', () => {
   const objectOf = (plan: SeatPlan<S>, id: string) => seatPlan.objectById(plan, id)
 
-  it('resizes a desk by whole cells from the dragged corner, the opposite corner staying put', () => {
-    const wider = planHandles.drag(planOf([desk]), owner('A1'), 'se', { x: 50, y: 0 })
-    expect(objectOf(wider, 'A1')).toMatchObject({ x: 94, y: 94, w: 134, h: 88 })
+  it('resizes from the dragged corner, the opposite corner staying put, in half cells when snapping', () => {
+    const wider = planHandles.drag(planOf([desk]), owner('A1'), 'se', { x: 50, y: 0 }, snap)
+    expect(objectOf(wider, 'A1')).toMatchObject({ x: 94, y: 94, w: 138, h: 92 })
     const fromLeft = planHandles.drag(planOf([desk]), owner('A1'), 'nw', { x: -46, y: 0 })
-    expect(objectOf(fromLeft, 'A1')).toMatchObject({ x: 48, w: 134 })
+    expect(objectOf(fromLeft, 'A1')).toMatchObject({ x: 48, w: 134, h: 88 })
   })
 
-  it('keeps a fixture at least half a cell and on the half-cell grid', () => {
-    const squashed = planHandles.drag(planOf([tv]), owner('tv-1'), 'se', { x: 0, y: -40 })
-    expect(objectOf(squashed, 'tv-1')).toMatchObject({ h: 23, y: 0 })
-    const grown = planHandles.drag(planOf([tv]), owner('tv-1'), 'se', { x: 30, y: 0 })
-    expect((objectOf(grown, 'tv-1') as Fixture).w % 23).toBe(0)
+  it('resizes a turned object along its own axes', () => {
+    const turned = { ...desk, rotation: 90 }
+    const plan = planOf([turned])
+    // Turned a quarter, the object's own width runs down the plan: dragging its se corner 40 down widens it.
+    const grown = objectOf(planHandles.drag(plan, owner('A1'), 'se', { x: 0, y: 40 }), 'A1')!
+    expect(grown).toMatchObject({ w: 128, h: 88, rotation: 90 })
+    // The opposite (nw) corner stays where it was.
+    const nw = rotatePoint({ x: grown.x, y: grown.y }, seatPlan.centerOf(grown), 90)
+    const before = rotatePoint({ x: desk.x, y: desk.y }, seatPlan.centerOf(desk), 90)
+    expect(nw.x).toBeCloseTo(before.x, 0)
+    expect(nw.y).toBeCloseTo(before.y, 0)
   })
 
-  it('moves a row end on the half-cell grid', () => {
-    const longer = planHandles.drag(planOf([row]), owner('row-1'), 'end', { x: 50, y: 10 })
-    expect((objectOf(longer, 'row-1') as Row<S>).end).toEqual({ x: 506, y: 460 })
+  it('never grows a level box past the plan edge', () => {
+    const grown = planHandles.drag(planOf([tv]), owner('tv-1'), 'se', { x: 2000, y: 0 })
+    const b = seatPlan.boundsOf(objectOf(grown, 'tv-1')!)
+    expect(b.x + b.w).toBeLessThanOrEqual(1012)
   })
 
-  it('bends a row so the middle of its arc follows the curve handle', () => {
-    // Chord 368 long; pulling the apex 92 up (left of a left-to-right row) is a sagitta of 92 → curve 0.5.
-    const bent = planHandles.drag(planOf([row]), owner('row-1'), 'curve', { x: 0, y: -92 })
-    expect((objectOf(bent, 'row-1') as Row<S>).curve).toBe(0.5)
-    const flipped = planHandles.drag(planOf([row]), owner('row-1'), 'curve', { x: 0, y: 1000 })
-    expect((objectOf(flipped, 'row-1') as Row<S>).curve).toBe(-1)
+  it('turns an object from its knob, in 15° steps when snapping', () => {
+    // The knob sits above the centre (138, 138); pulling it to the right of the centre is a quarter turn.
+    const knob = { x: 138, y: 94 - 28 }
+    const toRight = { x: 138 + 100 - knob.x, y: 138 - knob.y }
+    expect(objectOf(planHandles.drag(planOf([desk]), owner('A1'), 'rotate', toRight), 'A1')).toMatchObject({
+      rotation: 90,
+    })
+    const slight = { x: 30, y: 0 }
+    const free = objectOf(planHandles.drag(planOf([desk]), owner('A1'), 'rotate', slight), 'A1')!.rotation!
+    const stepped = objectOf(planHandles.drag(planOf([desk]), owner('A1'), 'rotate', slight, snap), 'A1')!.rotation!
+    expect(free % 15).not.toBe(0)
+    expect(stepped % 15).toBe(0)
+    // Back to level leaves no rotation behind.
+    expect(
+      objectOf(planHandles.drag(planOf([desk]), owner('A1'), 'rotate', { x: 0, y: -10 }), 'A1')!.rotation,
+    ).toBeUndefined()
   })
 
-  it('moves one section vertex to the nearest cell corner', () => {
-    const plan = planHandles.drag(planOf([]), { kind: 'section', id: 'A' }, 'vertex-2', { x: 40, y: 10 })
+  it('turns a group as one about the centre of its frame, and the group faces the new way', () => {
+    const plan = planOf(row, [{ id: 'row-1' }])
+    const [knob] = planHandles.of(plan, [{ kind: 'group', id: 'row-1' }])
+    const center = { x: 204, y: 460 }
+    const toRight = { x: center.x + 100 - knob!.point.x, y: center.y - knob!.point.y }
+    const turned = planHandles.drag(plan, { kind: 'group', id: 'row-1' }, 'rotate', toRight)
+    const seats = seatPlan.membersOf(turned, 'row-1')
+    expect(seats.map((s) => s.x)).toEqual([184, 184, 184])
+    expect(seats.map((s) => s.y)).toEqual([348, 440, 532])
+    expect(seats.every((s) => s.rotation === 90)).toBe(true)
+    expect(turned.groups[0]!.rotation).toBe(90)
+  })
+
+  it('keeps a turned group on its centre, turn after turn, with the knob and frame turning with it', () => {
+    // A curved row: its level extent changes as it turns, its frame does not.
+    const boxes = layout.arc({ start: { x: 200, y: 300 }, end: { x: 600, y: 300 }, curve: 0.4, count: 9, size: 40 })
+    const seats = boxes.map((box, i) => ({ ...seat(`A${i + 1}`, 0), ...box }))
+    let plan = planOf(seats, [{ id: 'row-1' }])
+    const group = { kind: 'group' as const, id: 'row-1' }
+    const centerOf = (p: SeatPlan<S>) => {
+      const frame = planHandles.frame(p, [group])!
+      return { x: (frame[0]!.x + frame[2]!.x) / 2, y: (frame[0]!.y + frame[2]!.y) / 2 }
+    }
+    const start = centerOf(plan)
+    const reach = (p: SeatPlan<S>) => {
+      const [knob] = planHandles.of(p, [group])
+      return Math.hypot(knob!.point.x - centerOf(p).x, knob!.point.y - centerOf(p).y)
+    }
+    const knobReach = reach(plan)
+    // Positions are whole units, so each turn rounds every seat by up to half a unit — the centre may wobble by
+    // that much, but never walks off the way the level extent's centre did.
+    for (let i = 0; i < 24; i++) {
+      // Drag the knob a quarter of the way round each time, then check where everything is.
+      const [knob] = planHandles.of(plan, [group])
+      const c = centerOf(plan)
+      const target = rotatePoint(knob!.point, c, 37)
+      plan = planHandles.drag(plan, group, 'rotate', {
+        x: target.x - knob!.point.x,
+        y: target.y - knob!.point.y,
+      })
+      expect(Math.hypot(centerOf(plan).x - start.x, centerOf(plan).y - start.y)).toBeLessThan(2)
+      expect(Math.abs(reach(plan) - knobReach)).toBeLessThan(2)
+    }
+    expect(plan.groups[0]!.rotation).toBe((37 * 24) % 360)
+  })
+
+  it('moves one section vertex to the nearest cell corner when snapping', () => {
+    const plan = planHandles.drag(planOf([]), { kind: 'section', id: 'A' }, 'vertex-2', { x: 40, y: 10 }, snap)
     expect(plan.sections[0]!.points[2]).toEqual({ x: 966, y: 690 })
     expect(plan.sections[0]!.points[1]).toEqual({ x: 920, y: 0 })
   })
 })
 
-describe('marquee and row labels', () => {
-  it('picks every object whose footprint the rectangle touches', () => {
-    const plan = planOf([desk, tv, row])
+describe('marquee', () => {
+  it('picks every object whose shape the rectangle touches — a turned one by its turned shape', () => {
+    const plan = planOf([desk, tv, ...row], [{ id: 'row-1' }])
     expect(seatPlan.objectsInRect(plan, { x: 0, y: 0, w: 100, h: 100 })).toEqual(['A1'])
     expect(seatPlan.objectsInRect(plan, { x: 0, y: 0, w: 1000, h: 30 })).toEqual(['tv-1'])
-    expect(seatPlan.objectsInRect(plan, { x: 270, y: 450, w: 5, h: 5 })).toEqual(['row-1'])
-    expect(seatPlan.objectsInRect(plan, { x: 360, y: 450, w: 5, h: 5 })).toEqual([])
-  })
-
-  it('puts row labels one seat beyond each end, along the row', () => {
-    expect(seatPlan.rowLabelAnchorsOf(row)).toEqual({ start: { x: 52, y: 460 }, end: { x: 500, y: 460 } })
+    // The corner of a round seat's box is not the seat.
+    expect(seatPlan.objectsInRect(plan, { x: 92, y: 440, w: 3, h: 3 })).toEqual([])
+    const bar: Place<S> = { ...desk, id: 'A9', x: 500, y: 300, w: 200, h: 20 }
+    expect(seatPlan.objectsInRect(planOf([bar]), { x: 590, y: 220, w: 20, h: 20 })).toEqual([])
+    expect(seatPlan.objectsInRect(planOf([{ ...bar, rotation: 90 }]), { x: 590, y: 220, w: 20, h: 20 })).toEqual(['A9'])
   })
 })

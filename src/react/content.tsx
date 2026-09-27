@@ -1,14 +1,13 @@
 import { Fragment, type ReactNode } from 'react'
 import { seatPlan } from '../core/geometry'
-import type { Fixture, Place, PlanRect, SeatPlan, Section } from '../core/types'
+import type { Fixture, Group, Place, PlanRect, SeatPlan, Section } from '../core/types'
 import {
   FixturePart,
+  LabelPart,
   PlacePart,
-  RowLabelPart,
   SectionPart,
-  TablePart,
+  groupLabelFont,
   placeLabelFont,
-  rowLabelFont,
   type PlaceProps,
 } from './parts'
 
@@ -19,12 +18,14 @@ type ContentProps<S extends string> = {
   selected?: readonly string[]
   highlighted?: readonly string[]
   dimmed?: readonly string[]
-  // Object ids in conflict (the editor's `conflictIds`) — their places and fixtures are marked.
+  // Place ids in conflict (the editor's `conflictIds`) — marked.
   invalid?: readonly string[]
   // Places that cannot be picked. Defaults to every place with a status.
   isDisabled?(place: Place<S>, status: string | undefined): boolean
   // Name above each section. Defaults to the section id on plans with more than one section, none otherwise.
   sectionLabel?(section: Section<S>): ReactNode
+  // What a group's labels say. Defaults to the group's label, or its id.
+  groupLabel?(group: Group): ReactNode
   fixtureLabel?(fixture: Fixture): string | null
   // Defaults to `box` for every fixture.
   fixtureVariant?(fixture: Fixture): 'box' | 'wall'
@@ -37,8 +38,8 @@ type ContentProps<S extends string> = {
   minLabelPx?: number
 }
 
-// The whole plan in drawing order — sections, then every object in document order (fixtures, table furniture,
-// places, row labels). A convenience over the parts; compose them yourself when you need something else.
+// The whole plan in drawing order — sections, then every object in document order. A convenience over the parts;
+// compose them yourself when you need something else.
 export function Content<S extends string>({
   plan,
   status,
@@ -48,6 +49,7 @@ export function Content<S extends string>({
   invalid,
   isDisabled = hasStatus,
   sectionLabel,
+  groupLabel = defaultGroupLabel,
   fixtureLabel,
   fixtureVariant,
   renderPlace = defaultRenderPlace,
@@ -60,31 +62,8 @@ export function Content<S extends string>({
   const highlightedSet = new Set(highlighted)
   const dimmedSet = new Set(dimmed)
   const invalidSet = new Set(invalid)
+  const groups = new Map(plan.groups.map((group) => [group.id, group]))
   const labeled = seatPlan.showsSectionLabels(plan)
-
-  const placesByObject = new Map<string, Place<S>[]>()
-  for (const place of seatPlan.placesOf(plan)) {
-    const objectId = place.parent?.id ?? place.id
-    placesByObject.set(objectId, [...(placesByObject.get(objectId) ?? []), place])
-  }
-
-  const placeElement = (place: Place<S>) => {
-    const placeStatus = status?.[place.id]
-    return (
-      <Fragment key={place.id}>
-        {renderPlace(place, {
-          place,
-          status: placeStatus,
-          selected: selectedSet.has(place.id),
-          disabled: isDisabled(place, placeStatus),
-          highlighted: highlightedSet.has(place.id),
-          dimmed: dimmedSet.has(place.id),
-          invalid: invalidSet.has(place.parent?.id ?? place.id),
-          ...(readable(placeLabelFont(place)) ? {} : { label: null }),
-        })}
-      </Fragment>
-    )
-  }
 
   return (
     <>
@@ -97,35 +76,44 @@ export function Content<S extends string>({
       ))}
       {plan.objects.map((object) => {
         if (region && !intersects(seatPlan.boundsOf(object), region)) return null
-        if (object.kind === 'fixture') {
-          return (
-            <FixturePart
-              key={object.id}
-              fixture={object}
-              variant={fixtureVariant?.(object) ?? 'box'}
-              invalid={invalidSet.has(object.id)}
-              label={readable(Math.min(object.w, object.h) * 0.6) ? (fixtureLabel?.(object) ?? null) : null}
-            />
-          )
+        switch (object.kind) {
+          case 'place': {
+            const placeStatus = status?.[object.id]
+            return (
+              <Fragment key={object.id}>
+                {renderPlace(object, {
+                  place: object,
+                  status: placeStatus,
+                  selected: selectedSet.has(object.id),
+                  disabled: isDisabled(object, placeStatus),
+                  highlighted: highlightedSet.has(object.id),
+                  dimmed: dimmedSet.has(object.id),
+                  invalid: invalidSet.has(object.id),
+                  ...(readable(placeLabelFont(object)) ? {} : { label: null }),
+                })}
+              </Fragment>
+            )
+          }
+          case 'fixture':
+            return (
+              <FixturePart
+                key={object.id}
+                fixture={object}
+                variant={fixtureVariant?.(object) ?? 'box'}
+                label={readable(Math.min(object.w, object.h) * 0.6) ? (fixtureLabel?.(object) ?? null) : null}
+              />
+            )
+          case 'label': {
+            const group = groups.get(object.group)
+            const text = group ? groupLabel(group) : null
+            if (text == null || text === false || text === '' || !readable(groupLabelFont(object))) return null
+            return (
+              <LabelPart key={object.id} label={object}>
+                {text}
+              </LabelPart>
+            )
+          }
         }
-        const places = (placesByObject.get(object.id) ?? []).map(placeElement)
-        if (object.kind === 'row' && object.label && readable(rowLabelFont(object))) {
-          return (
-            <g key={object.id}>
-              {places}
-              <RowLabelPart row={object} />
-            </g>
-          )
-        }
-        if (object.kind === 'table') {
-          return (
-            <g key={object.id}>
-              <TablePart table={object} />
-              {places}
-            </g>
-          )
-        }
-        return places.length === 1 ? places[0] : <g key={object.id}>{places}</g>
       })}
     </>
   )
@@ -137,6 +125,10 @@ function intersects(a: PlanRect, b: PlanRect): boolean {
 
 function hasStatus(_place: Place, status: string | undefined): boolean {
   return status !== undefined
+}
+
+function defaultGroupLabel(group: Group): ReactNode {
+  return group.label ?? group.id
 }
 
 function defaultRenderPlace(_place: Place, props: PlaceProps): ReactNode {

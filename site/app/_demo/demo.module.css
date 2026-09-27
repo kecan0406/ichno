@@ -49,8 +49,7 @@
   stroke: var(--ichno-accent);
 }
 
-.viewport [data-ichno-id] [data-part='shape'],
-.viewport [data-ichno-id] [data-part='chair'] {
+.viewport [data-ichno-id] [data-part='shape'] {
   transition:
     fill 0.18s,
     stroke 0.18s;
@@ -96,7 +95,7 @@
   --cat-access: var(--theme-muted);
 }
 
-.demo [data-ichno-id]:not([data-selected]):not([data-disabled]) :is([data-part='shape'], [data-part='chair']) {
+.demo [data-ichno-id]:not([data-selected]):not([data-disabled]) [data-part='shape'] {
   fill: color-mix(in srgb, var(--cat) 14%, var(--ichno-surface));
   stroke: color-mix(in srgb, var(--cat) 75%, var(--ichno-surface));
 }

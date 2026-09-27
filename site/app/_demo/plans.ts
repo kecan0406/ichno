@@ -1,8 +1,8 @@
-import type { Desk, PlanObject, PlanPoint, SeatChairSide, SeatPlan } from 'ichno'
+import { layout, type Group, type PlanBox, type PlanObject, type PlanPoint, type SeatPlan } from 'ichno'
 
 // Demo documents for the landing page and the playground — plain SeatPlan JSON, exactly what an app would store.
-// Coordinates follow the grid rules: sections on 46-unit cell edges, desks 2 units inside their cells, fixtures on
-// half cells.
+// ichno stores primitives only: places, fixtures and group labels. Rows, tables and desks are this site's words
+// (`role`), laid out here with ichno's `layout` helpers. Sections run on 46-unit cell edges.
 
 // Section ids are short on purpose: places added later continue the section's numbering (S17, H1, …).
 export type VenueSection = 'H' | 'L' | 'S'
@@ -24,93 +24,202 @@ export const fixtureNames: Record<string, string> = {
   pillar: 'Pillar',
 }
 
+type Built<S extends string> = { groups: Group[]; objects: PlanObject<S>[] }
+
 const ROW_LETTERS = 'ABCDEFG'
 
+// A labelled row of seats between two points — a group, one place per seat and the row's name at both ends.
+export function row<S extends string>(options: {
+  id: string
+  label: string
+  section: S
+  start: PlanPoint
+  end: PlanPoint
+  curve: number
+  seats: { id: string; label?: string; category?: string }[]
+}): Built<S> {
+  const boxes = layout.arc({ ...options, count: options.seats.length, size: 40 })
+  const ends = [
+    { x: options.start.x - 46, y: options.start.y },
+    { x: options.end.x + 46, y: options.end.y },
+  ]
+  return {
+    groups: [{ id: options.id, label: options.label, role: 'row' }],
+    objects: [
+      ...options.seats.map((seat, i): PlanObject<S> => ({
+        kind: 'place',
+        ...seat,
+        section: options.section,
+        ...boxes[i]!,
+        shape: 'ellipse',
+        capacity: 1,
+        group: options.id,
+        role: 'seat',
+      })),
+      ...ends.map((point, i): PlanObject<S> => ({
+        kind: 'label',
+        id: `${options.id}-l${i + 1}`,
+        group: options.id,
+        x: point.x - 20,
+        y: point.y - 20,
+        w: 40,
+        h: 40,
+      })),
+    ],
+  }
+}
+
+// A round table for six. Booked seat by seat, the top is a fixture and the seats are places; booked whole, the top
+// is the place and the seats are chairs.
+function roundTable<S extends string>(
+  n: number,
+  section: S,
+  center: PlanPoint,
+  options: { seats?: number; category?: string; whole?: boolean } = {},
+): Built<S> {
+  const group = `table-${n}`
+  const id = `T${n}`
+  const top = { x: center.x - 46, y: center.y - 46, w: 92, h: 92 }
+  const seats = layout.around({ table: top, shape: 'ellipse', count: options.seats ?? 6, size: 36 })
+  const category = options.category === undefined ? {} : { category: options.category }
+  if (options.whole) {
+    return {
+      groups: [{ id: group, role: 'table' }],
+      objects: [
+        ...seats.map((box, k): PlanObject<S> => ({
+          kind: 'fixture',
+          id: `${id}-${k + 1}`,
+          ...box,
+          shape: 'ellipse',
+          group,
+          role: 'chair',
+        })),
+        {
+          kind: 'place',
+          id,
+          section,
+          ...top,
+          shape: 'ellipse',
+          capacity: seats.length,
+          group,
+          role: 'table',
+          ...category,
+        },
+      ],
+    }
+  }
+  return {
+    groups: [{ id: group, label: id, role: 'table' }],
+    objects: [
+      { kind: 'fixture', id, ...top, shape: 'ellipse', group, role: 'table' },
+      ...seats.map((box, k): PlanObject<S> => ({
+        kind: 'place',
+        id: `${id}-${k + 1}`,
+        label: String(k + 1),
+        section,
+        ...box,
+        shape: 'ellipse',
+        capacity: 1,
+        group,
+        role: 'seat',
+        ...category,
+      })),
+    ],
+  }
+}
+
+// A desk in a 2×2-cell spot: the top is the place, the chair a fixture on the side people sit.
+export function desk<S extends string>(
+  id: string,
+  section: S,
+  origin: PlanPoint,
+  chair: 'up' | 'down',
+  extra: { label?: string; category?: string } = {},
+): Built<S> {
+  const group = `${id}-desk`
+  const top: PlanBox = { x: origin.x, y: chair === 'up' ? origin.y + 28 : origin.y, w: 88, h: 60 }
+  const seat: PlanBox = { x: origin.x + 25, y: chair === 'up' ? origin.y + 4 : origin.y + 66, w: 38, h: 18 }
+  return {
+    groups: [{ id: group, role: 'desk' }],
+    objects: [
+      { kind: 'place', id, section, ...top, shape: 'rect', capacity: 1, group, role: 'desk', ...extra },
+      { kind: 'fixture', id: `${id}-chair`, ...seat, shape: 'rect', group, role: 'chair' },
+    ],
+  }
+}
+
 // Seven rows bowing away from the stage, one seat longer each.
-function hallRows(): PlanObject<VenueSection>[] {
+function hallRows(): Built<VenueSection>[] {
   return [...ROW_LETTERS].map((letter, i) => {
     const y = 322 + 92 * i
     const half = 230 + 23 * i
     const count = 10 + i
-    return {
-      kind: 'row',
+    return row<VenueSection>({
       id: `row-${letter}`,
-      section: 'H',
       label: letter,
+      section: 'H',
       start: { x: 506 - half, y },
       end: { x: 506 + half, y },
       curve: -0.12,
-      seatSize: 40,
       seats: Array.from({ length: count }, (_, n) => ({
         id: `${letter}${n + 1}`,
         label: String(n + 1),
         category: i < 2 ? 'premium' : i === 6 && (n < 2 || n >= count - 2) ? 'access' : 'standard',
       })),
-    }
+    })
   })
 }
 
-function roundTable(id: string, center: PlanPoint, wholeBooking = false): PlanObject<VenueSection> {
-  return {
-    kind: 'table',
-    id,
-    section: 'L',
-    shape: 'round',
-    x: center.x - 46,
-    y: center.y - 46,
-    w: 92,
-    h: 92,
-    seatSize: 36,
-    category: 'premium',
-    seats: Array.from({ length: 6 }, (_, n) => ({ id: `${id}-${n + 1}`, label: String(n + 1), category: 'premium' })),
-    ...(wholeBooking ? { wholeBooking } : {}),
-  }
-}
-
-function desk(id: string, cellX: number, cellY: number, chairSide: SeatChairSide): Desk<VenueSection> {
-  return {
-    kind: 'desk',
-    id,
-    section: 'S',
-    category: 'standard',
-    x: cellX * 46 + 2,
-    y: cellY * 46 + 2,
-    w: 88,
-    h: 88,
-    chairSide,
-  }
-}
-
 // Two back-to-back pairs of desk rows.
-function studioDesks(): PlanObject<VenueSection>[] {
-  const rows: [number, SeatChairSide][] = [
+function studioDesks(): Built<VenueSection>[] {
+  const rows: [number, 'up' | 'down'][] = [
     [13, 'up'],
     [15, 'down'],
     [18, 'up'],
     [20, 'down'],
   ]
   return rows.flatMap(([cellY, side], r) =>
-    [25, 27, 29, 31].map((cellX, c) => desk(`S${r * 4 + c + 1}`, cellX, cellY, side)),
+    [25, 27, 29, 31].map((cellX, c) =>
+      desk<VenueSection>(`S${r * 4 + c + 1}`, 'S', { x: cellX * 46 + 2, y: cellY * 46 + 2 }, side, {
+        category: 'standard',
+      }),
+    ),
   )
 }
 
-export const venuePlan: SeatPlan<VenueSection> = {
-  version: 2,
-  width: 1840,
-  height: 1104,
-  sections: [
-    { id: 'H', points: rect(0, 0, 1012, 1104) },
-    { id: 'L', points: rect(1104, 0, 736, 460) },
-    { id: 'S', points: rect(1104, 552, 736, 552) },
-  ],
-  categories: [{ key: 'premium' }, { key: 'standard' }, { key: 'access', accessible: true }],
-  objects: [
-    { kind: 'fixture', id: 'stage', role: 'stage', x: 299, y: 69, w: 414, h: 115 },
+// One document from its pieces, in drawing order.
+function assemble<S extends string>(
+  base: Omit<SeatPlan<S>, 'version' | 'groups' | 'objects'>,
+  pieces: (Built<S> | PlanObject<S>)[],
+): SeatPlan<S> {
+  const built = pieces.map((piece) => ('kind' in piece ? { groups: [], objects: [piece] } : piece))
+  return {
+    version: 3,
+    ...base,
+    groups: built.flatMap((piece) => piece.groups),
+    objects: built.flatMap((piece) => piece.objects),
+  }
+}
+
+export const venuePlan: SeatPlan<VenueSection> = assemble(
+  {
+    width: 1840,
+    height: 1104,
+    sections: [
+      { id: 'H', points: rect(0, 0, 1012, 1104) },
+      { id: 'L', points: rect(1104, 0, 736, 460) },
+      { id: 'S', points: rect(1104, 552, 736, 552) },
+    ],
+    categories: [{ key: 'premium' }, { key: 'standard' }, { key: 'access', accessible: true }],
+  },
+  [
+    { kind: 'fixture', id: 'stage', shape: 'rect', role: 'stage', x: 299, y: 69, w: 414, h: 115 },
     ...hallRows(),
     {
-      kind: 'area',
+      kind: 'place',
       id: 'GA',
       section: 'H',
+      role: 'area',
       shape: 'rect',
       x: 253,
       y: 989,
@@ -119,46 +228,31 @@ export const venuePlan: SeatPlan<VenueSection> = {
       capacity: 60,
       category: 'standard',
     },
-    roundTable('T1', { x: 1242, y: 184 }),
-    roundTable('T2', { x: 1472, y: 184 }),
-    roundTable('T3', { x: 1702, y: 184 }, true),
-    { kind: 'fixture', id: 'bar', role: 'bar', x: 1173, y: 345, w: 598, h: 69 },
+    roundTable(1, 'L', { x: 1242, y: 184 }, { category: 'premium' }),
+    roundTable(2, 'L', { x: 1472, y: 184 }, { category: 'premium' }),
+    roundTable(3, 'L', { x: 1702, y: 184 }, { category: 'premium', whole: true }),
+    { kind: 'fixture', id: 'bar', shape: 'rect', role: 'bar', x: 1173, y: 345, w: 598, h: 69 },
     ...studioDesks(),
-    {
-      kind: 'booth',
-      id: 'BT1',
+    ...[
+      { id: 'BT1', y: 598, h: 138 },
+      { id: 'BT2', y: 782, h: 138 },
+      { id: 'BT3', y: 966, h: 92 },
+    ].map(({ id, y, h }, i): PlanObject<VenueSection> => ({
+      kind: 'place',
+      id,
       section: 'S',
-      label: 'Booth 1',
+      label: `Booth ${i + 1}`,
+      role: 'booth',
       category: 'premium',
+      shape: 'rect',
+      capacity: 1,
       x: 1587,
-      y: 598,
+      y,
       w: 184,
-      h: 138,
-    },
-    {
-      kind: 'booth',
-      id: 'BT2',
-      section: 'S',
-      label: 'Booth 2',
-      category: 'premium',
-      x: 1587,
-      y: 782,
-      w: 184,
-      h: 138,
-    },
-    {
-      kind: 'booth',
-      id: 'BT3',
-      section: 'S',
-      label: 'Booth 3',
-      category: 'premium',
-      x: 1587,
-      y: 966,
-      w: 184,
-      h: 92,
-    },
+      h,
+    })),
   ],
-}
+)
 
 // Status lives outside the document — here, what another booking system would report.
 export const venueStatus: Record<string, string> = Object.fromEntries(
@@ -169,48 +263,32 @@ export const venueStatus: Record<string, string> = Object.fromEntries(
 
 type RoomSection = 'R'
 
-export const roomPlan: SeatPlan<RoomSection> = {
-  version: 2,
-  width: 1196,
-  height: 690,
-  sections: [{ id: 'R', points: rect(0, 0, 1196, 690) }],
-  categories: [],
-  objects: [
-    { kind: 'fixture', id: 'screen', role: 'screen', x: 368, y: 46, w: 460, h: 46 },
-    {
-      kind: 'row',
+export const roomPlan: SeatPlan<RoomSection> = assemble<RoomSection>(
+  { width: 1196, height: 690, sections: [{ id: 'R', points: rect(0, 0, 1196, 690) }], categories: [] },
+  [
+    { kind: 'fixture', id: 'screen', shape: 'rect', role: 'screen', x: 368, y: 46, w: 460, h: 46 },
+    row<RoomSection>({
       id: 'row-1',
-      section: 'R',
       label: 'A',
+      section: 'R',
       start: { x: 368, y: 207 },
       end: { x: 828, y: 207 },
       curve: -0.1,
-      seatSize: 40,
       seats: Array.from({ length: 9 }, (_, n) => ({ id: `R${n + 1}`, label: String(n + 1) })),
-    },
-    { kind: 'desk', id: 'R10', label: 'D1', section: 'R', x: 94, y: 416, w: 88, h: 88, chairSide: 'up' },
-    { kind: 'desk', id: 'R11', label: 'D2', section: 'R', x: 186, y: 416, w: 88, h: 88, chairSide: 'up' },
-    {
-      kind: 'table',
-      id: 'T1',
-      section: 'R',
-      shape: 'round',
-      x: 874,
-      y: 437,
-      w: 92,
-      h: 92,
-      seatSize: 36,
-      seats: Array.from({ length: 5 }, (_, n) => ({ id: `T1-${n + 1}`, label: String(n + 1) })),
-    },
+    }),
+    desk<RoomSection>('R10', 'R', { x: 94, y: 416 }, 'up', { label: 'D1' }),
+    desk<RoomSection>('R11', 'R', { x: 186, y: 416 }, 'up', { label: 'D2' }),
+    roundTable<RoomSection>(1, 'R', { x: 920, y: 483 }, { seats: 5 }),
   ],
-}
+)
 
 export const blankPlan: SeatPlan<'A'> = {
-  version: 2,
+  version: 3,
   width: 1380,
   height: 828,
   sections: [{ id: 'A', points: rect(0, 0, 1380, 828) }],
   categories: [{ key: 'premium' }, { key: 'standard' }, { key: 'access', accessible: true }],
+  groups: [],
   objects: [],
 }
 

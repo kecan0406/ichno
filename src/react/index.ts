@@ -1,16 +1,6 @@
 import { Viewport } from './client/viewport'
 import { Content } from './content'
-import {
-  FixturePart,
-  GridPart,
-  HandlesPart,
-  MarqueePart,
-  PlacePart,
-  Root,
-  RowLabelPart,
-  SectionPart,
-  TablePart,
-} from './parts'
+import { FixturePart, GridPart, HandlesPart, LabelPart, MarqueePart, PlacePart, Root, SectionPart } from './parts'
 
 // Headless seat map components. Every part but `Viewport` renders as a React Server Component.
 export const SeatMap = {
@@ -20,8 +10,7 @@ export const SeatMap = {
   Section: SectionPart,
   Place: PlacePart,
   Fixture: FixturePart,
-  Table: TablePart,
-  RowLabel: RowLabelPart,
+  Label: LabelPart,
   Grid: GridPart,
   Handles: HandlesPart,
   Marquee: MarqueePart,

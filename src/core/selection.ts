@@ -2,13 +2,15 @@ import type { SeatPlan } from './types'
 
 // Selection rules for pickers — the checks Seats.io runs as "selection validators", as a pure function. The
 // consumer decides when to run them (on every change, or on submit) and writes the message for each code.
+// Seat order comes from groups: the places of a group, in document order, form a line (a row, the seats around a
+// table). A group with a single place (a desk) forms none.
 
 export type SelectionRules = {
   min?: number
   max?: number
-  // Selected row seats must sit side by side in one row.
+  // Selected places in groups must sit side by side in one group.
   consecutive?: boolean
-  // A selection must not leave a single free seat stranded between taken seats or a row end.
+  // A selection must not leave a single free place stranded between taken places or a group's end.
   noOrphans?: boolean
 }
 
@@ -31,13 +33,18 @@ export function validateSelection(
   if (rules.min !== undefined && selected.size < rules.min) issues.push({ code: 'too_few', min: rules.min })
   if (rules.max !== undefined && selected.size > rules.max) issues.push({ code: 'too_many', max: rules.max })
 
-  const rows = plan.objects.filter((object) => object.kind === 'row')
+  const lines = new Map<string, string[]>()
+  for (const object of plan.objects) {
+    if (object.kind !== 'place' || object.group === undefined) continue
+    lines.set(object.group, [...(lines.get(object.group) ?? []), object.id])
+  }
+  const rows = [...lines.values()].filter((ids) => ids.length > 1)
 
   if (rules.consecutive) {
     const picked = rows
-      .map((row) => row.seats.flatMap((seat, i) => (selected.has(seat.id) ? [i] : [])))
+      .map((row) => row.flatMap((id, i) => (selected.has(id) ? [i] : [])))
       .filter((indices) => indices.length > 0)
-    // One row only, and no gap between the first and last picked seat.
+    // One group only, and no gap between the first and last picked place.
     const [only, ...others] = picked
     if (others.length > 0 || (only && only.at(-1)! - only[0]! + 1 !== only.length)) {
       issues.push({ code: 'not_consecutive' })
@@ -46,12 +53,12 @@ export function validateSelection(
 
   if (rules.noOrphans) {
     for (const row of rows) {
-      const blocked = (i: number) => i < 0 || i >= row.seats.length || isTaken(row.seats[i]!.id)
-      for (const [i, seat] of row.seats.entries()) {
-        if (isTaken(seat.id) || !blocked(i - 1) || !blocked(i + 1)) continue
-        // Only strandings this selection causes — a seat already stranded before is not the picker's fault.
-        const neighbours = [row.seats[i - 1], row.seats[i + 1]]
-        if (neighbours.some((n) => n && selected.has(n.id))) issues.push({ code: 'orphan_seat', id: seat.id })
+      const blocked = (i: number) => i < 0 || i >= row.length || isTaken(row[i]!)
+      for (const [i, id] of row.entries()) {
+        if (isTaken(id) || !blocked(i - 1) || !blocked(i + 1)) continue
+        // Only strandings this selection causes — a place already stranded before is not the picker's fault.
+        const neighbours = [row[i - 1], row[i + 1]]
+        if (neighbours.some((n) => n !== undefined && selected.has(n))) issues.push({ code: 'orphan_seat', id })
       }
     }
   }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { GRID_CELL } from './grid'
 import { seatPlan, WALL_THICKNESS } from './geometry'
+import { layout } from './layout'
 import { arcPoints, offsetPolygon, polygonContains } from './math'
-import type { Desk, Fixture, PlanObject, Row, SeatPlan, Table } from './types'
+import type { Fixture, Place, PlanObject, SeatPlan } from './types'
 
 type S = 'A' | 'B'
 
@@ -20,30 +21,30 @@ function rect(x: number, y: number, w: number, h: number) {
   ]
 }
 
-function desk(id: string, section: S, x: number, y: number, size = 80): Desk<S> {
-  return { kind: 'desk', id, section, x, y, w: size, h: size, chairSide: 'down' }
+function place(id: string, section: S, x: number, y: number, extra: Partial<Place<S>> = {}): Place<S> {
+  return { kind: 'place', id, section, x, y, w: 80, h: 80, shape: 'rect', capacity: 1, ...extra }
 }
 
-function fixture(id: string, role: string, x: number, y: number, w: number, h: number): Fixture {
-  return { kind: 'fixture', id, role, x, y, w, h }
+function fixture(id: string, x: number, y: number, w: number, h: number, extra: Partial<Fixture> = {}): Fixture {
+  return { kind: 'fixture', id, shape: 'rect', x, y, w, h, ...extra }
 }
 
-function planOf(objects: PlanObject<S>[]): SeatPlan<S> {
-  return { version: 2, width: 1000, height: 800, sections, categories: [], objects }
+function planOf(objects: PlanObject<S>[], groups: SeatPlan<S>['groups'] = []): SeatPlan<S> {
+  return { version: 3, width: 1000, height: 800, sections, categories: [], groups, objects }
 }
 
 const close = (value: number) => expect.closeTo(value, 6)
 
 describe('seatPlan ids', () => {
   const plan = planOf([
-    desk('A1', 'A', 20, 20),
-    desk('A2', 'A', 120, 20),
-    desk('B1', 'B', 520, 20),
-    desk('VIP', 'B', 620, 20),
+    place('A1', 'A', 20, 20),
+    place('A2', 'A', 120, 20),
+    place('B1', 'B', 520, 20),
+    place('VIP', 'B', 620, 20),
   ])
 
   it('objectById returns only existing ids', () => {
-    expect(seatPlan.objectById(plan, 'A1')?.kind).toBe('desk')
+    expect(seatPlan.objectById(plan, 'A1')?.kind).toBe('place')
     expect(seatPlan.objectById(plan, 'C1')).toBeUndefined()
   })
 
@@ -57,19 +58,10 @@ describe('seatPlan ids', () => {
     expect(seatPlan.nextPlaceId(removed, 'A')).toBe('A3')
   })
 
-  it('nextPlaceId counts seats inside rows and tables — they share the id namespace', () => {
-    const row: Row<S> = {
-      kind: 'row',
-      id: 'row-1',
-      section: 'A',
-      start: { x: 40, y: 400 },
-      end: { x: 400, y: 400 },
-      curve: 0,
-      seatSize: 40,
-      seats: [{ id: 'A7' }, { id: 'A8' }],
-    }
-    expect(seatPlan.nextPlaceId(planOf([...plan.objects, row]), 'A')).toBe('A9')
-    expect(seatPlan.nextObjectId(planOf([row]), 'row')).toBe('row-2')
+  it('counts group ids too — objects and groups share the id namespace', () => {
+    const grouped = planOf(plan.objects, [{ id: 'row-4' }, { id: 'A9' }])
+    expect(seatPlan.nextPlaceId(grouped, 'A')).toBe('A10')
+    expect(seatPlan.nextObjectId(grouped, 'row')).toBe('row-5')
   })
 })
 
@@ -110,58 +102,101 @@ describe('arc layout (row seats)', () => {
     for (const p of points) expect(Math.hypot(p.x - 100, p.y - 100)).toBeCloseTo(100, 6)
     expect(points[2]).toEqual({ x: close(100), y: close(0) })
   })
+
+  it('lays whole-unit seat boxes on the arc, turned along it', () => {
+    const boxes = layout.arc({ start, end, curve: 0.5, count: 3, size: 40 })
+    expect(boxes.map(({ x, y, w, h }) => ({ x, y, w, h }))).toEqual([
+      { x: -20, y: 80, w: 40, h: 40 },
+      { x: 80, y: 30, w: 40, h: 40 },
+      { x: 180, y: 80, w: 40, h: 40 },
+    ])
+    // Rising at the start, level at the apex, falling at the end (clockwise degrees).
+    expect(boxes[0]!.rotation).toBeGreaterThan(270)
+    expect(boxes[1]!.rotation).toBeUndefined()
+    expect(boxes[2]!.rotation).toBeGreaterThan(0)
+    expect(boxes[2]!.rotation).toBeLessThan(90)
+  })
+
+  it('reads the curve back from seat centres — the inverse of the arc', () => {
+    for (const curve of [0, 0.35, -0.6, 1]) {
+      for (const count of [3, 6]) expect(layout.curveOf(arcPoints(start, end, curve, count))).toBeCloseTo(curve, 2)
+    }
+  })
 })
 
 describe('table layout', () => {
-  const base = { x: 100, y: 100, w: 100, h: 100, seatSize: 40 }
-  const seats = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `T${i + 1}` }))
+  const table = { x: 100, y: 100, w: 100, h: 100 }
+  const centers = (boxes: { x: number; y: number; w: number; h: number }[]) =>
+    boxes.map((b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 }))
 
-  it('spreads round-table seats clockwise from the top', () => {
-    const [top, right, bottom, left] = seatPlan
-      .tableSeatsOf({ ...base, shape: 'round', seats: seats(4) })
-      .map((s) => s.center)
+  it('spreads round-table seats clockwise from the top, facing the table', () => {
+    const boxes = layout.around({ table, shape: 'ellipse', count: 4, size: 40 })
     // radius 50 + half a seat 20 + gap 6 = 76 from the centre (150, 150)
-    expect(top).toEqual({ x: close(150), y: close(74) })
-    expect(right).toEqual({ x: close(226), y: close(150) })
-    expect(bottom).toEqual({ x: close(150), y: close(226) })
-    expect(left).toEqual({ x: close(74), y: close(150) })
+    expect(centers(boxes)).toEqual([
+      { x: 150, y: 74 },
+      { x: 226, y: 150 },
+      { x: 150, y: 226 },
+      { x: 74, y: 150 },
+    ])
+    expect(boxes.map((b) => b.rotation ?? 0)).toEqual([0, 90, 180, 270])
   })
 
   it('splits rectangular-table seats over the long sides, the first side taking the odd one', () => {
-    const centers = seatPlan.tableSeatsOf({ ...base, w: 200, shape: 'rect', seats: seats(3) }).map((s) => s.center)
-    expect(centers.slice(0, 2).every((c) => c.y === 74)).toBe(true)
-    expect(centers[2]).toEqual({ x: 200, y: 226 })
+    const seats = centers(layout.around({ table: { ...table, w: 200 }, shape: 'rect', count: 3, size: 40 }))
+    expect(seats.slice(0, 2).every((c) => c.y === 74)).toBe(true)
+    expect(seats[2]).toEqual({ x: 200, y: 226 })
+  })
+
+  it('turns the seats with a turned table', () => {
+    const [top] = layout.around({ table: { ...table, rotation: 90 }, shape: 'ellipse', count: 4, size: 40 })
+    // The top seat of a table turned a quarter clockwise sits on its right.
+    expect(centers([top!])[0]).toEqual({ x: 226, y: 150 })
+    expect(top!.rotation).toBe(90)
   })
 })
 
-describe('seatPlan.placesOf', () => {
-  const table: Table<S> = {
-    kind: 'table',
-    id: 'T',
-    section: 'B',
-    shape: 'round',
-    x: 700,
-    y: 300,
-    w: 80,
-    h: 80,
-    seatSize: 30,
-    seats: [{ id: 'B10' }, { id: 'B11', label: 'Window' }],
-  }
-
-  it('flattens every bookable unit and skips fixtures', () => {
-    const places = seatPlan.placesOf(planOf([fixture('wall-1', 'wall', 0, 0, 23, 184), desk('A1', 'A', 20, 20), table]))
-    expect(places.map((p) => [p.id, p.kind, p.parent?.index])).toEqual([
-      ['A1', 'desk', undefined],
-      ['B10', 'table-seat', 0],
-      ['B11', 'table-seat', 1],
-    ])
-    expect(places[2]!.label).toBe('Window')
-    expect(places[0]!.label).toBe('A1')
+describe('turned shapes', () => {
+  it('bounds a turned rectangle by its corners and a turned ellipse exactly', () => {
+    const square = place('A1', 'A', 100, 100, { w: 100, h: 100, rotation: 45 })
+    const half = 50 * Math.SQRT2
+    expect(seatPlan.boundsOf(square)).toEqual({
+      x: close(150 - half),
+      y: close(150 - half),
+      w: close(2 * half),
+      h: close(2 * half),
+    })
+    const ellipse = place('A2', 'A', 0, 0, { w: 200, h: 100, shape: 'ellipse', rotation: 90 })
+    expect(seatPlan.boundsOf(ellipse)).toEqual({ x: close(50), y: close(-50), w: close(100), h: close(200) })
   })
 
-  it('books a whole table as one place holding all its seats', () => {
-    const [place] = seatPlan.placesOf(planOf([{ ...table, wholeBooking: true }]))
-    expect(place).toMatchObject({ id: 'T', kind: 'table', capacity: 2, shape: 'ellipse' })
+  it('tests points on the turned shape, not its unturned box', () => {
+    const bar = place('A1', 'A', 0, 90, { w: 200, h: 20, rotation: 90 })
+    expect(seatPlan.contains(bar, { x: 100, y: 10 })).toBe(true)
+    expect(seatPlan.contains(bar, { x: 10, y: 100 })).toBe(false)
+  })
+
+  it('lets places touch, and up to OVERLAP_TOLERANCE cross, without overlapping', () => {
+    const a = place('A1', 'A', 0, 0, { w: 40, h: 40, shape: 'ellipse' })
+    expect(seatPlan.overlaps(a, place('A2', 'A', 40, 0, { w: 40, h: 40, shape: 'ellipse' }))).toBe(false)
+    expect(seatPlan.overlaps(a, place('A2', 'A', 39, 0, { w: 40, h: 40, shape: 'ellipse' }))).toBe(false)
+    expect(seatPlan.overlaps(a, place('A2', 'A', 36, 0, { w: 40, h: 40, shape: 'ellipse' }))).toBe(true)
+  })
+
+  it('finds overlaps a turned place makes that its unturned box would not', () => {
+    const bar = place('A1', 'A', 100, 190, { w: 200, h: 20 })
+    const below = place('A2', 'A', 180, 220)
+    expect(seatPlan.overlaps(bar, below)).toBe(false)
+    expect(seatPlan.overlaps({ ...bar, rotation: 90 }, below)).toBe(true)
+  })
+
+  it('reports only places in conflict — fixtures may overlap anything', () => {
+    const plan = planOf([
+      place('A1', 'A', 20, 20),
+      place('A2', 'A', 60, 20),
+      fixture('chair', 30, 30, 20, 20),
+      place('A3', 'A', 300, 20),
+    ])
+    expect(seatPlan.conflictsOf(plan)).toEqual([['A1', 'A2']])
   })
 })
 
@@ -197,7 +232,7 @@ describe('sections', () => {
 })
 
 describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () => {
-  const plan = planOf([desk('A1', 'A', 20, 20), desk('B1', 'B', 520, 20), desk('B2', 'B', 620, 100)])
+  const plan = planOf([place('A1', 'A', 20, 20), place('B1', 'B', 520, 20), place('B2', 'B', 620, 100)])
 
   it('holds only that section and its objects', () => {
     const cropped = seatPlan.sectionPlanOf(plan, 'B')!
@@ -208,7 +243,7 @@ describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () =
   it('translates coordinates while keeping geometry relative to the section', () => {
     const cropped = seatPlan.sectionPlanOf(plan, 'B')!
     const corner = cropped.sections[0]!.points[0]!
-    const b1 = cropped.objects.find((o) => o.id === 'B1') as Desk<S>
+    const b1 = cropped.objects.find((o) => o.id === 'B1')!
     expect(b1.x - corner.x).toBe(20)
     expect(b1.y - corner.y).toBe(20)
     expect(corner.x).toBeGreaterThanOrEqual(0)
@@ -232,7 +267,7 @@ describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () =
   })
 
   it('uses the outline as the bound for an empty section', () => {
-    const cropped = seatPlan.sectionPlanOf(planOf([desk('A1', 'A', 20, 20)]), 'B')!
+    const cropped = seatPlan.sectionPlanOf(planOf([place('A1', 'A', 20, 20)]), 'B')!
     expect(cropped.objects).toHaveLength(0)
     const box = seatPlan.sectionBoundsOf(cropped.sections[0]!)
     expect(box.x).toBeGreaterThanOrEqual(0)
@@ -240,13 +275,28 @@ describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () =
     expect(box.y + box.h).toBeLessThanOrEqual(cropped.height)
   })
 
-  it('assigns fixtures to the section holding their centre and keeps them whole', () => {
-    const withTv = planOf([desk('B1', 'B', 520, 20), fixture('tv-1', 'tv', 954, 100, 23, 300)])
+  it('assigns loose fixtures to the section holding their centre and keeps them whole', () => {
+    const withTv = planOf([place('B1', 'B', 520, 20), fixture('tv-1', 954, 100, 23, 300)])
     expect(seatPlan.sectionPlanOf(withTv, 'A')!.objects).toHaveLength(0)
     const cropped = seatPlan.sectionPlanOf(withTv, 'B')!
-    const [b1, tv] = cropped.objects as [Desk<S>, Fixture]
+    const [b1, tv] = cropped.objects as [Place<S>, Fixture]
     expect(tv.x + tv.w).toBeLessThanOrEqual(cropped.width)
     expect({ dx: tv.x - b1.x, dy: tv.y - b1.y }).toEqual({ dx: 954 - 520, dy: 100 - 20 })
+  })
+
+  it('keeps a group together — its fixtures and labels follow its places, wherever their centre lies', () => {
+    const grouped = planOf(
+      [
+        place('B1', 'B', 520, 20, { group: 'T' }),
+        fixture('top', 440, 20, 60, 60, { group: 'T' }),
+        { kind: 'label', id: 'T-l', group: 'T', x: 420, y: 100, w: 40, h: 40 },
+      ],
+      [{ id: 'T' }, { id: 'unused' }],
+    )
+    expect(seatPlan.sectionPlanOf(grouped, 'A')!.objects).toHaveLength(0)
+    const cropped = seatPlan.sectionPlanOf(grouped, 'B')!
+    expect(cropped.objects.map((o) => o.id)).toEqual(['B1', 'top', 'T-l'])
+    expect(cropped.groups).toEqual([{ id: 'T' }])
   })
 
   it('returns null for a missing section', () => {
@@ -255,20 +305,9 @@ describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () =
 
   it('pads every crop to the widest one in GRID_CELL steps', () => {
     const crops = seatPlan.sectionPlansOf(
-      planOf([desk('A1', 'A', 20, 20), desk('B1', 'B', 520, 20), desk('B2', 'B', 900, 20)]),
+      planOf([place('A1', 'A', 20, 20), place('B1', 'B', 520, 20), place('B2', 'B', 900, 20)]),
     )
     expect(crops.map((c) => c.id)).toEqual(['A', 'B'])
     expect(new Set(crops.map((c) => c.plan.width)).size).toBe(1)
-  })
-})
-
-describe('free spots', () => {
-  it('finds the first free desk cell inside the section, skipping taken ones', () => {
-    const plan = planOf([desk('A1', 'A', 2, 2, 88)])
-    expect(seatPlan.findFreeDeskPos(plan, 'A')).toEqual({ x: 94, y: 2 })
-  })
-
-  it('returns null for a section that does not exist', () => {
-    expect(seatPlan.findFreeDeskPos({ ...planOf([]), sections: [] }, 'A')).toBeNull()
   })
 })

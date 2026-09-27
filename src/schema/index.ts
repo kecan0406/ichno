@@ -1,8 +1,7 @@
 import { z } from 'zod'
-import { MIN_SEAT_SIZE, OBJECT_ID_MAX, PLACE_ID_MAX, seatPlan } from '../core/geometry'
-import { HALF_CELL } from '../core/grid'
-import { AREA_SHAPES, SEAT_CHAIR_SIDES, TABLE_SHAPES, type PlanRect } from '../core/types'
-import { upgradeSeatPlan } from '../core/v1'
+import { OBJECT_ID_MAX, PLACE_ID_MAX, seatPlan } from '../core/geometry'
+import { upgradeV1, upgradeV2, type SeatPlanV2 } from '../core/legacy'
+import { SHAPES, type PlanRect } from '../core/types'
 
 // Document validation — a separate entry so zod stays out of bundles that only draw.
 // It refuses what would corrupt a stored document (broken references, ids that collide, geometry that cannot be
@@ -13,9 +12,9 @@ export type SeatPlanIssue =
   | { code: 'duplicate_category'; key: string }
   | { code: 'duplicate_id'; id: string }
   | { code: 'unknown_category'; id: string; category: string }
+  | { code: 'unknown_group'; id: string; group: string }
   | { code: 'out_of_bounds'; id: string }
   | { code: 'overlap'; ids: [string, string] }
-  | { code: 'fixture_overlap'; fixtureId: string; role: string; id: string }
 
 // Plan-level rule violations carry this prefix as their message and the structured issue in `params`.
 // The library ships no copy — turn issues into text with `seatPlanIssueOf`. Field-level failures (types,
@@ -26,85 +25,62 @@ const LABEL_MAX = 32
 
 // Build the schemas for your section composition. Section ids are fixed per app: the plan holds each of these
 // at most once, and every place belongs to one of them.
-// Documents saved by ichno 0.1 (no `version`, rooms under `zones`) are upgraded while parsing: a broken v1
-// structure is reported on v1 paths, anything else on the upgraded document's paths.
+// Documents saved by earlier versions are upgraded while parsing — ichno 0.1 (no `version`, rooms under `zones`)
+// and 0.2 (`version: 2`, built-in object kinds). A broken old structure is reported on its own paths, anything
+// else on the upgraded document's paths.
 export function createSeatPlanSchema<const S extends readonly [string, ...string[]]>(options: { sectionIds: S }) {
   const SectionId = z.enum(options.sectionIds)
 
   const Point = z.object({ x: z.int(), y: z.int() })
-  // Integer rectangle in plan units — renderers fit-scale it to their container.
-  const Box = z.object({ x: z.int(), y: z.int(), w: z.int().positive(), h: z.int().positive() })
+  const Rotation = z.number().min(0).lt(360).optional()
+  // Integer rectangle in plan units — renderers fit-scale it to their container. `rotation` turns it clockwise
+  // about its centre, in degrees.
+  const Box = z.object({
+    x: z.int(),
+    y: z.int(),
+    w: z.int().positive(),
+    h: z.int().positive(),
+    rotation: Rotation,
+  })
 
-  const PlaceId = z.string().trim().min(1).max(PLACE_ID_MAX)
   const ObjectId = z.string().trim().min(1).max(OBJECT_ID_MAX)
-  const Bookable = {
-    id: PlaceId,
-    label: z.string().trim().min(1).max(LABEL_MAX).optional(),
-    category: z.string().min(1).optional(),
-    tags: z.array(z.string().min(1)).optional(),
-  }
-  const Seat = z.object(Bookable)
+  const Role = z.string().trim().min(1).max(OBJECT_ID_MAX)
+  const Label = z.string().trim().min(1).max(LABEL_MAX)
 
   const Section = z.object({ id: SectionId, points: z.array(Point).min(3) })
   const Category = z.object({ key: z.string().trim().min(1).max(OBJECT_ID_MAX), accessible: z.boolean().optional() })
+  const Group = z.object({ id: ObjectId, label: Label.optional(), role: Role.optional(), rotation: Rotation })
 
-  const Desk = z.object({
-    kind: z.literal('desk'),
-    ...Bookable,
+  const Place = Box.extend({
+    kind: z.literal('place'),
+    id: z.string().trim().min(1).max(PLACE_ID_MAX),
     section: SectionId,
-    x: z.int(),
-    y: z.int(),
-    w: z.int().min(MIN_SEAT_SIZE),
-    h: z.int().min(MIN_SEAT_SIZE),
-    chairSide: z.enum(SEAT_CHAIR_SIDES),
+    shape: z.enum(SHAPES),
+    capacity: z.int().positive().default(1),
+    label: Label.optional(),
+    group: ObjectId.optional(),
+    role: Role.optional(),
+    category: z.string().min(1).optional(),
+    tags: z.array(z.string().min(1)).optional(),
   })
-  const Row = z.object({
-    kind: z.literal('row'),
-    id: ObjectId,
-    section: SectionId,
-    label: Bookable.label,
-    start: Point,
-    end: Point,
-    curve: z.number().min(-1).max(1),
-    seatSize: z.int().positive(),
-    seats: z.array(Seat).min(1),
-  })
-  const Table = Box.extend({
-    kind: z.literal('table'),
-    ...Bookable,
-    section: SectionId,
-    shape: z.enum(TABLE_SHAPES),
-    seatSize: z.int().positive(),
-    seats: z.array(Seat).min(1),
-    wholeBooking: z.boolean().optional(),
-  })
-  const Booth = Box.extend({ kind: z.literal('booth'), ...Bookable, section: SectionId })
-  const Area = Box.extend({
-    kind: z.literal('area'),
-    ...Bookable,
-    section: SectionId,
-    shape: z.enum(AREA_SHAPES),
-    capacity: z.int().positive(),
-    wholeBooking: z.boolean().optional(),
-  })
-  const Fixture = z.object({
+  const Fixture = Box.extend({
     kind: z.literal('fixture'),
     id: ObjectId,
-    role: z.string().trim().min(1).max(OBJECT_ID_MAX),
-    x: z.int(),
-    y: z.int(),
-    w: z.int().min(HALF_CELL),
-    h: z.int().min(HALF_CELL),
+    shape: z.enum(SHAPES),
+    group: ObjectId.optional(),
+    role: Role.optional(),
   })
-  const PlanObject = z.discriminatedUnion('kind', [Desk, Row, Table, Booth, Area, Fixture])
+  const GroupLabel = Box.extend({ kind: z.literal('label'), id: ObjectId, group: ObjectId })
+  const PlanObject = z.discriminatedUnion('kind', [Place, Fixture, GroupLabel])
 
   const Document = z
     .object({
-      version: z.literal(2),
+      version: z.literal(3),
       width: z.int().positive(),
       height: z.int().positive(),
       sections: z.array(Section),
       categories: z.array(Category).default([]),
+      groups: z.array(Group).default([]),
       objects: z.array(PlanObject),
     })
     .superRefine((plan, ctx) => {
@@ -125,44 +101,94 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
         categoryKeys.add(category.key)
       }
 
+      // Objects and groups share one id namespace.
       const ids = new Set<string>()
       const claim = (path: (string | number)[], id: string) => {
         if (ids.has(id)) report(path, { code: 'duplicate_id', id })
         ids.add(id)
       }
-      const checkCategory = (path: (string | number)[], id: string, category: string | undefined) => {
-        if (category !== undefined && !categoryKeys.has(category))
-          report(path, { code: 'unknown_category', id, category })
-      }
+      for (const [i, group] of plan.groups.entries()) claim(['groups', i, 'id'], group.id)
+      const groupIds = new Set(plan.groups.map((group) => group.id))
 
       for (const [i, object] of plan.objects.entries()) {
         const path = ['objects', i]
         claim([...path, 'id'], object.id)
-        if (object.kind !== 'row' && object.kind !== 'fixture') checkCategory(path, object.id, object.category)
-        if (object.kind === 'row' || object.kind === 'table') {
-          for (const [j, seat] of object.seats.entries()) {
-            claim([...path, 'seats', j, 'id'], seat.id)
-            checkCategory([...path, 'seats', j], seat.id, seat.category)
-          }
-        }
-        if (!inside(seatPlan.boundsOf(object), plan)) report(path, { code: 'out_of_bounds', id: object.id })
+        if (object.group !== undefined && !groupIds.has(object.group))
+          report([...path, 'group'], { code: 'unknown_group', id: object.id, group: object.group })
+        if (object.kind === 'place' && object.category !== undefined && !categoryKeys.has(object.category))
+          report([...path, 'category'], { code: 'unknown_category', id: object.id, category: object.category })
+        // A group label may sit in the margin beside its row; everything else stays on the plan.
+        if (object.kind !== 'label' && !inside(seatPlan.boundsOf(object), plan))
+          report(path, { code: 'out_of_bounds', id: object.id })
       }
 
-      // Footprints may touch but not overlap; a fixture on a place is a placement mistake, while fixtures may
-      // overlap each other (a TV hung on a wall). The editor marks the same conflicts (seatPlan.conflictsOf).
+      // Places may touch but not overlap; fixtures and labels may overlap anything. The editor marks the same
+      // conflicts (seatPlan.conflictsOf).
       const indexOf = new Map(plan.objects.map((object, i) => [object.id, i]))
-      const conflicts = seatPlan.conflictsOf(plan)
-      for (const [a, b] of conflicts.overlaps) report(['objects', indexOf.get(b)!], { code: 'overlap', ids: [a, b] })
-      for (const hit of conflicts.fixtures) {
-        report(['objects', indexOf.get(hit.fixtureId)!], { code: 'fixture_overlap', ...hit })
-      }
+      for (const [a, b] of seatPlan.conflictsOf(plan))
+        report(['objects', indexOf.get(b)!], { code: 'overlap', ids: [a, b] })
     })
+
+  // The 0.2 document — only the structure the upgrade reads; the rules run on the upgraded document.
+  const Bookable = {
+    id: z.string(),
+    label: z.string().optional(),
+    category: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+  }
+  const Rect = { x: z.number(), y: z.number(), w: z.number(), h: z.number() }
+  const PointV2 = z.object({ x: z.number(), y: z.number() })
+  const ChairSide = z.enum(['up', 'right', 'down', 'left'])
+  const DocumentV2 = z.object({
+    version: z.literal(2),
+    width: z.unknown(),
+    height: z.unknown(),
+    sections: z.array(z.object({ id: SectionId, points: z.array(PointV2) })),
+    categories: z.array(Category).default([]),
+    objects: z.array(
+      z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('desk'), ...Bookable, ...Rect, section: SectionId, chairSide: ChairSide }),
+        z.object({
+          kind: z.literal('row'),
+          id: z.string(),
+          section: SectionId,
+          label: z.string().optional(),
+          start: PointV2,
+          end: PointV2,
+          curve: z.number(),
+          seatSize: z.number().positive(),
+          seats: z.array(z.object(Bookable)),
+        }),
+        z.object({
+          kind: z.literal('table'),
+          ...Bookable,
+          ...Rect,
+          section: SectionId,
+          shape: z.enum(['round', 'rect']),
+          seatSize: z.number().positive(),
+          seats: z.array(z.object(Bookable)),
+          wholeBooking: z.boolean().optional(),
+        }),
+        z.object({ kind: z.literal('booth'), ...Bookable, ...Rect, section: SectionId }),
+        z.object({
+          kind: z.literal('area'),
+          ...Bookable,
+          ...Rect,
+          section: SectionId,
+          shape: z.enum(['rect', 'ellipse']),
+          capacity: z.number(),
+          wholeBooking: z.boolean().optional(),
+        }),
+        z.object({ kind: z.literal('fixture'), id: z.string(), role: z.string(), ...Rect }),
+      ]),
+    ),
+  })
 
   // The 0.1 document — rooms and desk seats. Missing chair sides and fixtures are the defaults 0.1 applied.
   const DocumentV1 = z.object({
     width: z.unknown(),
     height: z.unknown(),
-    zones: z.array(Box.extend({ id: SectionId })),
+    zones: z.array(z.object({ ...Rect, id: SectionId })),
     seats: z.array(
       z.object({
         id: z.unknown(),
@@ -171,7 +197,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
         y: z.unknown(),
         w: z.unknown(),
         h: z.unknown(),
-        chairSide: z.enum(SEAT_CHAIR_SIDES).default('down'),
+        chairSide: ChairSide.default('down'),
       }),
     ),
     fixtures: z
@@ -189,17 +215,28 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
   })
 
   const SeatPlan = z.preprocess((input, ctx) => {
-    if (typeof input !== 'object' || input === null || 'version' in input) return input
-    const v1 = DocumentV1.safeParse(input)
-    if (!v1.success) {
-      for (const issue of v1.error.issues) ctx.addIssue({ ...issue, input: undefined })
+    if (typeof input !== 'object' || input === null) return input
+    const version = 'version' in input ? input.version : undefined
+    if (version !== undefined && version !== 2) return input
+    let v2: unknown = input
+    if (version === undefined) {
+      const v1 = DocumentV1.safeParse(input)
+      if (!v1.success) {
+        for (const issue of v1.error.issues) ctx.addIssue({ ...issue, input: undefined })
+        return z.NEVER
+      }
+      v2 = upgradeV1(v1.data as Parameters<typeof upgradeV1>[0])
+    }
+    const parsed = DocumentV2.safeParse(v2)
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, input: undefined })
       return z.NEVER
     }
-    // Field types are checked by the v2 schema after the upgrade; the upgrade only reshapes.
-    return upgradeSeatPlan(v1.data as Parameters<typeof upgradeSeatPlan>[0])
+    // Field types (whole numbers, id lengths) are checked by the current schema after the upgrade.
+    return upgradeV2(parsed.data as SeatPlanV2)
   }, Document)
 
-  return { SeatPlan, Section, Category, PlanObject, Desk, Row, Table, Booth, Area, Fixture }
+  return { SeatPlan, Section, Category, Group, PlanObject, Place, Fixture, GroupLabel }
 }
 
 // The structured issue behind a plan-level violation, or null for any other zod issue.
@@ -208,6 +245,8 @@ export function seatPlanIssueOf(issue: z.core.$ZodIssue): SeatPlanIssue | null {
   return (issue.params as SeatPlanIssue | undefined) ?? null
 }
 
+// Turned shapes have fractional bounds; a hair of float error at the edge is still inside.
 function inside(rect: PlanRect, plan: { width: number; height: number }) {
-  return rect.x >= 0 && rect.y >= 0 && rect.x + rect.w <= plan.width && rect.y + rect.h <= plan.height
+  const eps = 1e-6
+  return rect.x >= -eps && rect.y >= -eps && rect.x + rect.w <= plan.width + eps && rect.y + rect.h <= plan.height + eps
 }

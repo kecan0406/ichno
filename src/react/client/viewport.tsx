@@ -122,6 +122,7 @@ export function Viewport<S extends string>({
   const [activeId, setActiveId] = useState<string | null>(null)
   const [keyboardFocus, setKeyboardFocus] = useState(false)
   const places = seatPlan.placesOf(plan)
+  const navigation = places.map((place) => ({ id: place.id, center: seatPlan.centerOf(place) }))
   const active = activeId === null ? undefined : places.find((place) => place.id === activeId)
 
   function changeView(next: PlanView) {
@@ -314,8 +315,8 @@ export function Viewport<S extends string>({
       setKeyboardFocus(true)
       const next =
         activeId === null
-          ? placeNavigation.first(places)
-          : (placeNavigation.next(places, activeId, direction) ?? activeId)
+          ? placeNavigation.first(navigation)
+          : (placeNavigation.next(navigation, activeId, direction) ?? activeId)
       if (next !== null) {
         setActiveId(next)
         revealPlace(next)
@@ -324,10 +325,7 @@ export function Viewport<S extends string>({
     }
     if ((e.key === 'Enter' || e.key === ' ') && active) {
       e.preventDefault()
-      onTap?.(
-        { kind: 'place', id: active.id, objectId: active.parent?.id ?? active.id },
-        { point: active.center, additive: e.shiftKey },
-      )
+      onTap?.({ kind: 'place', id: active.id }, { point: seatPlan.centerOf(active), additive: e.shiftKey })
       onPlaceClick?.(active)
     }
   }
@@ -337,9 +335,10 @@ export function Viewport<S extends string>({
     const place = placeById(id)
     const box = viewRef.current
     if (!place) return
-    const b = place.bounds
+    const b = seatPlan.boundsOf(place)
     if (b.x >= box.x && b.y >= box.y && b.x + b.w <= box.x + box.w && b.y + b.h <= box.y + box.h) return
-    changeView({ ...box, x: place.center.x - box.w / 2, y: place.center.y - box.h / 2 })
+    const center = seatPlan.centerOf(place)
+    changeView({ ...box, x: center.x - box.w / 2, y: center.y - box.h / 2 })
   }
 
   // Wheel zoom needs a non-passive listener to stop the page from scrolling; React's wheel handler is passive.
@@ -405,7 +404,7 @@ export function Viewport<S extends string>({
     svg.setAttribute('aria-activedescendant', element.id)
   }, [activeId, idPrefix])
 
-  const ring = active && keyboardFocus ? active.bounds : null
+  const ring = active && keyboardFocus ? active : null
   const gestures = pannable || zoomable
 
   return (
@@ -432,7 +431,7 @@ export function Viewport<S extends string>({
       onPointerLeave={handlePointerLeave}
       onKeyDown={handleKeyDown}
       onFocus={(e) => {
-        if (activeId === null && e.target === e.currentTarget) setActiveId(placeNavigation.first(places))
+        if (activeId === null && e.target === e.currentTarget) setActiveId(placeNavigation.first(navigation))
         onFocus?.(e)
       }}
       onBlur={(e) => {
@@ -445,6 +444,10 @@ export function Viewport<S extends string>({
       {ring && (
         <rect
           data-part="focus-ring"
+          // Turned with the place, so the ring hugs it.
+          transform={
+            ring.rotation ? `rotate(${ring.rotation} ${ring.x + ring.w / 2} ${ring.y + ring.h / 2})` : undefined
+          }
           x={ring.x - FOCUS_RING_GAP}
           y={ring.y - FOCUS_RING_GAP}
           width={ring.w + FOCUS_RING_GAP * 2}
@@ -461,23 +464,21 @@ export function Viewport<S extends string>({
   )
 }
 
-// The place, object or section an element belongs to — the nearest part with an ichno data attribute.
+// The handle, place, object or section an element belongs to — the nearest part with an ichno data attribute.
 function targetOf<S extends string>(element: EventTarget | null): PlanTarget<S> | null {
   if (!(element instanceof Element)) return null
   const handle = element.closest('[data-ichno-handle]')
   if (handle) {
     const id = handle.getAttribute('data-ichno-owner')!
+    const kind = handle.getAttribute('data-ichno-owner-kind')
     const owner =
-      handle.getAttribute('data-ichno-owner-kind') === 'section'
+      kind === 'section'
         ? { kind: 'section' as const, id: id as S }
-        : { kind: 'object' as const, id }
+        : { kind: kind === 'group' ? ('group' as const) : ('object' as const), id }
     return { kind: 'handle', owner, name: handle.getAttribute('data-ichno-handle')! }
   }
   const place = element.closest('[data-ichno-id]')
-  if (place) {
-    const id = place.getAttribute('data-ichno-id')!
-    return { kind: 'place', id, objectId: place.getAttribute('data-ichno-object') ?? id }
-  }
+  if (place) return { kind: 'place', id: place.getAttribute('data-ichno-id')! }
   const object = element.closest('[data-ichno-object]')
   if (object) return { kind: 'object', id: object.getAttribute('data-ichno-object')! }
   const section = element.closest('[data-ichno-section]')

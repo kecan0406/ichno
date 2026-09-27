@@ -265,10 +265,7 @@
   cursor: default;
 }
 
-.canvas[data-tool='row'] .viewport,
-.canvas[data-tool='table'] .viewport,
-.canvas[data-tool='booth'] .viewport,
-.canvas[data-tool='area'] .viewport {
+.canvas:not([data-tool='select']) .viewport {
   cursor: crosshair;
 }
 
@@ -285,7 +282,7 @@
   stroke-dasharray: 4 3;
 }
 
-.canvas [data-ichno-id]:not([data-selected]):not([data-disabled]) :is([data-part='shape'], [data-part='chair']) {
+.canvas [data-ichno-id]:not([data-selected]):not([data-disabled]) [data-part='shape'] {
   fill: color-mix(in srgb, var(--cat, transparent) 14%, var(--ichno-surface));
 }
 

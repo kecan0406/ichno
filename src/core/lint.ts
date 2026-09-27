@@ -39,14 +39,17 @@ export function lintSeatPlan(
 
   if (levels.duplicate_label !== 'off') {
     const byLabel = new Map<string, string[]>()
-    for (const place of places) byLabel.set(place.label, [...(byLabel.get(place.label) ?? []), place.id])
+    for (const place of places) {
+      const label = place.label ?? place.id
+      byLabel.set(label, [...(byLabel.get(label) ?? []), place.id])
+    }
     for (const [label, ids] of byLabel) if (ids.length > 1) issues.push({ code: 'duplicate_label', label, ids })
   }
 
   if (levels.outside_section !== 'off') {
     for (const place of places) {
       const section = seatPlan.sectionOf(plan, place.section)
-      if (section && !polygonContains(section.points, place.center)) {
+      if (section && !polygonContains(section.points, seatPlan.centerOf(place))) {
         issues.push({ code: 'outside_section', id: place.id, section: place.section })
       }
     }

@@ -4,6 +4,52 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+Breaking — document version 3: primitives instead of built-in object kinds (see `docs/direction.md`).
+
+- `ichno`: document v3 — `objects` hold `place`s (anything bookable, with `shape`, `capacity` and an optional
+  `rotation`), `fixture`s (anything else) and `label`s (where a group's label is written), and the new `groups` list
+  names sets of objects (a row, a table with its chairs, a desk with its chair). A group's optional `rotation` is
+  the way it faces. Desk, row, table, booth and area are
+  no longer kinds; they are the consumer's `role` words. Places are stored with their own boxes — a row keeps its
+  seats' positions, not its layout. Coordinates stay whole plan units; any object can be turned about its centre.
+- `ichno`: `upgradeSeatPlan` now takes 0.1 and 0.2 documents and returns v3, keeping every place id and position:
+  a desk becomes its top (the place) and its chair (a fixture) in a group; a row becomes a group of seat places plus a
+  label at each end when it had a label; a table becomes a group of its top and seats (booked whole, the top is the
+  place and the seats are chairs); booths and areas become places; seats a 0.2 row or table crowded together shrink
+  about their centres until they only touch. An area's `wholeBooking` is dropped — whether one booking takes a whole
+  place is the consumer's rule.
+- `ichno`: `layout.line`, `layout.arc`, `layout.around`, `layout.grid` and `layout.curveOf` compute seat boxes for
+  rows, tables and blocks; `TABLE_SEAT_GAP` moved here.
+- `ichno`: `seatPlan` works on turned shapes — `boundsOf`, `contains`, `overlaps` (with `OVERLAP_TOLERANCE`),
+  `outlineOf`, `centerOf`, `extentOf`, `frameOf` (the box around objects in a given direction), `groupById`,
+  `membersOf`. `PlanHandle` carries the turned `angle` of a corner. `conflictsOf` returns overlapping place pairs.
+  Removed: `rowSeatsOf`, `rowApexOf`, `rowLabelAnchorsOf`, `tableSeatsOf`, `furnitureOf`, `footprintOf`,
+  `footprintsOf`, `nextChairSide`, `findFreeDeskPos`, `findFreeFixturePos`, `translate` for rows, and the whole
+  `seatGrid` namespace with `HALF_CELL`, `DEFAULT_SEAT_CELLS` and `MIN_SEAT_SIZE`. `GRID_CELL` stays as the editor's
+  default cell. Removed types: `Desk`, `Row`, `RowSeat`, `Table`, `TableSeat`, `Booth`, `Area`, `PlaceKind`,
+  `SeatChairSide`, `TableShape`, `AreaShape` (and their constant lists); `Place` is now the document object, and
+  `Group`, `GroupLabel`, `PlanBox`, `Shape`, `SeatPlanV2` are new.
+- `ichno`: `validateSelection` reads lines from groups — a group's places in document order — instead of rows; a
+  group with one place forms no line.
+- `ichno/schema`: validates v3 and upgrades 0.2 documents while parsing. New issue code `unknown_group`;
+  `fixture_overlap` is gone — fixtures may overlap anything, and `overlap` is between places only, on their turned
+  shapes. Group labels may sit outside the plan. The 46-unit grid is no longer checked.
+- `ichno/react`: parts draw turned boxes (labels stay level) and expose `data-role`, `data-group` and `data-shape`.
+  `SeatMap.Label` draws a group's label; `SeatMap.Content` takes `groupLabel`. Removed: `SeatMap.Table`,
+  `SeatMap.RowLabel`, `data-chair-side` and the `chair`, `top` and `row-label` parts. `SeatMap.Grid` takes `cell`.
+  `PlanTarget` for a place no longer carries `objectId`.
+- `ichno/editor`: selection holds objects, groups and sections — tapping a grouped object selects its group, tapping
+  again the object. Operations take object and group ids alike. New: `addPlaces`, `addFixtures`, `addLabels`,
+  `layoutGroup`, `arrange`, `convert`, `groupSelected`, `ungroup`, `label`, `rotateSelected(degrees)`,
+  `moveSelected`, `updateGroup`, `edit` (compose operations into one undo step), a rotation knob on objects and
+  groups, and the `snap` option (off by default). A group turns about the centre of its frame and keeps facing
+  the way it was turned, so its centre stays put turn after turn; several selected items turn together about the
+  middle of their centres. `frame` outlines the selected object or group; pass it to `SeatMap.Handles`, which
+  draws it with a stem to the knob and turns the corner cursors with the object. Removed: `addDesk`, `addFixture`, `addRow`, `addTable`, `addBooth`,
+  `addArea`, `setSeatCount`, `labelSeats`, `labelObjects`, `rotateDesk`, `moveObject`, `DEFAULT_*` sizes, row end and
+  curve handles, and grid normalization on open. `isLocked` takes an id. Shortcuts: R / ⇧R turn the selection a
+  quarter, ⌘G groups.
+
 ## 0.2.1 — 2026-09-25
 
 - `ichno/react`: seat, row label, whole-table chair and handle coordinates are printed rounded to hundredths.

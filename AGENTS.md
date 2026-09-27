@@ -1,9 +1,9 @@
 # ichno — agent guide
 
-Seat plans for React: one JSON document (`SeatPlan`), a zod schema for it, geometry and rules, a
-renderer-independent interaction core, headless SVG components (server-safe parts plus a client viewport), and a
-headless editor hook. It is published to npm and consumed by apps that store the document in their own database —
-every rule below follows from that.
+Seat plans for React: one JSON document (`SeatPlan`) of primitives — places, fixtures, group labels and the groups
+they belong to — a zod schema for it, geometry, layouts and rules, a renderer-independent interaction core, headless
+SVG components (server-safe parts plus a client viewport), and a headless editor hook. It is published to npm and
+consumed by apps that store the document in their own database — every rule below follows from that.
 
 The long-term target (headless SVG primitives, a Seats.io-level document, no canvas dependency) and the decisions
 behind it are in [`docs/direction.md`](docs/direction.md). Read it before changing the document shape or a
@@ -29,7 +29,7 @@ them — a consumer importing the core must never pull in zod or React. No canva
 
 | Source             | Entry          | May import           | Notes                                                                                   |
 | ------------------ | -------------- | -------------------- | --------------------------------------------------------------------------------------- |
-| `src/core`         | `ichno`        | nothing external     | Types, grid, geometry, rules, view math, interaction core. Pure functions only.         |
+| `src/core`         | `ichno`        | nothing external     | Types, geometry, layouts, rules, view math, interaction core. Pure functions only.      |
 | `src/theme`        | `ichno`        | nothing external     | The CSS variable contract (`vars.ts`).                                                  |
 | `src/schema`       | `ichno/schema` | `zod`, core          | The only place zod is allowed.                                                          |
 | `src/react`        | `ichno/react`  | `react`, core, theme | Server-safe parts: no hooks, no state, no handlers, no `'use client'`. Not compiled.    |
@@ -46,7 +46,7 @@ Adding an entry point means three edits together: `entry` in `tsdown.config.ts`,
 section in `README.md`. Client directories must also be listed in the babel `include` of `tsdown.config.ts` **and** in
 `DIRS` of `scripts/check-compiler.mjs`.
 
-Namespaced exports follow one shape: the object (`seatPlan`, `seatGrid`) at the top of the file, its members as
+Namespaced exports follow one shape: the object (`seatPlan`, `layout`) at the top of the file, its members as
 `function` declarations below it (hoisting makes that work; `const` arrows would hit the TDZ). File-private helpers
 stay out of the object.
 
@@ -60,15 +60,19 @@ stay out of the object.
   `className` always wins. Never hard-code a colour in a part.
 - **Headless.** Parts expose state as `data-*` attributes and name their pieces with `data-part`; they never
   decide a meaning (a status is the consumer's word). The viewport delegates events through `data-ichno-*`.
-- **Sections are the consumer's.** Section ids flow through the `S` type parameter, fixture roles and category
-  keys are strings the consumer picks; never hard-code one.
+- **Sections are the consumer's.** Section ids flow through the `S` type parameter; roles and category keys are
+  strings the consumer picks; never hard-code one.
+- **Primitives, not kinds.** The document knows places, fixtures, group labels and groups. A row, a table, a desk
+  is the consumer's `role`; ichno never reads a role. A new way to arrange seats is a `layout`, not a new kind.
 - **Stored documents must keep parsing.** Plans live in consumers' databases for years.
   - A new document field needs a `.default(...)` or an optional type so documents saved before it still parse
-    (see `categories`). A reshaped document needs a new `version` and an upgrade (see `src/core/v1.ts`).
+    (see `categories`, `groups`). A reshaped document needs a new `version` and an upgrade (see
+    `src/core/legacy.ts`). An upgrade keeps every place id and position and should produce a document the current
+    rules accept; where it cannot, say so in `docs/direction.md`.
   - Do not tighten an existing validation rule in a non-breaking release.
   - Place `id` limits (1–8 chars) are referenced by consumers' records — treat them as fixed.
-  - Grid constants (`GRID_CELL` 46, the 2-unit desk inset, half-cell fixtures) and the row `curve` definition
-    define stored geometry. Changing them is a breaking change that needs a migration story.
+  - The rotation convention (degrees clockwise about the box centre, 0 ≤ r < 360), `OVERLAP_TOLERANCE` and the
+    `layout` curve definition shape stored geometry and what parses. Changing them is a breaking change.
 
 ## React Compiler
 
@@ -85,8 +89,8 @@ compiler expects:
 
 Tests pin decisions that must not change; they are not a deliverable per change.
 
-- Write them for pure branching: geometry, grid snapping, schema rules, edge cases (touching edges, empty sections,
-  legacy documents).
+- Write them for pure branching: geometry, turned shapes, layouts, snapping, schema rules, edge cases (touching
+  edges, empty sections, legacy documents).
 - For a bug, write the failing test first, then fix.
 - Do not test rendering output, prop forwarding or 1:1 mappings — typecheck and the compiler check cover wiring.
 - Refactors get no new tests; existing ones staying green is the verification.
@@ -95,7 +99,7 @@ Tests pin decisions that must not change; they are not a deliverable per change.
 
 Semver, pre-1.0: a breaking change bumps the minor (0.1 → 0.2), anything else bumps the patch. Breaking includes
 renaming or removing an export, a CSS variable or an issue code, changing a component prop, tightening validation,
-and changing grid constants.
+and changing the stored-geometry conventions above.
 
 Record every user-visible change under `## Unreleased` in `CHANGELOG.md` in the same commit. Releasing follows the
 `releasing-ichno` skill (`.claude/skills/releasing-ichno/SKILL.md`). Pushing a `v<version>` tag publishes it from

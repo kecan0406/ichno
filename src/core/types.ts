@@ -1,135 +1,100 @@
-// Seat plan document (version 2) — plain JSON, integer coordinates in plan units. It is stored by consumers for
-// years, so every change here needs a schema default or an upgrade path (see `./v1.ts`).
+// Seat plan document (version 3) — plain JSON, integer coordinates in plan units. It is stored by consumers for
+// years, so every change here needs a schema default or an upgrade path (see `./legacy.ts`).
 // `S` is the consumer's section id union (fixed per app, see `createSeatPlanSchema`).
+//
+// The document holds primitives only: what is where, and what can be booked. How a row or a table was laid out
+// is not stored — the editor's layouts create the places, and `role` carries the consumer's word for them.
 
-// The edge of a desk the chair sits on. Plan coordinates as-is (`up` = smaller y).
-export const SEAT_CHAIR_SIDES = ['up', 'right', 'down', 'left'] as const
-export type SeatChairSide = (typeof SEAT_CHAIR_SIDES)[number]
-
-export const OBJECT_KINDS = ['desk', 'row', 'table', 'booth', 'area', 'fixture'] as const
+export const OBJECT_KINDS = ['place', 'fixture', 'label'] as const
 export type ObjectKind = (typeof OBJECT_KINDS)[number]
 
-export const TABLE_SHAPES = ['round', 'rect'] as const
-export type TableShape = (typeof TABLE_SHAPES)[number]
-
-export const AREA_SHAPES = ['rect', 'ellipse'] as const
-export type AreaShape = (typeof AREA_SHAPES)[number]
+export const SHAPES = ['rect', 'ellipse'] as const
+export type Shape = (typeof SHAPES)[number]
 
 export type PlanRect = { x: number; y: number; w: number; h: number }
 export type PlanPoint = { x: number; y: number }
 export type PlanSize = { w: number; h: number }
 
+// A rectangle turned clockwise by `rotation` degrees (0 ≤ rotation < 360) about its centre — `x y w h` are the
+// unturned box, as SVG's `rotate(r, cx, cy)` reads them.
+export type PlanBox = PlanRect & { rotation?: number }
+
 // A section of the venue (a room, a block of the hall). Its composition is fixed by the consumer; the outline
-// is a polygon (a rectangle for plans upgraded from v1).
+// is a polygon.
 export type Section<S extends string = string> = { id: S; points: PlanPoint[] }
 
 // A class of places (price level, accessible seating, …). Only the key lives in the document — names, colours
 // and prices are the consumer's.
 export type Category = { key: string; accessible?: boolean }
 
-// What every bookable unit carries. `id` is the booking key other records reference (1–8 chars, stable);
-// `label` is what people read and may change freely (defaults to the id).
-type Bookable = { id: string; label?: string; category?: string; tags?: string[] }
+// A named set of objects — a row of seats, a table with its chairs, a desk with its chair. Objects point at it;
+// it moves, rotates and is selected as one. `label` is what people read ("Row A"), `role` the consumer's word.
+// `rotation` is the way the group faces (degrees clockwise, 0 ≤ rotation < 360): the group's frame — the box
+// around its members, level in that direction — turns with it, so the group keeps one centre however often it
+// is turned. It draws nothing itself.
+export type Group = { id: string; label?: string; role?: string; rotation?: number }
 
-// One person at a desk — ichno's own kind (v1 "seat"). Snaps to the 46-unit cell grid.
-export type Desk<S extends string = string> = PlanRect &
-  Bookable & { kind: 'desk'; section: S; chairSide: SeatChairSide }
-
-export type RowSeat = Bookable
-
-// A row of seats between two points. Seat positions are computed, never stored: seats are spread evenly along
-// the arc from `start` to `end`. `curve` bends the row: 0 is straight, ±1 a half circle, positive bows the
-// middle to the left of the start→end direction (up for a row drawn left to right).
-export type Row<S extends string = string> = {
-  kind: 'row'
+// Something that can be booked — a seat, a desk, a booth, a standing area, a whole table. `id` is the booking key
+// other records reference (1–8 chars, stable); `label` is what people read and may change freely (defaults to
+// the id). `capacity` is how many people it holds.
+export type Place<S extends string = string> = PlanBox & {
+  kind: 'place'
   id: string
   section: S
+  shape: Shape
+  capacity: number
   label?: string
-  start: PlanPoint
-  end: PlanPoint
-  curve: number
-  seatSize: number
-  seats: RowSeat[]
+  group?: string
+  role?: string
+  category?: string
+  tags?: string[]
 }
 
-export type TableSeat = Bookable
+// Something that cannot be booked (a wall, a stage, a table top, a chair) — a reading aid only; never counted as
+// capacity. `role` is the consumer's word for it.
+export type Fixture = PlanBox & { kind: 'fixture'; id: string; shape: Shape; group?: string; role?: string }
 
-// A table with seats around it. The rectangle is the table top; seats sit outside it. With `wholeBooking` the
-// table itself is the bookable unit (its id is the key) and its seats are drawn but not booked one by one.
-export type Table<S extends string = string> = PlanRect &
-  Bookable & {
-    kind: 'table'
-    section: S
-    shape: TableShape
-    seatSize: number
-    seats: TableSeat[]
-    wholeBooking?: boolean
-  }
+// Where a group's label is written — the text is the group's `label` (or its id), so renaming a row changes every
+// label that shows it.
+export type GroupLabel = PlanBox & { kind: 'label'; id: string; group: string }
 
-// A booth or stand — one bookable rectangle.
-export type Booth<S extends string = string> = PlanRect & Bookable & { kind: 'booth'; section: S }
-
-// A general-admission area — `capacity` places without assigned seats. With `wholeBooking` one booking takes
-// all of it.
-export type Area<S extends string = string> = PlanRect &
-  Bookable & { kind: 'area'; section: S; shape: AreaShape; capacity: number; wholeBooking?: boolean }
-
-// A non-bookable element (wall, TV, counter, stage, …) — a reading aid only; never counted as capacity. `role`
-// is the consumer's word for it (v1 kinds were `wall`, `tv`, `counter`).
-export type Fixture = PlanRect & { kind: 'fixture'; id: string; role: string }
-
-export type PlanObject<S extends string = string> = Desk<S> | Row<S> | Table<S> | Booth<S> | Area<S> | Fixture
+export type PlanObject<S extends string = string> = Place<S> | Fixture | GroupLabel
 
 export type SeatPlan<S extends string = string> = {
-  version: 2
+  version: 3
   width: number
   height: number
   sections: Section<S>[]
   categories: Category[]
+  groups: Group[]
   // Drawing order — later objects are drawn on top.
   objects: PlanObject<S>[]
-}
-
-// A bookable unit with its computed geometry — what renderers draw and pickers select. `seatPlan.placesOf`
-// flattens a plan into these.
-export type PlaceKind = 'desk' | 'row-seat' | 'table-seat' | 'table' | 'booth' | 'area'
-
-export type Place<S extends string = string> = {
-  id: string
-  kind: PlaceKind
-  section: S
-  // The label to draw — the object's label, or its id.
-  label: string
-  category?: string
-  tags: string[]
-  // The row or table a seat belongs to, and its position in it (row order, or clockwise around a table).
-  parent?: { id: string; kind: 'row' | 'table'; index: number }
-  center: PlanPoint
-  bounds: PlanRect
-  shape: 'rect' | 'circle' | 'ellipse'
-  // How many people one booking of this place seats (areas and whole tables hold more than one).
-  capacity: number
-  // Desk only — which edge the chair is on.
-  chairSide?: SeatChairSide
 }
 
 // A plan cropped to one section — the same shape, translated so the crop's bounding box starts at the origin.
 export type SectionPlan<S extends string = string> = { id: S; plan: SeatPlan<S> }
 
-// What a pointer or key landed on — a place, a non-place object (fixture, table top, a row as a whole), a
-// section outline, or an editing handle. Viewports report it; the editor acts on it.
+// What a pointer or key landed on — a place, another object (fixture, group label), a section outline, or an
+// editing handle. Viewports report it; the editor acts on it.
 export type PlanTarget<S extends string = string> =
-  | { kind: 'place'; id: string; objectId: string }
+  | { kind: 'place'; id: string }
   | { kind: 'object'; id: string }
   | { kind: 'section'; id: S }
   | { kind: 'handle'; owner: HandleOwner<S>; name: string }
 
 // What an editing handle belongs to.
-export type HandleOwner<S extends string = string> = { kind: 'object'; id: string } | { kind: 'section'; id: S }
+export type HandleOwner<S extends string = string> =
+  { kind: 'object'; id: string } | { kind: 'group'; id: string } | { kind: 'section'; id: S }
 
-// An editing handle on the plan — a corner to resize, a row end or its curve, a section vertex. `name` is
-// `nw` `ne` `se` `sw`, `start` `end` `curve`, or `vertex-<index>`.
-export type PlanHandle<S extends string = string> = { owner: HandleOwner<S>; name: string; point: PlanPoint }
+// An editing handle on the plan — a corner to resize, the knob to rotate, a section vertex. `name` is
+// `nw` `ne` `se` `sw`, `rotate`, or `vertex-<index>`. `angle` is the direction a corner points from its owner's
+// centre (degrees clockwise from +x) — turned with the owner, so renderers can pick a matching resize cursor.
+export type PlanHandle<S extends string = string> = {
+  owner: HandleOwner<S>
+  name: string
+  point: PlanPoint
+  angle?: number
+}
 
 // A drag of a target, reported by viewports while it moves. `total` is the movement since the drag started, in
 // plan units.

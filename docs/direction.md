@@ -5,6 +5,8 @@ holds the target the code is moving toward. When the two disagree, the code and 
 this file describes what to build next.
 
 Decided with the maintainer on 2026-09-24, benchmarked against Seats.io (the market leader for seating charts).
+The data model was revised on 2026-09-27: the document moves from built-in object kinds to pure primitives
+(document v3, below).
 
 ## Goal
 
@@ -22,16 +24,23 @@ UI: ichno owns the document, the geometry and the behaviour; the consumer owns t
 
 ## Decisions
 
-| Topic            | Decision                                                                                                 | Rejected                                         |
-| ---------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Distribution     | npm package of headless compound components                                                              | copy-paste registry                              |
-| Renderer         | SVG + viewport culling + zoom level of detail; interaction core independent of the renderer (Felt-style) | Konva (55 KB gz, no `className`), WebGL (261 KB) |
-| Data model scope | Seats.io-level: sections, rows (curved), tables, booths, general-admission areas, categories             | keeping the room + desk model only               |
-| Row storage      | parameters only (`start`, `end`, `curve`, seat list); seat positions are computed                        | storing parameters and per-seat coordinates      |
-| Naming           | today's `zones` become `sections` (Seats.io and industry vocabulary)                                     | keeping `zones`                                  |
-| Desk seats       | kept as their own object kind `desk` (chair side, 46-unit grid) — ichno's own concept                    | folding into one-seat tables                     |
-| Identity         | a stable `id` (booking key, 1–8 chars) separate from the displayed `label`                               | Seats.io's label-as-key                          |
-| Scale            | target thousands of seats on screen; a canvas seat layer only if tens of thousands become a real need    | canvas from the start                            |
+| Topic            | Decision                                                                                                                                                                                                    | Rejected                                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Distribution     | npm package of headless compound components                                                                                                                                                                 | copy-paste registry                                                                               |
+| Renderer         | SVG + viewport culling + zoom level of detail; interaction core independent of the renderer (Felt-style)                                                                                                    | Konva (55 KB gz, no `className`), WebGL (261 KB)                                                  |
+| Data model scope | pure primitives: bookable `place`s and non-bookable `fixture`s with stored geometry, named `group`s; desk, row, table, booth and area are the consumer's `role` words                                       | built-in kinds (v2: desk, row, table, booth, area, fixture); structural kinds with stored layouts |
+| Bookable unit    | one `place` kind with `capacity` (1 for a seat, N for standing room); a whole-booked table is one place (the top) with fixture chairs                                                                       | separate seat and area kinds; a `wholeBooking` flag on a group                                    |
+| Row storage      | per-seat coordinates; rows and tables are editor layouts (`layout.line`/`arc`/`around`/`grid`) that create places and re-arrange a selection                                                                | storing layout parameters (v2)                                                                    |
+| Grouping         | flat: items point at a `group` id; `groups` holds the label and role                                                                                                                                        | nested group trees; tags only                                                                     |
+| Geometry         | integer `x, y, w, h` of the unrotated box, `shape: 'rect' \| 'ellipse'`, optional `rotation` in degrees about the box centre                                                                                | centre coordinates; float coordinates; polygons and lines for fixtures (later, if needed)         |
+| Group turning    | a group stores the way it faces (`rotation`) and turns about the centre of its frame — the box around its members in that direction — so the centre stays put turn after turn; positions round half to even | turning about the level extent's centre (it wanders with every turn); float coordinates           |
+| Grid             | an editor snap option (`snap: { cell: 46 }`), not a document rule                                                                                                                                           | grid as a validation rule                                                                         |
+| Sections         | a place stores its `section`; containment is checked by validation                                                                                                                                          | deriving membership from position                                                                 |
+| Row labels       | a `label` item placed in the document that draws its group's label                                                                                                                                          | stored text; positions computed at render time                                                    |
+| Overlap          | a schema error between places only; fixtures overlap freely (`fixture_overlap` goes)                                                                                                                        | all overlap as lint; place–fixture overlap errors                                                 |
+| Naming           | today's `zones` become `sections` (Seats.io and industry vocabulary); the array stays `objects`, non-bookable items stay `fixture`                                                                          | `items` / `shape`                                                                                 |
+| Identity         | a stable `id` (booking key, 1–8 chars) separate from the displayed `label`                                                                                                                                  | Seats.io's label-as-key                                                                           |
+| Scale            | target thousands of seats on screen; a canvas seat layer only if tens of thousands become a real need                                                                                                       | canvas from the start                                                                             |
 
 ## Benchmark: what we take from Seats.io
 
@@ -46,51 +55,57 @@ style callbacks are serialized with `toString()`, so they cannot reach applicati
 | Data model | object kinds, categories (`key`, `accessible`), chart/event split, validation codes with severities    | categories carry no name or colour (no copy, CSS themes); flags → free-form `tags`                   | channels, seasons, holds, pricing, ticket types        |
 | Beyond     | —                                                                                                      | keyboard navigation and screen-reader semantics (undocumented in Seats.io); a public document format | —                                                      |
 
-## Document v2
+## Document v3
 
-Plain JSON, integer plan units, `version: 2`. Documents without `version` are v1 and are upgraded when parsed —
-stored plans must keep opening.
+Plain JSON, integer plan units, `version: 3`. The document records what is where and what can be booked — never how
+it was made. v2 and v1 documents are upgraded when parsed; stored plans must keep opening.
 
 ```ts
 type SeatPlan<S extends string = string> = {
-  version: 2
+  version: 3
   width: number
   height: number
-  sections: { id: S; points: PlanPoint[] }[] // polygons; v1 zones become rectangles
+  sections: { id: S; points: PlanPoint[] }[]
   categories: { key: string; accessible?: boolean }[]
-  objects: PlanObject<S>[]
+  groups: { id: string; label?: string; role?: string; rotation?: number }[] // rotation: the way it faces
+  objects: PlanObject<S>[] // drawing order
 }
 
+// The unrotated box; `rotation` turns it clockwise about its centre (SVG `rotate(r, cx, cy)`).
+type Box = { x: number; y: number; w: number; h: number; shape: 'rect' | 'ellipse'; rotation?: number }
+
 type PlanObject<S> =
-  | { kind: 'desk'; id; section: S; x; y; w; h; chairSide; label?; category?; tags? } // v1 seat
-  | { kind: 'row'; id; section: S; start; end; curve; seatSize; seats: RowSeat[]; label? }
-  | {
-      kind: 'table'
-      id
-      section: S
-      shape: 'round' | 'rect'
-      x
-      y
-      w
-      h
-      seats: TableSeat[]
-      wholeBooking?
-      label?
-      category?
-    }
-  | { kind: 'booth'; id; section: S; x; y; w; h; label?; category?; tags? }
-  | { kind: 'area'; id; section: S; shape: 'rect' | 'ellipse'; x; y; w; h; capacity; wholeBooking?; label?; category? }
-  | { kind: 'fixture'; id; role: string; x; y; w; h } // v1 wall/tv/counter; decoration, never capacity
+  | (Box & { kind: 'place'; id; section: S; capacity; label?; group?; role?; category?; tags? })
+  | (Box & { kind: 'fixture'; id; group?; role? }) // never capacity
+  | (Box & { kind: 'label'; id; group: string }) // draws the group's label (or its id)
 ```
 
-- **Places** are what can be booked: desks, row seats, table seats (or the table when `wholeBooking`), booths and
-  areas. `seatPlan.placesOf(plan)` flattens them with computed geometry.
-- **Ids** share one namespace across the document. Place ids are 1–8 characters (the existing seat limit).
+- **Places** are what can be booked, exactly as stored — no flattening. A desk, a row seat, a booth and a standing
+  area differ only in shape, capacity and the consumer's `role`.
+- **Roles** are the consumer's words (`desk`, `row`, `table`, `stage`, `chair`, …); ichno never reads them. Parts
+  expose them as `data-role`.
+- **Ids** share one namespace across places, fixtures, labels and groups. Place ids are 1–8 characters.
 - **Status is not in the document.** Renderers take it as a `Record<id, string>` prop, like Seats.io's event.
 
-Schema errors keep a stored document well-formed (duplicate ids, unknown sections or categories, out of bounds,
-overlapping footprints). Softer rules come from `lint(plan, severities)` as warnings the consumer can turn up or off
-(duplicate labels, objects outside their section, objects without a category, empty sections).
+The v2 → v3 upgrade keeps every place id and coordinate:
+
+| v2                        | v3                                                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| `desk`                    | `place` (`role: 'desk'`) + a chair `fixture` on `chairSide`, in one group           |
+| `row`                     | a group (`role: 'row'`) + one `place` per computed seat + `label` items at its ends |
+| `table`                   | a group (`role: 'table'`) + a top `fixture` + seat `place`s                         |
+| `table` with wholeBooking | a group + the top as a `place` (`capacity` = seat count) + chair `fixture`s         |
+| `booth`                   | `place` (`role: 'booth'`)                                                           |
+| `area`                    | `place` (`role: 'area'`, `capacity`); with wholeBooking the same place              |
+| `fixture`                 | `fixture` (its `role` unchanged)                                                    |
+
+Known gap: 0.2 checked a table's top, not its seats, against other objects. A 0.2 document whose table seats
+overlap another place upgrades into one the schema refuses with `overlap`; `upgradeSeatPlan` still returns it, and
+the editor opens it with the pair marked.
+
+Schema errors keep a stored document well-formed (duplicate ids, unknown sections, groups or categories, out of
+bounds, overlapping places). Softer rules come from `lint(plan, severities)` as warnings the consumer can turn up or
+off (duplicate labels, places outside their section, places without a category, empty sections).
 
 ## Components
 
@@ -98,7 +113,7 @@ overlapping footprints). Softer rules come from `lint(plan, severities)` as warn
 // Read-only — renders on the server, no JavaScript shipped.
 <SeatMap.Root plan={plan}>
   {plan.sections.map((s) => <SeatMap.Section key={s.id} section={s} />)}
-  {seatPlan.placesOf(plan).map((p) => (
+  {seatPlan.placesOf(plan).map((p) => ( // a filter over `objects`
     <SeatMap.Place key={p.id} place={p} status={status[p.id]} className="data-[status=taken]:opacity-40" />
   ))}
 </SeatMap.Root>
@@ -111,8 +126,8 @@ overlapping footprints). Softer rules come from `lint(plan, severities)` as warn
 
 - Parts render with presentation attributes that read the `--ichno-*` variables, so an unstyled plan looks right and
   any `className` overrides it.
-- State is exposed as attributes: `data-kind`, `data-status`, `data-selected`, `data-highlighted`, `data-dimmed`,
-  `data-category`, `data-part` (desk, chair, label, …).
+- State is exposed as attributes: `data-kind`, `data-role`, `data-group`, `data-status`, `data-selected`,
+  `data-highlighted`, `data-dimmed`, `data-category`, `data-part` (shape, label, …).
 - The view is a viewBox in plan units (`planView`), so rendering never needs to measure the container.
 - Events are delegated at the viewport (`data-ichno-id`), so place components carry no handlers and stay
   server-safe.
@@ -149,6 +164,10 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
    out, and objects outside the view plus half its size are not drawn — redrawn only when a pan leaves that
    region or the zoom crosses a quarter-octave step. **Decision: no canvas seat layer.** Revisit only for plans
    well past 20,000 seats.
+
+6. ✅ **Document v3** — pure primitives (above): types, schema, v2 upgrade, `rotation` through hit-testing, bounds
+   and overlap; `layout` functions in core; editor `addPlaces`, `arrange` and `snap`; `SeatMap.Table` and
+   `SeatMap.RowLabel` give way to `SeatMap.Fixture` and `SeatMap.Label`. Ships as 0.3.
 
 ## Out of scope
 
