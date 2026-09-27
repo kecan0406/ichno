@@ -9,7 +9,8 @@ Seat plans for React — one JSON document, headless primitives around it.
   documents stored by ichno 0.1 and 0.2
 - **`ichno/react`** — `SeatMap.*`: headless SVG components. The parts render as React Server Components; the
   `Viewport` adds pan, zoom, taps, drags and keyboard movement on the client
-- **`ichno/editor`** — `useSeatPlanEditor`: headless editor state and operations; you build the panels
+- **`ichno/editor`** — `useSeatPlanEditor`: headless editor state, operations, creation tools you write, saved
+  objects and a clipboard; you build the panels
 
 The library ships **no copy** and **no canvas**. Section names, category names and every message come from you;
 everything is SVG you can style with CSS. Where the project is heading is in [`docs/direction.md`](docs/direction.md).
@@ -111,6 +112,9 @@ Plan-level issue codes: `duplicate_section`, `duplicate_category`, `duplicate_id
 only, on their turned shapes — touching, or crossing by less than `OVERLAP_TOLERANCE`, is fine). Callers holding a
 trusted older document can use `upgradeSeatPlan`.
 
+The same factory returns `Template`, which checks a stored `PlanTemplate` (a saved object, see [Edit](#edit)) — its
+places carry no section, and only ids and group references are checked; where it lands decides the rest.
+
 Softer rules warn instead of refusing a save. Each has a severity you can change:
 
 ```ts
@@ -173,15 +177,15 @@ import { SeatMap } from 'ichno/react'
 ```
 
 `SeatMap.Content` is a convenience; compose the parts yourself when you need something else —
-`SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Label`, `SeatMap.Grid`, `SeatMap.Handles` and
-`SeatMap.Marquee`, fed by `plan.objects`. `renderPlace` swaps one place's drawing while keeping the rest. Turned
+`SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Label`, `SeatMap.Grid`, `SeatMap.Handles`,
+`SeatMap.Outline` and `SeatMap.Marquee`, fed by `plan.objects`. `renderPlace` swaps one place's drawing while keeping the rest. Turned
 places keep their label level.
 
 **Styling.** Parts paint with presentation attributes that read the theme variables, so any class overrides them.
 State is on the element: `data-kind` (`place`, `fixture`, `label`), `data-role`, `data-group`, `data-shape`,
 `data-status`, `data-selected`, `data-disabled`, `data-highlighted`, `data-dimmed`, `data-invalid`,
-`data-category`; pieces are named by `data-part` (`shape`, `label`, `hit`, `floor`, `wall`, `handle`, `marquee`,
-`focus-ring`). Style your roles by `data-role` — `[data-role='chair'] [data-part='shape']`.
+`data-category`; pieces are named by `data-part` (`shape`, `label`, `hit`, `floor`, `wall`, `handle`, `outline`,
+`marquee`, `focus-ring`). Style your roles by `data-role` — `[data-role='chair'] [data-part='shape']`.
 
 ```tsx
 <SeatMap.Place
@@ -201,11 +205,20 @@ or the zoom crosses a step, so 20,000 seats pan at 60fps.
 </SeatMap.Viewport>
 ```
 
+**Pointer and keys.** A drag on empty floor pans; so does any drag with Space held or the middle button, whatever
+is under it — the svg carries `data-pan` (`ready` while Space is held, `active` while panning) for grab cursors.
+`wheel="pan"` makes the wheel and two-finger scrolling pan and pinching or ⌘/Ctrl + wheel zoom, the way design tools
+do; the default zooms, the way maps do. Zoom follows how far the wheel turned, so trackpads zoom smoothly, and
+Safari's pinch zooms the plan rather than the page. `onHover(point, target)` reports the pointer while nothing is
+pressed; `onDraw(stroke, info)` turns every press into a stroke for a creation tool (the editor passes both).
+`navigable={false}` turns the arrow-key focus off — the editor does while the arrows move its selection.
+
 **Views** are viewBoxes in plan units (`planView.home(plan)`, `planView.zoom`, `planView.pan`, `planView.fitTo`
 for zoom-to-places), so nothing is measured while rendering. Leave `view` out and the viewport keeps its own.
 
 **Accessibility.** The viewport is a listbox: places are options with `aria-selected`; arrow keys move a focus ring
-to the nearest place in that direction and `aria-activedescendant` follows it.
+to the nearest place in that direction and `aria-activedescendant` follows it. Focus from the keyboard shows the
+ring at once, and Enter or Space picks the place it shows.
 
 For narrow screens, `seatPlan.sectionPlansOf(plan)` returns one crop per section at a shared scale — stack them.
 
@@ -218,11 +231,18 @@ import { useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
 import { SeatMap } from 'ichno/react'
 
 const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 46 } })
-useSeatPlanEditorShortcuts(editor) // Delete, R / ⇧R (turn), ⌘Z / ⇧⌘Z, ⌘D (duplicate), ⌘G (group)
+useSeatPlanEditorShortcuts(editor) // arrows, Delete, R / ⇧R, Escape, ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G, ⌘Z / ⇧⌘Z
 
-<SeatMap.Viewport {...editor.viewportProps}>
+<SeatMap.Viewport {...editor.viewportProps} wheel="pan">
   <SeatMap.Grid plan={editor.displayPlan} />
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} invalid={editor.conflictIds} />
+  {editor.draft && (
+    <g opacity={0.5}>
+      <SeatMap.Content plan={editor.draft} invalid={editor.conflictIds} />
+    </g>
+  )}
+  {editor.selection.length > 1 && editor.frames.map((points, i) => <SeatMap.Outline key={i} points={points} />)}
+  <SeatMap.Outline points={editor.hoverFrame} className="opacity-60" />
   <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
   <SeatMap.Marquee rect={editor.marquee} />
 </SeatMap.Viewport>
@@ -237,31 +257,99 @@ const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, c
 ```
 
 Tapping a grouped object selects its group; tapping it again selects the object alone (shift/⌘ adds to the
-selection). Dragging moves the selection with the snapping the commit will use. Dragging on a section's floor
-draws a marquee that selects everything it touches; a selected section moves instead. Space outside every section
+selection). Dragging moves the selection with the snapping the commit will use — with Shift along one axis.
+Dragging empty floor draws a marquee that selects everything it touches; a selected section moves instead. Space
 and the middle mouse button pan. Nothing stops you from dragging one place onto another; `conflictIds` lists the
 places that overlap (the same check the schema runs on save) so you can mark them while arranging. A single
-selected item shows handles: an object resizes from its corners (in its own turned frame) and turns from the knob
-above it, a group turns as one about the centre of its frame — the box around its members in the direction the
-group faces (`group.rotation`), which turns with it, so the centre stays put turn after turn — and a section's
-vertices reshape it. `frame` outlines the selected object or group; corner handles carry their turned `angle` so
-`SeatMap.Handles` shows matching resize cursors. `rotateSelected` turns one item about its own centre and several
-together about the middle of their centres. `displayPlan` is the plan with the drag in
-progress; `plan` is what you save. `onTap` also reports the plan point, for tools that place things where you click.
+selected item shows handles: an object resizes from its corners (in its own turned frame; Shift keeps its
+proportions) and turns from the knob above it (Shift: 15° steps), a group turns as one about the centre of its
+frame — the box around its members in the direction the group faces (`group.rotation`), which turns with it, so the
+centre stays put turn after turn — and a section's vertices reshape it. `frame` outlines the selected object or
+group; corner handles carry their turned `angle` so `SeatMap.Handles` shows matching resize cursors. `frames`
+outlines every selected item and `hoverFrame` what a tap would select — draw them with `SeatMap.Outline`, so
+fixtures and groups show they are selected too. `rotateSelected` turns one item about its own centre and several
+together about the middle of their centres. `displayPlan` is the plan with the drag in progress; `plan` is what
+you save. A selection never holds what an undo, a redo or an edit took away.
+
+### Creation tools
+
+Rows, tables and booths are your words, so the tools that make them are yours too: an `EditorTool` says what a drag
+draws and turns the stroke into a plan. Pick one with `setTool`; every press on the plan then draws with it — the
+editor shows what it would make under the pointer (`draft`) and while the stroke is drawn, commits it as one undo
+step when it is let go, selects what it made and goes back to selecting (`keep: true` stays).
+
+```ts
+import { layout, seatPlan } from 'ichno'
+import { planEdits, type EditorTool } from 'ichno/editor'
+
+// A row along the stroke, a seat for every 46 units of it — a tap drops a single seat.
+const row: EditorTool<'hall'> = {
+  id: 'row',
+  draw: 'line',
+  create(plan, { start, end }) {
+    const section = seatPlan.sectionAt(plan, start)
+    if (section === null) return null // every place belongs to a section
+    const count = Math.floor(Math.hypot(end.x - start.x, end.y - start.y) / 46) + 1
+    const seats = layout.line({ start, end, count, size: 40 })
+    return planEdits.addPlaces(plan, section, seats, { role: 'seat' })?.plan ?? null
+  },
+}
+
+<button aria-pressed={editor.tool?.id === 'row'} onClick={() => editor.setTool(row)}>Row</button>
+```
+
+`draw` is `box` (a rectangle between the press and the pointer; Shift keeps it square), `line` (Shift keeps it to
+15° steps) or `point` (only where the pointer is — a stamp); Alt draws a box or a line from its centre. Strokes snap
+like everything else. A tap is a stroke with no length, so one tool both draws at any size and drops something of a
+standard size. `create` runs for every preview — keep it pure. `stroke` is the stroke being drawn (draw it as a
+guide), `pointer` where a tap would draw — with `draft` null there, the tool can make nothing at that spot (say
+why). While a tool is active the handles hide; Escape drops the stroke, then the tool.
+
+### Saved objects and the clipboard
+
+`planEdits.templateOf(plan, ids)` keeps what a selection holds as a `PlanTemplate` — objects and the groups they
+form, around their centre, with no sections — and where it came from. Store templates like documents (they carry
+`version`; check them with the schema's `Template`) to offer a library of objects people made themselves.
+`planEdits.insertTemplate(plan, template, at)` adds one centred on `at` with fresh ids: places continue the
+numbering of the section they land in, groups get new ids, the copy stays inside the plan and drops categories the
+plan does not list. A `point` tool that inserts one is a stamp:
+
+```ts
+const { template } = planEdits.templateOf(editor.plan, editor.selectedIds)!
+const stamp: EditorTool<'hall'> = {
+  draw: 'point',
+  keep: true,
+  create: (plan, { end }) => planEdits.insertTemplate(plan, template, end)?.plan ?? null,
+}
+```
+
+The editor keeps a clipboard of its own: `copySelected`, `cutSelected` and `paste(at?)` — under the pointer when it
+is over the plan, otherwise beside what was copied. `insert(template, at)` adds any template and selects it.
+
+### Operations
 
 Operations take object and group ids alike — a group acts as one.
 
 - **Create:** `addPlaces(section, boxes, { shape, capacity, role, category, group })`, `addFixtures(boxes, …)`,
-  `addLabels(groupId, boxes)`, `duplicateSelected`, `groupSelected` — each returns the new ids and selects them
-  (`group: { role, label }` makes a new group in the same step). New places continue the section numbering.
+  `addLabels(groupId, boxes)`, `insert(template, at)`, `duplicateSelected`, `groupSelected` — each returns the new
+  ids and selects them (`group: { role, label }` makes a new group in the same step). New places continue the
+  section numbering.
 - **Change:** `layoutGroup(groupId, boxes)` (grow, shrink or bend a row — members move onto the boxes, extra boxes
   get new places, surplus ones go from the end), `arrange(ids, boxes)`, `convert(ids, 'place' | 'fixture')` (book a
-  table whole), `rotateSelected(degrees)`, `moveSelected`, `alignSelected`, `distributeSelected`, `label(ids,
-sequence)` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or `labeling.custom`, `renameObject`
-  (objects and groups), `updateObject`, `updateGroup`, `ungroup`, `moveSection`, `reshapeSection`.
+  table whole), `rotateSelected(degrees)`, `moveSelected(delta)` (objects, groups and sections), `alignSelected`,
+  `distributeSelected`, `label(ids, sequence)` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or
+  `labeling.custom`, `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`, `moveSection`,
+  `reshapeSection`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
-- **Remove:** `removeObjects`, `removeSelected` — return the ids they refused. Groups left empty go too.
+- **Select:** `select(target, additive)`, `selectAll()`.
+- **Remove:** `removeObjects`, `removeSelected`, `cutSelected` — return the ids they refused. Groups left empty go
+  too.
 - **History:** `undo`, `redo`, `canUndo`, `canRedo`, `reset`.
+
+`useSeatPlanEditorShortcuts` binds the arrow keys (move the selection one unit — with Shift ten, or half a cell and
+a cell when snapping; with nothing selected they move the viewport's focus ring), Delete, R / ⇧R, Escape (the
+stroke, then the tool, then the selection), ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G and ⌘Z / ⇧⌘Z. It ignores keys typed into a
+field and keys a handler already took (`preventDefault`), so your own shortcuts can run first.
 
 `lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or turned into a
 fixture, while labels stay free. Every operation is also available as a pure function in `planEdits` (plan in, plan

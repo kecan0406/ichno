@@ -220,7 +220,14 @@ export function ImportDialog({ onLoad }: { onLoad(plan: SeatPlan<string>): void 
   const [errors, setErrors] = useState<string[]>([])
 
   return (
-    <dialog ref={dialogRef} id="import-dialog" className={styles.dialog} onClose={() => setErrors([])}>
+    <dialog
+      ref={dialogRef}
+      id="import-dialog"
+      className={styles.dialog}
+      onClose={() => setErrors([])}
+      // Keys pressed here are for the dialog, not the editor behind it.
+      onKeyDown={(e) => e.stopPropagation()}
+    >
       <form
         method="dialog"
         className={styles.dialogBody}

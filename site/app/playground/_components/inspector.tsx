@@ -1,11 +1,21 @@
 'use client'
 
-import { OBJECT_ID_MAX, PLACE_ID_MAX, labeling, seatPlan, type Group, type PlanObject, type SeatPlan } from 'ichno'
-import type { SeatPlanEditor } from 'ichno/editor'
-import { describe } from '../../_demo/messages'
+import {
+  OBJECT_ID_MAX,
+  PLACE_ID_MAX,
+  labeling,
+  seatPlan,
+  type Group,
+  type PlanBox,
+  type PlanObject,
+  type SeatPlan,
+} from 'ichno'
+import { planEdits, type SeatPlanEditor } from 'ichno/editor'
+import { describe, makeupOf } from '../../_demo/messages'
 import { relayRow, relayTable, rowOf, setWholeTable, tableOf } from '../_lib/build'
 import styles from '../playground.module.css'
 import { NumberField, Segmented, SliderField, TextField, Toggle } from './fields'
+import { SaveObject } from './objects'
 
 type Editor = SeatPlanEditor<string>
 
@@ -14,17 +24,8 @@ type Props = {
   sectionNames: Record<string, string>
   booked: readonly string[]
   onNotice(text: string | null): void
-}
-
-// This site's words for the roles it gives things — ichno itself only knows places, fixtures and groups.
-const ROLE_NAMES: Record<string, string> = {
-  row: 'Row',
-  table: 'Table',
-  desk: 'Desk',
-  seat: 'Seat',
-  chair: 'Chair',
-  booth: 'Booth',
-  area: 'Area',
+  // Keeps the selection as a saved object under this name.
+  onSaveObject(name: string): void
 }
 
 export function Inspector(props: Props) {
@@ -48,9 +49,9 @@ function DocumentInspector({ editor, sectionNames, booked }: Props) {
   return (
     <div className={styles.inspector}>
       <p className={styles.panelHint}>
-        Pick a tool on the left and tap the floor, or tap anything on the plan to inspect it. A tap on a row, table or
-        desk picks the whole group; tap again to pick one seat. Shift-tap adds to the selection; dragging the floor
-        draws a marquee.
+        The objects on the left were made in advance for this playground out of ichno’s places, fixtures and groups.
+        Pick one and drag on the plan to draw it at any size, or tap to drop it. Tap anything to inspect it — a tap on a
+        row, table or desk picks the whole group, a second tap one seat. Press <kbd>?</kbd> for every shortcut.
       </p>
       <dl className={styles.stats}>
         <div>
@@ -122,7 +123,8 @@ function SectionInspector({ editor, sectionNames, sectionId }: Props & { section
         <code>{section.id}</code>
       </header>
       <p className={styles.panelHint}>
-        Drag the floor to move the section, drag a corner handle to reshape it. Outlines snap to the 46-unit cell grid.
+        Drag the floor or use the arrow keys to move the section, drag a corner handle to reshape it. With Snap on,
+        outlines keep to the 46-unit cell grid.
       </p>
       <dl className={styles.stats}>
         <div>
@@ -144,7 +146,7 @@ function SectionInspector({ editor, sectionNames, sectionId }: Props & { section
   )
 }
 
-function MultiInspector({ editor, onNotice }: Props) {
+function MultiInspector({ editor, onNotice, onSaveObject }: Props) {
   const count = editor.selection.length
   const placeIds = editor.selectedPlaceIds
   return (
@@ -212,18 +214,29 @@ function MultiInspector({ editor, onNotice }: Props) {
           </button>
         </div>
       </section>
-      <Actions editor={editor} onNotice={onNotice} />
+      <Actions editor={editor} onNotice={onNotice} onSaveObject={onSaveObject} />
     </div>
   )
 }
 
-function GroupInspector({ editor, booked, onNotice, group }: Props & { group: Group }) {
+function GroupInspector({ editor, booked, onNotice, onSaveObject, group }: Props & { group: Group }) {
   const locked = new Set(booked)
   const members = seatPlan.membersOf(editor.plan, group.id)
   const places = members.filter((o) => o.kind === 'place')
   const row = group.role === 'row' ? rowOf(editor.plan, group.id) : null
   const table = group.role === 'table' ? tableOf(editor.plan, group.id) : null
   const categories = editor.plan.categories
+  const extent = seatPlan.extentOf(members.filter((o) => o.kind !== 'label'))
+
+  // Moves the group so the top-left of what it draws lands on the typed position — exactly, not to the grid.
+  function moveTo(position: { x?: number; y?: number }) {
+    if (!extent) return
+    const delta = {
+      x: (position.x ?? Math.round(extent.x)) - Math.round(extent.x),
+      y: (position.y ?? Math.round(extent.y)) - Math.round(extent.y),
+    }
+    editor.edit((current) => planEdits.move(current, [group.id], delta))
+  }
 
   function rename(next: string): boolean {
     const ok = editor.renameObject(group.id, next)
@@ -239,10 +252,11 @@ function GroupInspector({ editor, booked, onNotice, group }: Props & { group: Gr
   return (
     <div className={styles.inspector}>
       <header className={styles.inspectorHead}>
-        <span className={styles.kind}>{ROLE_NAMES[group.role ?? ''] ?? 'Group'}</span>
+        <span className={styles.kind}>Group</span>
         <strong>{describe(editor.plan, group.id)}</strong>
         {editor.isLocked(group.id) && <span className={styles.badge}>booked</span>}
       </header>
+      <StoredAs role={group.role}>{makeupOf(members, 1)}</StoredAs>
 
       <section className={styles.group}>
         <TextField label="Id" value={group.id} mono onCommit={rename} />
@@ -276,6 +290,10 @@ function GroupInspector({ editor, booked, onNotice, group }: Props & { group: Gr
 
       {row && (
         <section className={styles.group}>
+          <h3>Playground row</h3>
+          <p className={styles.panelHint}>
+            The playground reads the row back from its seats and lays it out again — ichno only stores the seats.
+          </p>
           <NumberField
             label="Seats"
             value={row.seats.length}
@@ -309,6 +327,11 @@ function GroupInspector({ editor, booked, onNotice, group }: Props & { group: Gr
 
       {table && (
         <section className={styles.group}>
+          <h3>Playground table</h3>
+          <p className={styles.panelHint}>
+            The playground finds the top by its role and sets the seats around it — ichno only stores the top and the
+            seats.
+          </p>
           <NumberField
             label="Seats"
             value={table.seats.length}
@@ -344,6 +367,24 @@ function GroupInspector({ editor, booked, onNotice, group }: Props & { group: Gr
       )}
 
       <section className={styles.group}>
+        {extent && (
+          <div className={styles.fieldGrid}>
+            <NumberField
+              label="X"
+              value={Math.round(extent.x)}
+              min={-POSITION_MAX}
+              max={POSITION_MAX}
+              onCommit={(x) => moveTo({ x })}
+            />
+            <NumberField
+              label="Y"
+              value={Math.round(extent.y)}
+              min={-POSITION_MAX}
+              max={POSITION_MAX}
+              onCommit={(y) => moveTo({ y })}
+            />
+          </div>
+        )}
         <NumberField
           label="Facing (°)"
           value={Math.round(group.rotation ?? 0)}
@@ -354,25 +395,33 @@ function GroupInspector({ editor, booked, onNotice, group }: Props & { group: Gr
       </section>
 
       <p className={styles.panelMeta}>
-        {members.length} objects · {places.length} places · drag the knob above it to turn it about its centre
+        {members.length} objects · {places.length} places
+        {extent ? ` · ${Math.round(extent.w)} × ${Math.round(extent.h)}` : ''} · drag the knob above it to turn it about
+        its centre
       </p>
       <div className={styles.actions}>
         <button type="button" className={styles.button} onClick={() => editor.ungroup(group.id)}>
           Ungroup
         </button>
       </div>
-      <Actions editor={editor} onNotice={onNotice} />
+      <Actions editor={editor} onNotice={onNotice} onSaveObject={onSaveObject} />
     </div>
   )
 }
 
-function ObjectInspector({ editor, booked, onNotice, object }: Props & { object: PlanObject<string> }) {
+function ObjectInspector({ editor, onNotice, onSaveObject, object }: Props & { object: PlanObject<string> }) {
   const locked = editor.isLocked(object.id)
   const categories = editor.plan.categories
   const owner = object.group === undefined ? undefined : seatPlan.groupById(editor.plan, object.group)
 
   function update(next: (current: PlanObject<string>) => PlanObject<string>) {
     editor.updateObject(object.id, next)
+  }
+
+  // Puts the object's box where the fields say — exactly, not to the grid; it keeps its turn.
+  function place(change: Partial<PlanBox>) {
+    const { x, y, w, h, rotation } = object
+    editor.arrange([object.id], [{ x, y, w, h, rotation, ...change }])
   }
 
   function rename(next: string): boolean {
@@ -384,18 +433,20 @@ function ObjectInspector({ editor, booked, onNotice, object }: Props & { object:
     return ok
   }
 
-  const kindName =
-    object.kind === 'label'
-      ? 'Label'
-      : (ROLE_NAMES[object.role ?? ''] ?? (object.kind === 'place' ? 'Place' : 'Fixture'))
-
   return (
     <div className={styles.inspector}>
       <header className={styles.inspectorHead}>
-        <span className={styles.kind}>{kindName}</span>
+        <span className={styles.kind}>{KIND_NAMES[object.kind]}</span>
         <strong>{describe(editor.plan, object.id)}</strong>
         {locked && <span className={styles.badge}>booked</span>}
       </header>
+      <StoredAs role={object.kind === 'label' ? undefined : object.role}>
+        {object.kind === 'place'
+          ? `a place${object.capacity > 1 ? ` for ${object.capacity}` : ''}`
+          : object.kind === 'fixture'
+            ? 'a fixture — nothing to book'
+            : 'a label, where its group’s name is written'}
+      </StoredAs>
 
       {owner && (
         <button
@@ -448,6 +499,24 @@ function ObjectInspector({ editor, booked, onNotice, object }: Props & { object:
       </section>
 
       <section className={styles.group}>
+        <div className={styles.fieldGrid}>
+          <NumberField
+            label="X"
+            value={object.x}
+            min={-POSITION_MAX}
+            max={POSITION_MAX}
+            onCommit={(x) => place({ x })}
+          />
+          <NumberField
+            label="Y"
+            value={object.y}
+            min={-POSITION_MAX}
+            max={POSITION_MAX}
+            onCommit={(y) => place({ y })}
+          />
+          <NumberField label="Width" value={object.w} min={1} max={POSITION_MAX} onCommit={(w) => place({ w })} />
+          <NumberField label="Height" value={object.h} min={1} max={POSITION_MAX} onCommit={(h) => place({ h })} />
+        </div>
         {object.kind === 'place' && (
           <NumberField
             label="Capacity"
@@ -481,21 +550,49 @@ function ObjectInspector({ editor, booked, onNotice, object }: Props & { object:
         )}
       </section>
 
-      <p className={styles.panelMeta}>
-        {object.w} × {object.h} at {object.x}, {object.y}
-        {object.rotation ? `, turned ${object.rotation}°` : ''}
-      </p>
+      {object.rotation ? (
+        <p className={styles.panelMeta}>
+          X and Y are the corner of the box before its turn of {object.rotation}° about its centre.
+        </p>
+      ) : null}
       {locked && (
         <p className={styles.panelHint}>
           {describe(editor.plan, object.id)} is booked — it can be moved and relabelled, but not deleted or renamed.
         </p>
       )}
-      <Actions editor={editor} onNotice={onNotice} />
+      <Actions editor={editor} onNotice={onNotice} onSaveObject={onSaveObject} />
     </div>
   )
 }
 
-function Actions({ editor, onNotice }: { editor: Editor; onNotice(text: string | null): void }) {
+// ichno's own names for what it stores.
+const KIND_NAMES = { place: 'Place', fixture: 'Fixture', label: 'Label' } as const
+
+// What ichno stores for the selection, and whose word its role is — the playground's, never ichno's.
+function StoredAs({ role, children }: { role: string | undefined; children: string }) {
+  return (
+    <p className={styles.storedAs}>
+      ichno stores {children}
+      {role ? (
+        <>
+          ; <code>{role}</code> is the playground’s name for it.
+        </>
+      ) : (
+        '.'
+      )}
+    </p>
+  )
+}
+
+function Actions({
+  editor,
+  onNotice,
+  onSaveObject,
+}: {
+  editor: Editor
+  onNotice(text: string | null): void
+  onSaveObject(name: string): void
+}) {
   return (
     <div className={styles.actions}>
       <button type="button" className={styles.button} onClick={() => editor.rotateSelected(90)} title="R">
@@ -520,6 +617,7 @@ function Actions({ editor, onNotice }: { editor: Editor; onNotice(text: string |
       >
         Delete
       </button>
+      <SaveObject onSave={onSaveObject} />
     </div>
   )
 }
@@ -580,6 +678,9 @@ function categoryOf(places: readonly PlanObject<string>[]): string {
   const unique = new Set(values)
   return unique.size > 1 ? 'mixed' : (values[0] ?? '')
 }
+
+// Positions typed into the fields stay within reach of any plan.
+const POSITION_MAX = 100_000
 
 function ids(objects: readonly { id: string }[]): string[] {
   return objects.map((o) => o.id)

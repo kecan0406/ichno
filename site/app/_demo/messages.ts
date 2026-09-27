@@ -1,7 +1,44 @@
-import { seatPlan, type LintIssue, type SeatPlan, type SelectionIssue } from 'ichno'
+import {
+  seatPlan,
+  type LintIssue,
+  type PlanObject,
+  type SeatPlan,
+  type SelectionIssue,
+  type TemplateObject,
+} from 'ichno'
 import type { SeatPlanIssue } from 'ichno/schema'
 
 // ichno reports codes; every sentence the visitor reads is written here.
+
+// What a piece of a plan is made of, in ichno's own words — "7 places and 2 labels in a group". A place that holds
+// more than one person says how many.
+export function makeupOf(objects: readonly (PlanObject<string> | TemplateObject)[], groups: number): string {
+  const parts = piecesOf(objects)
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? 'nothing')
+  return groups === 0 ? list : `${list} in ${groups === 1 ? 'a group' : `${groups} groups`}`
+}
+
+// The same, short enough for a list — "group: 7 places, 2 labels".
+export function partsOf(objects: readonly (PlanObject<string> | TemplateObject)[], groups: number): string {
+  const list = piecesOf(objects).join(', ')
+  return groups === 0 ? list : `${groups === 1 ? 'group' : `${groups} groups`}: ${list}`
+}
+
+function piecesOf(objects: readonly (PlanObject<string> | TemplateObject)[]): string[] {
+  const places = objects.flatMap((o) => (o.kind === 'place' ? [o] : []))
+  const people = places.reduce((sum, place) => sum + place.capacity, 0)
+  const fixtures = objects.filter((o) => o.kind === 'fixture').length
+  const labels = objects.filter((o) => o.kind === 'label').length
+  return [
+    places.length > 0 ? `${counted(places.length, 'place')}${people > places.length ? ` for ${people}` : ''}` : '',
+    fixtures > 0 ? counted(fixtures, 'fixture') : '',
+    labels > 0 ? counted(labels, 'label') : '',
+  ].filter((part) => part !== '')
+}
+
+function counted(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
+}
 
 // A place, object or group as people would name it — "Row A, seat 3", "Table T2, seat 1", a desk's label. Rows and
 // tables are this site's roles; ichno only knows groups.

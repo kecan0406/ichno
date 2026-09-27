@@ -2,6 +2,7 @@
 
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { seatPlan } from '../core/geometry'
+import { GRID_CELL } from '../core/grid'
 import type { LabelSequence } from '../core/labeling'
 import type {
   Group,
@@ -11,13 +12,16 @@ import type {
   PlanObject,
   PlanPoint,
   PlanRect,
+  PlanStroke,
   PlanTarget,
+  PlanTemplate,
   SeatPlan,
   Shape,
 } from '../core/types'
 import { planHandles } from './handles'
 import { planEdits, type AlignEdge, type GroupMembers, type Snap } from './operations'
 import type { EditorSelection } from './selection'
+import { strokeOf, type EditorTool } from './tools'
 
 export type SeatPlanEditor<S extends string> = ReturnType<typeof useSeatPlanEditor<S>>
 
@@ -26,8 +30,8 @@ type Options<S extends string> = {
   // Ids your other records reference (booked seats, active sessions). Objects holding one cannot be removed,
   // renamed or turned into fixtures; labels stay free to change.
   lockedIds?: Iterable<string>
-  // Snap to a grid while editing — sections to cell corners, objects to half cells, turns to 15°. Off by default:
-  // edits land on whole plan units.
+  // Snap to a grid while editing — sections to cell corners, objects and strokes to half cells, turns to 15°. Off
+  // by default: edits land on whole plan units.
   snap?: Snap
 }
 
@@ -36,14 +40,24 @@ type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; fu
 // A new group made while adding — its props, or the id of one that exists.
 type GroupChoice = string | Omit<Group, 'id'>
 
+// What the viewport reports about a stroke besides where it runs.
+type DrawInfo = { phase: 'start' | 'move' | 'end' | 'cancel'; constrain: boolean; fromCenter: boolean }
+
+// What was copied, where it came from, and how many times it was pasted next to it.
+type Clip = { template: PlanTemplate; at: PlanPoint; pastes: number }
+
 // Undo depth — plenty for an editing session, bounded so a long one does not hold every version.
 const HISTORY_LIMIT = 100
+// How far each paste lands from what was copied when the pointer is not over the plan — two cells, like duplicate.
+const PASTE_STEP = GRID_CELL * 2
+const NO_KEYS = {}
 
-// Headless seat plan editor — document state, selection, undo history and every edit operation; no UI. Spread
-// `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select, drag-to-move and marquee selection,
-// draw `displayPlan` (the plan with the drag in progress) with `handles` and `marquee` on top, and build panels,
-// buttons and saving yourself. Edits stay local until you save `plan`. To adopt a new baseline after saving,
-// remount (e.g. key the component by the saved version).
+// Headless seat plan editor — document state, selection, creation tools, clipboard, undo history and every edit
+// operation; no UI. Spread `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select, drag-to-move,
+// marquee selection and drawing with a tool; draw `displayPlan` (the plan with the drag in progress), `draft` (what
+// the tool would make), `handles`, `frames` and `marquee` on top, and build panels, buttons and saving yourself.
+// Edits stay local until you save `plan`. To adopt a new baseline after saving, remount (e.g. key the component by
+// the saved version).
 //
 // Tapping an object in a group selects the group; tapping it again (with the group selected) selects the object
 // alone. Operations that take ids accept object and group ids alike — a group acts as one.
@@ -56,32 +70,67 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   // The latest history, ahead of the render — so several calls in one handler build on each other (add a group,
   // then lay it out) instead of each starting from the rendered plan.
   const historyRef = useRef(start.history)
-  const [selection, setSelection] = useState<EditorSelection<S>[]>([])
+  const [chosen, setSelection] = useState<EditorSelection<S>[]>([])
   const [drag, setDrag] = useState<PlanDrag<S> | null>(null)
+  // The creation tool in use — null while selecting.
+  const [tool, setToolState] = useState<EditorTool<S> | null>(null)
+  // The stroke being drawn with it, snapped and constrained — and whether Escape dropped it before it was let go.
+  const [stroke, setStroke] = useState<PlanStroke | null>(null)
+  const strokeRef = useRef<'idle' | 'drawing' | 'cancelled'>('idle')
+  // Where a tap would draw while a tool is active (snapped) — the tool previews there.
+  const [pointer, setPointer] = useState<PlanPoint | null>(null)
+  // The plan point under the pointer, whatever the tool — pasting lands there. Null when it is off the plan.
+  const pointerRef = useRef<PlanPoint | null>(null)
+  // What a tap would select under the pointer.
+  const [hovered, setHovered] = useState<EditorSelection<S> | null>(null)
+  const [clipboard, setClipboard] = useState<Clip | null>(null)
   const locked = new Set(lockedIds)
   const grid = snap ?? null
 
   const plan = history.present
   const dirty = history.dirty
+  // What is selected and still in the plan — an undo, a redo or an edit may have taken some of it away.
+  const inPlan = new Set(seatPlan.idsOf(plan))
+  const selection = chosen.filter((item) =>
+    item.kind === 'section' ? seatPlan.sectionOf(plan, item.id) !== undefined : inPlan.has(item.id),
+  )
   // Selected objects and groups by id — what the operations take.
   const selectedIds = selection.flatMap((item) => (item.kind === 'section' ? [] : [item.id]))
-  const selectedObjectIds = new Set(selectedIds.flatMap((id) => planEdits.unitOf(plan, id).map((o) => o.id)))
-  const selectedObjects = plan.objects.filter((object) => selectedObjectIds.has(object.id))
+  const selectedSectionIds = selection.flatMap((item) => (item.kind === 'section' ? [item.id] : []))
+  // What the selected ids stand for — groups by their members — in one pass, however much is selected.
+  const selectedIdSet = new Set(selectedIds)
+  const selectedObjects = plan.objects.filter(
+    (object) => selectedIdSet.has(object.id) || (object.group !== undefined && selectedIdSet.has(object.group)),
+  )
   const selectedGroups = selection.flatMap((item) =>
     item.kind === 'group' ? (seatPlan.groupById(plan, item.id) ?? []) : [],
   )
-  const selectedSectionId = selection.find((item) => item.kind === 'section')?.id as S | undefined
   // The places of the selection — pass them to the renderer as selected.
   const selectedPlaceIds = selectedObjects.flatMap((object) => (object.kind === 'place' ? [object.id] : []))
   // The plan as drawn — the drag in progress applied with the snapping it will commit with.
   const displayPlan = drag === null ? plan : planEdits.applyDrag(plan, drag, selectedIds, grid)
-  // Places that overlap on the plan as drawn. The schema refuses to save them; pass them to
+  // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it.
+  const toolStroke = tool === null ? null : (stroke ?? (pointer === null ? null : { start: pointer, end: pointer }))
+  const created = tool === null || toolStroke === null ? null : tool.create(plan, toolStroke)
+  // Only the new objects (and the groups they belong to), as a plan without sections — draw it over the plan,
+  // e.g. half transparent. null when the tool would make nothing there.
+  const draft = created === null ? null : addedPart(plan, created)
+  // Places that overlap on the plan as drawn, the draft included. The schema refuses to save them; pass them to
   // <SeatMap.Content invalid> to mark them while arranging.
-  const conflictIds = [...new Set(seatPlan.conflictsOf(displayPlan).flat())]
-  // Handles for a single selected item, placed on the plan as drawn so they follow a drag.
-  const handles: PlanHandle<S>[] = planHandles.of(displayPlan, selection)
+  const conflictIds = [...new Set(seatPlan.conflictsOf(created ?? displayPlan).flat())]
+  // Handles for a single selected item, placed on the plan as drawn so they follow a drag. None while a tool is
+  // active — every press draws then.
+  const handles: PlanHandle<S>[] = tool === null ? planHandles.of(displayPlan, selection) : []
   // The outline those handles belong to — pass it to <SeatMap.Handles frame>.
-  const frame = planHandles.frame(displayPlan, selection)
+  const frame = tool === null ? planHandles.frame(displayPlan, selection) : null
+  // The outline of every selected object and group — draw them (<SeatMap.Outline>) when more than one item is
+  // selected, so fixtures and groups show they are in the selection too.
+  const frames = planHandles.frames(displayPlan, selection)
+  // The outline of what a tap would select under the pointer — none while dragging, drawing, or over the selection.
+  const hoverFrame =
+    tool === null && drag === null && hovered !== null && !selection.some((item) => sameSelection(item, hovered))
+      ? planHandles.frame(displayPlan, [hovered])
+      : null
   // The rubber band being dragged, in plan units — draw it with <SeatMap.Marquee>.
   const [marquee, setMarquee] = useState<PlanRect | null>(null)
 
@@ -144,6 +193,11 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     )
   }
 
+  // Selects every object — grouped ones as their group.
+  function selectAll() {
+    setSelection(unitsOf(historyRef.current.present.objects))
+  }
+
   function handleTap(target: PlanTarget<S> | null, info: { additive: boolean }) {
     select(target, info.additive)
   }
@@ -163,15 +217,13 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     }
     setMarquee(null)
     const current = historyRef.current.present
-    const picked: EditorSelection<S>[] = []
-    for (const id of seatPlan.objectsInRect(current, rect)) {
-      const group = seatPlan.objectById(current, id)?.group
-      const item = group === undefined ? { kind: 'object' as const, id } : { kind: 'group' as const, id: group }
-      if (!picked.some((other) => sameSelection(other, item))) picked.push(item)
-    }
-    setSelection((existing) =>
-      info.additive ? [...existing, ...picked.filter((item) => !existing.some((c) => sameSelection(c, item)))] : picked,
-    )
+    const inside = new Set(seatPlan.objectsInRect(current, rect))
+    const picked = unitsOf(current.objects.filter((object) => inside.has(object.id)))
+    setSelection((existing) => {
+      if (!info.additive) return picked
+      const held = new Set(existing.map(keyOf))
+      return [...existing, ...picked.filter((item) => !held.has(keyOf(item)))]
+    })
   }
 
   function handleDrag(next: PlanDrag<S>) {
@@ -186,6 +238,66 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     }
     setDrag(null)
     apply((current) => planEdits.applyDrag(current, next, selectedIds, grid))
+  }
+
+  // The pointer over the plan — the tool previews a tap there; otherwise it outlines what a tap would select.
+  function handleHover(point: PlanPoint | null, target: PlanTarget<S> | null) {
+    pointerRef.current = point
+    if (tool !== null) {
+      const at = point === null ? null : strokeOf('point', point, point, NO_KEYS, grid).end
+      setPointer((current) => (samePoint(current, at) ? current : at))
+      return
+    }
+    const item =
+      target === null || target.kind === 'handle' || target.kind === 'section' ? null : selectionOf(target, selection)
+    setHovered((current) => (current === item || (current && item && sameSelection(current, item)) ? current : item))
+  }
+
+  // A stroke drawn with the tool — previewed while it moves, made when it is let go (a tap makes one too).
+  function handleDraw(raw: PlanStroke, info: DrawInfo) {
+    if (tool === null) return
+    if (info.phase === 'cancel') {
+      strokeRef.current = 'idle'
+      setStroke(null)
+      return
+    }
+    if (info.phase === 'start') strokeRef.current = 'drawing'
+    if (strokeRef.current === 'cancelled') {
+      if (info.phase === 'end') strokeRef.current = 'idle'
+      return
+    }
+    const shaped = strokeOf(tool.draw, raw.start, raw.end, info, grid)
+    if (info.phase !== 'end') {
+      setStroke(shaped)
+      return
+    }
+    strokeRef.current = 'idle'
+    setStroke(null)
+    // The pointer is still where the tap was — no preview of the next one on top of what was just made.
+    setPointer(null)
+    const before = historyRef.current.present
+    const next = tool.create(before, shaped)
+    if (next === null || !apply(() => next)) return
+    setSelection(addedSelection(before, next))
+    if (!tool.keep) setToolState(null)
+  }
+
+  // Picks a creation tool, or goes back to selecting with null. A stroke being drawn is dropped.
+  function setTool(next: EditorTool<S> | null) {
+    if (strokeRef.current === 'drawing') strokeRef.current = 'cancelled'
+    setStroke(null)
+    setToolState(next)
+    setHovered(null)
+    const point = pointerRef.current
+    setPointer(next === null || point === null ? null : strokeOf('point', point, point, NO_KEYS, grid).end)
+  }
+
+  // Drops the stroke being drawn (Escape) — letting go then makes nothing. false when none was being drawn.
+  function cancelDraw(): boolean {
+    if (strokeRef.current !== 'drawing') return false
+    strokeRef.current = 'cancelled'
+    setStroke(null)
+    return true
   }
 
   // Runs an operation that adds objects, commits it and selects what it made.
@@ -230,6 +342,15 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     return added(result, pick)
   }
 
+  // Adds a template centred on `at` (see `planEdits.insertTemplate`) and selects what it made. Returns the new ids.
+  function insert(template: PlanTemplate, at: PlanPoint, options: { section?: S } = {}): string[] {
+    const before = historyRef.current.present
+    const result = planEdits.insertTemplate(before, template, at, options)
+    if (!result || !apply(() => result.plan)) return []
+    setSelection(addedSelection(before, result.plan))
+    return result.ids
+  }
+
   // Removes objects and groups; returns the ids refused because they hold a locked id.
   function removeObjects(ids: readonly string[]): string[] {
     const { plan: next, refused } = planEdits.remove(historyRef.current.present, ids, locked)
@@ -247,6 +368,37 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
       current.map((item) => (item.kind !== 'section' && item.id === id ? { ...item, id: nextId } : item)),
     )
     return true
+  }
+
+  // Copies the selection to the editor's clipboard, as a template. null when nothing is selected.
+  function copySelected(): PlanTemplate | null {
+    const made = planEdits.templateOf(historyRef.current.present, selectedIds)
+    if (!made) return null
+    setClipboard({ template: made.template, at: made.at, pastes: 0 })
+    return made.template
+  }
+
+  // Copies the selection, then removes it. Returns the ids refused because they are locked — those stay.
+  function cutSelected(): string[] {
+    if (copySelected() === null) return []
+    return removeObjects(selectedIds)
+  }
+
+  // Pastes the clipboard centred on `at` — by default under the pointer when it is over the plan, otherwise beside
+  // what was copied (a step further each time). Returns the new ids and selects them.
+  function paste(at?: PlanPoint): string[] {
+    if (clipboard === null) return []
+    const step = PASTE_STEP * (clipboard.pastes + 1)
+    const pointed = pointerRef.current
+    const target =
+      at ??
+      (pointed === null
+        ? { x: clipboard.at.x + step, y: clipboard.at.y + step }
+        : strokeOf('point', pointed, pointed, NO_KEYS, grid).end)
+    const ids = insert(clipboard.template, target)
+    if (ids.length > 0 && at === undefined && pointed === null)
+      setClipboard({ ...clipboard, pastes: clipboard.pastes + 1 })
+    return ids
   }
 
   // Copies the selection next to itself and selects the copies.
@@ -291,14 +443,17 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     selectedIds,
     selectedObjects,
     selectedGroups,
-    selectedSection: selectedSectionId === undefined ? undefined : seatPlan.sectionOf(plan, selectedSectionId),
+    selectedSection: selectedSectionIds[0] === undefined ? undefined : seatPlan.sectionOf(plan, selectedSectionIds[0]),
     selectedPlaceIds,
     handles,
     frame,
+    frames,
+    hoverFrame,
     marquee,
     conflictIds,
     snap: grid,
     select,
+    selectAll,
     isLocked: (id: string) => planEdits.isLocked(plan, id, locked),
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
@@ -306,13 +461,31 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     redo,
     reset,
 
+    // Creation tools — pick one with `setTool`; presses on the plan then draw with it (see `EditorTool`).
+    tool,
+    setTool,
+    // The stroke being drawn, snapped and constrained — draw it as a guide if you like. null between strokes.
+    stroke,
+    draft,
+    // Where a tap would draw while a tool is active, or null when the pointer is off the plan. With `draft` null
+    // it says the tool can make nothing there — tell people why.
+    pointer,
+    cancelDraw,
+
     // Creating — each returns the new ids and selects what it made (an empty list when nothing could be added).
     addPlaces,
     addFixtures,
     addLabels: (groupId: string, boxes: readonly PlanBox[]) =>
       added(planEdits.addLabels(historyRef.current.present, groupId, boxes), [{ kind: 'group', id: groupId }]),
+    insert,
     duplicateSelected,
     groupSelected,
+
+    // The clipboard — a template of what was copied (save it to a library of objects if you like), or null.
+    clipboard: clipboard === null ? null : clipboard.template,
+    copySelected,
+    cutSelected,
+    paste,
 
     // Changing.
     // Any plan → plan change as one undo step — compose `planEdits` and `layout` into a single edit (a row with
@@ -339,7 +512,14 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     alignSelected: (edge: AlignEdge) => apply((current) => planEdits.align(current, selectedIds, edge)),
     distributeSelected: (axis: 'x' | 'y') => apply((current) => planEdits.distribute(current, selectedIds, axis)),
     rotateSelected: (degrees: number) => apply((current) => planEdits.rotate(current, selectedIds, degrees)),
-    moveSelected: (delta: PlanPoint) => apply((current) => planEdits.move(current, selectedIds, delta, grid)),
+    // Moves the selection — objects, groups and sections — by `delta`, snapped like a drag.
+    moveSelected: (delta: PlanPoint) =>
+      apply((current) =>
+        selectedSectionIds.reduce(
+          (next, id) => planEdits.moveSection(next, id, delta, grid),
+          planEdits.move(current, selectedIds, delta, grid),
+        ),
+      ),
     moveSection: (id: S, delta: PlanPoint) => apply((current) => planEdits.moveSection(current, id, delta, grid)),
     reshapeSection: (id: S, points: PlanPoint[]) =>
       apply((current) => planEdits.reshapeSection(current, id, points, grid)),
@@ -356,15 +536,22 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
       canDrag,
       onTargetDrag: handleDrag,
       onMarquee: handleMarquee,
+      onHover: handleHover,
+      onDraw: tool === null ? undefined : handleDraw,
+      // With something selected the arrow keys move it (useSeatPlanEditorShortcuts); otherwise they move the focus.
+      navigable: selection.length === 0 && tool === null,
     },
   }
 }
 
-// Keyboard shortcuts — Delete/Backspace removes the selection, R turns it a quarter clockwise (⇧R back),
-// ⌘/Ctrl+Z undoes, ⇧⌘Z / Ctrl+Y redoes, ⌘/Ctrl+D duplicates, ⌘/Ctrl+G groups. Ignored while typing in an input,
-// textarea, select or contenteditable.
+// Keyboard shortcuts — Delete/Backspace removes the selection; the arrow keys move it (Shift: ten units, or a
+// whole cell when snapping); R turns it a quarter clockwise (⇧R back); Escape drops a stroke, then the tool, then
+// the selection; ⌘/Ctrl+A selects everything; ⌘C, ⌘X and ⌘V copy, cut and paste (under the pointer when it is over
+// the plan); ⌘D duplicates; ⌘G groups; ⌘Z undoes and ⇧⌘Z / Ctrl+Y redo. Ignored while typing in an input,
+// textarea, select or contenteditable, and for keys a handler already took (`preventDefault`).
 export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEditor<S>) {
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if (e.defaultPrevented) return
     if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]')) return
     const command = e.metaKey || e.ctrlKey
     // Physical keys — with a non-Latin input method active `e.key` is not a Latin letter.
@@ -389,7 +576,40 @@ export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEdi
       editor.groupSelected()
       return
     }
+    if (command && e.code === 'KeyA') {
+      e.preventDefault()
+      editor.selectAll()
+      return
+    }
+    // Text the page has selected is the browser's to copy.
+    if (command && (e.code === 'KeyC' || e.code === 'KeyX')) {
+      if (editor.selectedIds.length === 0 || hasTextSelection()) return
+      e.preventDefault()
+      if (e.code === 'KeyC') editor.copySelected()
+      else editor.cutSelected()
+      return
+    }
+    if (command && e.code === 'KeyV') {
+      if (editor.clipboard === null) return
+      e.preventDefault()
+      editor.paste()
+      return
+    }
     if (command || e.altKey) return
+    if (e.key === 'Escape') {
+      if (editor.cancelDraw()) return
+      if (editor.tool !== null) editor.setTool(null)
+      else if (editor.selection.length > 0) editor.select(null)
+      return
+    }
+    const arrow = ARROWS[e.key]
+    if (arrow) {
+      if (editor.selection.length === 0) return
+      e.preventDefault()
+      const step = editor.snap ? (e.shiftKey ? editor.snap.cell : editor.snap.cell / 2) : e.shiftKey ? 10 : 1
+      editor.moveSelected({ x: arrow.x * step, y: arrow.y * step })
+      return
+    }
     if (e.code === 'KeyR') {
       editor.rotateSelected(e.shiftKey ? -90 : 90)
       return
@@ -404,6 +624,19 @@ export function useSeatPlanEditorShortcuts<S extends string>(editor: SeatPlanEdi
   }, [])
 }
 
+const ARROWS: Partial<Record<string, PlanPoint>> = {
+  ArrowLeft: { x: -1, y: 0 },
+  ArrowRight: { x: 1, y: 0 },
+  ArrowUp: { x: 0, y: -1 },
+  ArrowDown: { x: 0, y: 1 },
+}
+
+// Whether a range of page text is selected — ⌘C then copies it, not the plan's selection.
+function hasTextSelection(): boolean {
+  const selected = window.getSelection()
+  return selected !== null && !selected.isCollapsed && selected.toString().length > 0
+}
+
 // Whether a selection already holds an item — itself, or the group of a grouped object.
 function covers<S extends string>(
   plan: SeatPlan<S>,
@@ -416,6 +649,51 @@ function covers<S extends string>(
   return group !== undefined && selection.some((other) => other.kind === 'group' && other.id === group)
 }
 
+// The selection that holds these objects — each on its own, or its group once.
+function unitsOf<S extends string>(objects: readonly PlanObject<S>[]): EditorSelection<S>[] {
+  const seen = new Set<string>()
+  const units: EditorSelection<S>[] = []
+  for (const object of objects) {
+    const item: EditorSelection<S> =
+      object.group === undefined ? { kind: 'object', id: object.id } : { kind: 'group', id: object.group }
+    if (seen.has(keyOf(item))) continue
+    seen.add(keyOf(item))
+    units.push(item)
+  }
+  return units
+}
+
+function keyOf(item: EditorSelection<string>): string {
+  return `${item.kind}:${item.id}`
+}
+
 function sameSelection<S extends string>(a: EditorSelection<S>, b: EditorSelection<S>): boolean {
   return a.kind === b.kind && a.id === b.id
+}
+
+function samePoint(a: PlanPoint | null, b: PlanPoint | null): boolean {
+  return a === b || (a !== null && b !== null && a.x === b.x && a.y === b.y)
+}
+
+// What `after` adds to `before` — its new objects and the groups they belong to, as a plan with no sections.
+function addedPart<S extends string>(before: SeatPlan<S>, after: SeatPlan<S>): SeatPlan<S> {
+  const known = new Set(seatPlan.idsOf(before))
+  const objects = after.objects.filter((o) => !known.has(o.id))
+  const groups = new Set(objects.flatMap((o) => (o.group === undefined ? [] : [o.group])))
+  return { ...after, sections: [], groups: after.groups.filter((g) => groups.has(g.id)), objects }
+}
+
+// The selection of what `after` adds to `before` — new groups as groups, new objects outside them one by one.
+function addedSelection<S extends string>(before: SeatPlan<S>, after: SeatPlan<S>): EditorSelection<S>[] {
+  const known = new Set(seatPlan.idsOf(before))
+  const groups = after.groups.filter((g) => !known.has(g.id)).map((g) => g.id)
+  const fresh = new Set(groups)
+  return [
+    ...groups.map((id) => ({ kind: 'group' as const, id })),
+    ...after.objects.flatMap((o) =>
+      known.has(o.id) || o.kind === 'label' || (o.group !== undefined && fresh.has(o.group))
+        ? []
+        : [{ kind: 'object' as const, id: o.id }],
+    ),
+  ]
 }

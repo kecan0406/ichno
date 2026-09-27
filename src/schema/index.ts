@@ -84,8 +84,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
       objects: z.array(PlanObject),
     })
     .superRefine((plan, ctx) => {
-      const report = (path: (string | number)[], issue: SeatPlanIssue) =>
-        ctx.addIssue({ code: 'custom', path, message: `${ISSUE_PREFIX}${issue.code}`, params: issue })
+      const report = reporter(ctx)
 
       const sectionIds = new Set<string>()
       for (const [i, section] of plan.sections.entries()) {
@@ -101,20 +100,9 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
         categoryKeys.add(category.key)
       }
 
-      // Objects and groups share one id namespace.
-      const ids = new Set<string>()
-      const claim = (path: (string | number)[], id: string) => {
-        if (ids.has(id)) report(path, { code: 'duplicate_id', id })
-        ids.add(id)
-      }
-      for (const [i, group] of plan.groups.entries()) claim(['groups', i, 'id'], group.id)
-      const groupIds = new Set(plan.groups.map((group) => group.id))
-
+      referenceRules(plan, report)
       for (const [i, object] of plan.objects.entries()) {
         const path = ['objects', i]
-        claim([...path, 'id'], object.id)
-        if (object.group !== undefined && !groupIds.has(object.group))
-          report([...path, 'group'], { code: 'unknown_group', id: object.id, group: object.group })
         if (object.kind === 'place' && object.category !== undefined && !categoryKeys.has(object.category))
           report([...path, 'category'], { code: 'unknown_category', id: object.id, category: object.category })
         // A group label may sit in the margin beside its row; everything else stays on the plan.
@@ -128,6 +116,16 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
       for (const [a, b] of seatPlan.conflictsOf(plan))
         report(['objects', indexOf.get(b)!], { code: 'overlap', ids: [a, b] })
     })
+
+  // A saved piece of a plan (`PlanTemplate`) — places without a section, since they take the one they land in.
+  // Only its references are checked; where it lands decides the rest when the editor inserts it.
+  const Template = z
+    .object({
+      version: z.literal(3),
+      groups: z.array(Group).default([]),
+      objects: z.array(z.discriminatedUnion('kind', [Place.omit({ section: true }), Fixture, GroupLabel])),
+    })
+    .superRefine((template, ctx) => referenceRules(template, reporter(ctx)))
 
   // The 0.2 document — only the structure the upgrade reads; the rules run on the upgraded document.
   const Bookable = {
@@ -236,13 +234,38 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
     return upgradeV2(parsed.data as SeatPlanV2)
   }, Document)
 
-  return { SeatPlan, Section, Category, Group, PlanObject, Place, Fixture, GroupLabel }
+  return { SeatPlan, Template, Section, Category, Group, PlanObject, Place, Fixture, GroupLabel }
 }
 
 // The structured issue behind a plan-level violation, or null for any other zod issue.
 export function seatPlanIssueOf(issue: z.core.$ZodIssue): SeatPlanIssue | null {
   if (issue.code !== 'custom' || !issue.message.startsWith(ISSUE_PREFIX)) return null
   return (issue.params as SeatPlanIssue | undefined) ?? null
+}
+
+type Report = (path: (string | number)[], issue: SeatPlanIssue) => void
+
+function reporter(ctx: z.core.$RefinementCtx): Report {
+  return (path, issue) => ctx.addIssue({ code: 'custom', path, message: `${ISSUE_PREFIX}${issue.code}`, params: issue })
+}
+
+// Ids are unique — objects and groups share one namespace — and objects point at groups that exist.
+function referenceRules(
+  plan: { groups: readonly { id: string }[]; objects: readonly { id: string; group?: string }[] },
+  report: Report,
+) {
+  const ids = new Set<string>()
+  const claim = (path: (string | number)[], id: string) => {
+    if (ids.has(id)) report(path, { code: 'duplicate_id', id })
+    ids.add(id)
+  }
+  for (const [i, group] of plan.groups.entries()) claim(['groups', i, 'id'], group.id)
+  const groupIds = new Set(plan.groups.map((group) => group.id))
+  for (const [i, object] of plan.objects.entries()) {
+    claim(['objects', i, 'id'], object.id)
+    if (object.group !== undefined && !groupIds.has(object.group))
+      report(['objects', i, 'group'], { code: 'unknown_group', id: object.id, group: object.group })
+  }
 }
 
 // Turned shapes have fractional bounds; a hair of float error at the edge is still inside.

@@ -1,7 +1,7 @@
 import { OBJECT_ID_MAX, PLACE_ID_MAX, seatPlan } from '../core/geometry'
 import { GRID_CELL } from '../core/grid'
 import type { LabelSequence } from '../core/labeling'
-import { normalizeRotation, unionBounds } from '../core/math'
+import { boundsOfBox, centerOfBox, normalizeRotation, unionBounds } from '../core/math'
 import type {
   Fixture,
   Group,
@@ -12,11 +12,13 @@ import type {
   PlanObject,
   PlanPoint,
   PlanRect,
+  PlanTemplate,
   SeatPlan,
   Section,
   Shape,
+  TemplateObject,
 } from '../core/types'
-import { planHandles } from './handles'
+import { alongAxis, planHandles } from './handles'
 import { pivotOf, turnObjects, withGroupRotation } from './turn'
 
 // Editor operations as pure functions — plan in, plan out. The hook keeps history and selection around them;
@@ -49,6 +51,8 @@ export const planEdits = {
   align,
   distribute,
   duplicate,
+  templateOf,
+  insertTemplate,
   remove,
   rename,
   rotate,
@@ -355,6 +359,119 @@ function duplicate<S extends string>(
   return { plan: next, ids: created }
 }
 
+// A template of what `ids` hold, the way a selection holds them — a group with all its members and labels, an
+// object on its own (out of its group, unless the group comes too). Coordinates become relative to the middle of
+// its objects, in whole units; `at` is where that middle is, so inserting the template there puts the copy on the
+// original. null when the ids hold nothing.
+function templateOf<S extends string>(
+  plan: SeatPlan<S>,
+  ids: readonly string[],
+): { template: PlanTemplate; at: PlanPoint } | null {
+  const groups = new Set(ids.filter((id) => seatPlan.groupById(plan, id) !== undefined))
+  const wanted = new Set(ids.flatMap((id) => unitOf(plan, id).map((o) => o.id)))
+  // A label names its group — it only comes along with it.
+  const objects = plan.objects.filter((o) => wanted.has(o.id) && (o.kind !== 'label' || groups.has(o.group)))
+  const extent = seatPlan.extentOf(objects.filter((o) => o.kind !== 'label'))
+  if (!extent) return null
+  const at = { x: Math.round(extent.x + extent.w / 2), y: Math.round(extent.y + extent.h / 2) }
+  return {
+    at,
+    template: {
+      version: 3,
+      groups: plan.groups.filter((g) => groups.has(g.id)),
+      objects: objects.map((o): TemplateObject => {
+        const moved = seatPlan.translate(o, -at.x, -at.y)
+        if (moved.kind === 'label') return moved
+        const { group, ...loose } = moved
+        const kept = group !== undefined && groups.has(group) ? moved : loose
+        if (kept.kind !== 'place') return kept
+        const { section: _, ...rest } = kept
+        return rest
+      }),
+    },
+  }
+}
+
+// Adds a template's objects centred on `at`, with fresh ids: places continue the numbering of the section they
+// land in (`section` when they land in none), fixtures and labels are `<role>-<n>`, and groups get new ids. The
+// copy is held inside the plan, drawn on top, and keeps no category the plan does not list. Returns the new ids —
+// a group by its group id — or null when a place would land outside every section or its id would not save.
+function insertTemplate<S extends string>(
+  plan: SeatPlan<S>,
+  template: PlanTemplate,
+  at: PlanPoint,
+  options: { section?: S } = {},
+): Added<S> | null {
+  // Groups without members (or listed twice), and labels of groups the template does not hold, are left out.
+  const groups = template.groups.filter(
+    (g, i, all) =>
+      all.findIndex((other) => other.id === g.id) === i &&
+      template.objects.some((o) => o.kind !== 'label' && o.group === g.id),
+  )
+  const held = new Set(groups.map((g) => g.id))
+  const origin = { x: Math.round(at.x), y: Math.round(at.y) }
+  const pieces = template.objects
+    .filter((o) => o.kind !== 'label' || held.has(o.group))
+    .map((o) => {
+      const { rotation: _, ...rest } = o
+      return { ...rest, ...boxOf(seatPlan.translate(o, origin.x, origin.y)) } as TemplateObject
+    })
+  const extent = unionBounds(pieces.flatMap((o) => (o.kind === 'label' ? [] : [boundsOfBox(o, o.shape)])))
+  if (!extent) return null
+  // Held inside the plan by what it draws — labels may sit in the margin.
+  const dx = inward(extent.x, extent.w, plan.width, 1)
+  const dy = inward(extent.y, extent.h, plan.height, 1)
+  const placed = pieces.map((o) => seatPlan.translate(o, dx, dy))
+  const middle = { x: extent.x + dx + extent.w / 2, y: extent.y + dy + extent.h / 2 }
+  const fallback = options.section ?? seatPlan.sectionAt(plan, middle)
+  const sections = placed.map((o) =>
+    o.kind === 'place' ? (seatPlan.sectionAt(plan, centerOfBox(o)) ?? fallback) : null,
+  )
+  if (placed.some((o, i) => o.kind === 'place' && sections[i] === null)) return null
+
+  let next = plan
+  const groupIds = new Map<string, string>()
+  for (const { id, ...props } of groups) {
+    const made = addGroup(next, props)
+    next = made.plan
+    groupIds.set(id, made.id)
+  }
+  // Fresh ids in batches — places by section, the rest by prefix — each batch seeing the ones handed out before.
+  const batches: { section: string | null; prefix: string; indices: number[] }[] = []
+  placed.forEach((o, i) => {
+    const section = sections[i] ?? null
+    const prefix = o.kind === 'label' ? 'label' : o.kind === 'fixture' ? (o.role ?? 'fixture') : ''
+    const batch = batches.find((b) => b.section === section && b.prefix === prefix)
+    if (batch) batch.indices.push(i)
+    else batches.push({ section, prefix, indices: [i] })
+  })
+  const ids: string[] = []
+  let scratch: SeatPlan<S> = next
+  for (const { section, prefix, indices } of batches) {
+    const fresh =
+      section === null ? objectIds(scratch, prefix, indices.length) : placeIds(scratch, section, indices.length)
+    if (!fresh) return null
+    indices.forEach((index, k) => (ids[index] = fresh[k]!))
+    scratch = { ...scratch, groups: [...scratch.groups, ...fresh.map((id) => ({ id }))] }
+  }
+
+  const categories = new Set(plan.categories.map((c) => c.key))
+  const objects = placed.map((o, i): PlanObject<S> => {
+    const id = ids[i]!
+    if (o.kind === 'label') return { ...o, id, group: groupIds.get(o.group)! }
+    const group = o.group === undefined ? undefined : groupIds.get(o.group)
+    if (o.kind === 'fixture') {
+      const { group: _, ...rest } = o
+      return { ...rest, id, ...defined({ group }) }
+    }
+    const { group: _, category, ...rest } = o
+    const known = category !== undefined && categories.has(category) ? category : undefined
+    return { ...rest, id, section: sections[i] as S, ...defined({ group, category: known }) }
+  })
+  const loose = objects.flatMap((o) => (o.kind !== 'label' && o.group === undefined ? [o.id] : []))
+  return { plan: { ...next, objects: [...next.objects, ...objects] }, ids: [...groupIds.values(), ...loose] }
+}
+
 // Removes objects and groups, skipping any that hold a locked id. Groups left without members go too. Returns
 // the plan and the ids it refused to remove.
 function remove<S extends string>(
@@ -495,16 +612,18 @@ function reshapeSection<S extends string>(
 
 // The plan with a drag applied — a handle reshapes or turns its owner, a section moves by whole cells, objects by
 // the drag total. When the dragged object is part of `selected` (object and group ids), the whole selection
-// moves; otherwise the object alone, or its group when it has one.
+// moves; otherwise the object alone, or its group when it has one. A constrained move keeps to the axis it went
+// furthest along.
 function applyDrag<S extends string>(
   plan: SeatPlan<S>,
   drag: PlanDrag<S>,
   selected: readonly string[] = [],
   snap: Snap | null = null,
 ): SeatPlan<S> {
-  const { target, total } = drag
+  const { target, constrain = false } = drag
+  if (target.kind === 'handle') return planHandles.drag(plan, target.owner, target.name, drag.total, snap, constrain)
+  const total = constrain ? alongAxis(drag.total) : drag.total
   if (target.kind === 'section') return moveSection(plan, target.id, total, snap)
-  if (target.kind === 'handle') return planHandles.drag(plan, target.owner, target.name, total, snap)
   const object = seatPlan.objectById(plan, target.id)
   if (!object) return plan
   const covered = selected.includes(object.id) || (object.group !== undefined && selected.includes(object.group))

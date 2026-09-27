@@ -156,6 +156,16 @@ describe('planHandles.drag', () => {
     expect(plan.sections[0]!.points[2]).toEqual({ x: 966, y: 690 })
     expect(plan.sections[0]!.points[1]).toEqual({ x: 920, y: 0 })
   })
+
+  it('constrained (Shift), turns in 15° steps, resizes in proportion and moves a vertex along one axis', () => {
+    const turned = planHandles.drag(planOf([desk]), owner('A1'), 'rotate', { x: 30, y: 0 }, null, true)
+    expect(objectOf(turned, 'A1')!.rotation! % 15).toBe(0)
+    // Pulled twice as wide, the 138 × 23 screen grows twice as tall too.
+    const wider = planHandles.drag(planOf([tv]), owner('tv-1'), 'se', { x: 138, y: 0 }, null, true)
+    expect(objectOf(wider, 'tv-1')).toMatchObject({ x: 230, y: 0, w: 276, h: 46 })
+    const vertex = planHandles.drag(planOf([]), { kind: 'section', id: 'A' }, 'vertex-2', { x: 40, y: 10 }, null, true)
+    expect(vertex.sections[0]!.points[2]).toEqual({ x: 960, y: 690 })
+  })
 })
 
 describe('marquee', () => {

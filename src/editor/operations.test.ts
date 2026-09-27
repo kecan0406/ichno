@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seatPlan } from '../core/geometry'
 import { labeling } from '../core/labeling'
 import { layout } from '../core/layout'
-import type { Place, PlanObject, SeatPlan } from '../core/types'
+import type { Place, PlanObject, PlanTemplate, SeatPlan } from '../core/types'
 import { planEdits } from './operations'
 
 type S = 'A' | 'B'
@@ -211,6 +211,14 @@ describe('planEdits — arranging', () => {
     expect(seatPlan.membersOf(copy.plan, 'row-2').map((o) => o.id)).toEqual(['A5', 'A6', 'A7', 'A8'])
   })
 
+  it('keeps a constrained (Shift) move to the axis it went furthest along', () => {
+    const drag = { target: { kind: 'place' as const, id: 'A1' }, phase: 'end' as const, total: { x: 92, y: 30 } }
+    expect(seatPlan.objectById(planEdits.applyDrag(plan, { ...drag, constrain: true }), 'A1')).toMatchObject({
+      x: 94,
+      y: 2,
+    })
+  })
+
   it('moves the whole selection when a selected object is dragged, the object (or its group) otherwise', () => {
     const drag = { target: { kind: 'place' as const, id: 'A1' }, phase: 'end' as const, total: { x: 92, y: 0 } }
     expect(xs(planEdits.applyDrag(plan, drag, ['A1', 'A2']))).toEqual([94, 278, 370])
@@ -268,5 +276,70 @@ describe('planEdits — arranging', () => {
     expect(seatPlan.objectById(swapped, 'A1')).toMatchObject({ x: 370, y: 186, rotation: 180 })
     expect(seatPlan.objectById(swapped, 'A3')).toMatchObject({ x: 2, y: 2, rotation: 180 })
     expect(seatPlan.objectById(swapped, 'A2')).toMatchObject({ x: 186, y: 94 })
+  })
+})
+
+describe('planEdits — templates', () => {
+  // Row `row-1` (A1–A4, centres 46 to 460 on y 400) with its label beyond the last seat.
+  const { plan: rowed } = withRow(planOf([desk('D1', 600, 2)]))
+  const plan = planEdits.addLabels(rowed, 'row-1', [{ x: 480, y: 380, w: 40, h: 40 }]).plan
+
+  it('holds what a selection holds, around its middle — a group with its labels, an object out of its group', () => {
+    const made = planEdits.templateOf(plan, ['row-1'])!
+    expect(made.at).toEqual({ x: 253, y: 400 })
+    expect(made.template.groups.map((g) => g.id)).toEqual(['row-1'])
+    expect(made.template.objects.map((o) => [o.kind, o.x, o.y])).toEqual([
+      ['place', -227, -20],
+      ['place', -89, -20],
+      ['place', 49, -20],
+      ['place', 187, -20],
+      ['label', 227, -20],
+    ])
+    expect(made.template.objects.some((o) => 'section' in o)).toBe(false)
+    // A seat picked alone leaves its row; a label never comes without its group.
+    expect(planEdits.templateOf(plan, ['A2', 'label-1'])!.template).toEqual({
+      version: 3,
+      groups: [],
+      objects: [{ kind: 'place', id: 'A2', x: -20, y: -20, w: 40, h: 40, shape: 'ellipse', capacity: 1 }],
+    })
+  })
+
+  it('inserts with fresh ids — places take the numbering of the section they land in', () => {
+    const { template, at } = planEdits.templateOf(plan, ['row-1'])!
+    const again = planEdits.insertTemplate(plan, template, at)!
+    expect(again.ids).toEqual(['row-2'])
+    const copy = seatPlan.membersOf(again.plan, 'row-2')
+    expect(copy.map((o) => o.id)).toEqual(['A5', 'A6', 'A7', 'A8', 'label-2'])
+    // Inserted where it came from, the copy lies exactly on the original.
+    expect(copy.map((o) => [o.x, o.y])).toEqual(seatPlan.membersOf(plan, 'row-1').map((o) => [o.x, o.y]))
+    const inB = planEdits.insertTemplate(plan, template, { x: 759, y: 200 })!
+    expect(
+      seatPlan.membersOf(inB.plan, 'row-2').flatMap((o) => (o.kind === 'place' ? [`${o.id} ${o.section}`] : [])),
+    ).toEqual(['B1 B', 'B2 B', 'B3 B', 'B4 B'])
+  })
+
+  it('holds the copy inside the plan, drops categories the plan lacks, and needs a section for places', () => {
+    const seat: PlanTemplate = {
+      version: 3,
+      groups: [],
+      objects: [
+        { kind: 'place', id: 'x', x: -20, y: -20, w: 40, h: 40, shape: 'ellipse', capacity: 1, category: 'vip' },
+      ],
+    }
+    const corner = planEdits.insertTemplate(planOf(), seat, { x: 0, y: 0 })!
+    expect(seatPlan.objectById(corner.plan, 'A1')).toEqual({
+      kind: 'place',
+      id: 'A1',
+      section: 'A',
+      x: 0,
+      y: 0,
+      w: 40,
+      h: 40,
+      shape: 'ellipse',
+      capacity: 1,
+    })
+    const small = { ...planOf(), sections: [{ id: 'A' as S, points: rect(0, 0, 200, 200) }] }
+    expect(planEdits.insertTemplate(small, seat, { x: 600, y: 600 })).toBeNull()
+    expect(planEdits.insertTemplate(small, seat, { x: 600, y: 600 }, { section: 'A' })!.ids).toEqual(['A1'])
   })
 })

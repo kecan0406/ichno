@@ -20,7 +20,7 @@ import {
   type GestureState,
 } from '../../core/gesture'
 import { placeNavigation, type NavigationDirection } from '../../core/navigation'
-import type { Place, PlanDrag, PlanPoint, PlanRect, PlanTarget, SeatPlan } from '../../core/types'
+import type { Place, PlanDrag, PlanPoint, PlanRect, PlanStroke, PlanTarget, SeatPlan } from '../../core/types'
 import { ZOOM_STEP, planView, type PlanView, type ViewportSize } from '../../core/view'
 import { FONT_VAR, cssVar } from '../../theme/vars'
 
@@ -40,38 +40,60 @@ type ViewportProps<S extends string> = Omit<
   view?: PlanView
   defaultView?: PlanView
   onViewChange?(view: PlanView): void
-  // Drag on empty floor (or on anything that does not drag) pans. Leave off for small panels that compete
-  // with page scrolling.
+  // Drag on empty floor (or on anything that does not drag) pans, and so does any drag with Space held or the
+  // middle button. Leave off for small panels that compete with page scrolling.
   pannable?: boolean
   // Wheel and pinch zoom.
   zoomable?: boolean
+  // What the wheel and two-finger scrolling do: `zoom` (the default, like a map) or `pan` (like a design tool —
+  // pinching or ⌘/Ctrl + wheel zooms).
+  wheel?: 'zoom' | 'pan'
+  // Arrow keys move a focus ring between places and Enter or Space picks the focused one. On by default; an editor
+  // turns it off while the arrow keys move its selection.
+  navigable?: boolean
   // A tap, Enter or Space on a place.
   onPlaceClick?(place: Place<S>): void
   // Pointer entering and leaving places.
   onPlaceHover?(place: Place<S> | null): void
   // Any tap — a place, a non-place object, a section, or empty floor (null) — with the plan point and whether
-  // shift, ⌘ or Ctrl was held (additive selection). The editor selects with it; tools place things at `point`.
+  // shift, ⌘ or Ctrl was held (additive selection). The editor selects with it.
   onTap?(target: PlanTarget<S> | null, info: { point: PlanPoint | null; additive: boolean }): void
+  // The pointer moving while nothing is pressed — the plan point under it and what it is over; nulls when it
+  // leaves. Editors preview their tools and outline what a tap would select with it.
+  onHover?(point: PlanPoint | null, target: PlanTarget<S> | null): void
   // Which targets move instead of panning, and what happens while they do (the editor passes both).
   canDrag?(target: PlanTarget<S>): boolean
   onTargetDrag?(drag: PlanDrag<S>): void
-  // Rubber-band selection. When given, a drag that starts on something that does not move (or with shift, ⌘ or
-  // Ctrl held) draws a rectangle instead of panning; empty space outside every section and the middle mouse
-  // button still pan.
+  // Rubber-band selection. When given, a drag that does not move its target draws a rectangle instead of panning —
+  // on touch only one that starts on a section or with shift, ⌘ or Ctrl held, so a finger on empty space still pans.
   onMarquee?(rect: PlanRect, info: { phase: 'start' | 'move' | 'end'; additive: boolean }): void
+  // A creation tool is active: presses draw strokes instead of selecting, moving or panning (Space and the middle
+  // button still pan). A tap is a stroke with no length, reported once at `end`. `constrain` (Shift) and
+  // `fromCenter` (Alt) are the keys held, reported again when they change mid-stroke; `cancel` ends a stroke that
+  // must not create anything — a second finger landed, or the pointer was lost.
+  onDraw?(
+    stroke: PlanStroke,
+    info: { phase: 'start' | 'move' | 'end' | 'cancel'; constrain: boolean; fromCenter: boolean },
+  ): void
 }
 
 type Press<S extends string> = {
   target: PlanTarget<S> | null
-  mode: 'drag' | 'marquee' | 'pan'
+  mode: 'drag' | 'marquee' | 'pan' | 'draw'
   additive: boolean
-  // Marquee anchor in plan units, set when the marquee starts.
+  // Where a marquee or a stroke started, in plan units.
   anchor: PlanPoint | null
+  // The drag total or stroke end last reported — reported again when Shift or Alt changes mid-drag.
+  last: PlanPoint | null
 }
 
-// The interactive plan — an <svg> that pans, zooms (wheel, pinch), reports taps and drags, and moves a focus
-// ring between places with the arrow keys. Children are the same server-safe parts <SeatMap.Root> takes; events
-// are delegated by their `data-ichno-*` attributes, so the parts carry no handlers.
+// Shift constrains a drag or a stroke, Alt draws from the centre.
+type Keys = { constrain: boolean; fromCenter: boolean }
+
+// The interactive plan — an <svg> that pans, zooms (wheel, pinch), reports taps, drags and strokes, and moves a
+// focus ring between places with the arrow keys. Children are the same server-safe parts <SeatMap.Root> takes;
+// events are delegated by their `data-ichno-*` attributes, so the parts carry no handlers. The svg carries
+// `data-pan` — `ready` while Space is held, `active` while panning — for grab cursors.
 // Behaviour comes from the renderer-independent core (gesture, placeNavigation, planView).
 export function Viewport<S extends string>({
   plan,
@@ -80,12 +102,16 @@ export function Viewport<S extends string>({
   onViewChange,
   pannable = true,
   zoomable = true,
+  wheel = 'zoom',
+  navigable = true,
   onPlaceClick,
   onPlaceHover,
   onTap,
+  onHover,
   canDrag,
   onTargetDrag,
   onMarquee,
+  onDraw,
   style,
   children,
   onFocus,
@@ -94,9 +120,17 @@ export function Viewport<S extends string>({
 }: ViewportProps<S>) {
   const svgRef = useRef<SVGSVGElement>(null)
   const gestureRef = useRef<GestureState>(IDLE_GESTURE)
-  // What the current press started on, and whether it drags that target, draws a marquee or pans.
+  // What the current press started on, and whether it drags that target, draws a marquee or a stroke, or pans.
   const pressRef = useRef<Press<S>>(IDLE_PRESS)
   const hoverRef = useRef<string | null>(null)
+  // Shift and Alt as last seen — they shape drags and strokes.
+  const keysRef = useRef<Keys>(NO_KEYS)
+  // Whether the pointer is over the viewport — Space then pans instead of scrolling the page.
+  const insideRef = useRef(false)
+  // Space held — presses pan while it is.
+  const spaceRef = useRef(false)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [panning, setPanning] = useState(false)
   const idPrefix = useId()
 
   const homeView = planView.home(plan)
@@ -112,7 +146,7 @@ export function Viewport<S extends string>({
   // force the browser to lay out every node of the plan.
   const [size, setSize] = useState<ViewportSize | null>(null)
   const sizeRef = useRef<ViewportSize | null>(null)
-  // The viewport's page position, read once per gesture (and when stale for the wheel).
+  // The viewport's page position, read once per gesture (and when stale for the wheel and hovering).
   const originRef = useRef<{ left: number; top: number; at: number } | null>(null)
   const [frame, setFrame] = useState<ViewportFrame>(() => ({
     region: planView.region(current, REGION_MARGIN),
@@ -160,12 +194,16 @@ export function Viewport<S extends string>({
 
   function handle(events: GestureEvent[]) {
     for (const event of events) {
-      // Read per event — a marquee sets its anchor on dragstart, and the drag in the same batch needs it.
+      // Read per event — a marquee or a stroke sets its anchor on dragstart, and the drag in the same batch needs it.
       const press = pressRef.current
       switch (event.type) {
         case 'tap': {
-          const target = press.target
           const point = toPlan(event.point)
+          if (press.mode === 'draw') {
+            if (point) onDraw?.({ start: point, end: point }, { phase: 'end', ...keysRef.current })
+            break
+          }
+          const target = press.target
           onTap?.(target, { point, additive: press.additive })
           if (target?.kind === 'place') {
             const place = placeById(target.id)
@@ -178,21 +216,37 @@ export function Viewport<S extends string>({
         }
         case 'dragstart':
           if (press.mode === 'drag' && press.target) {
-            onTargetDrag?.({ target: press.target, phase: 'start', total: { x: 0, y: 0 } })
-          } else if (press.mode === 'marquee') {
+            const total = { x: 0, y: 0 }
+            pressRef.current = { ...press, last: total }
+            onTargetDrag?.({ target: press.target, phase: 'start', total, constrain: keysRef.current.constrain })
+          } else if (press.mode === 'marquee' || press.mode === 'draw') {
             const anchor = toPlan(event.point)
-            pressRef.current = { ...press, anchor }
-            if (anchor) onMarquee?.({ ...anchor, w: 0, h: 0 }, { phase: 'start', additive: press.additive })
+            pressRef.current = { ...press, anchor, last: anchor }
+            if (anchor && press.mode === 'marquee') {
+              onMarquee?.({ ...anchor, w: 0, h: 0 }, { phase: 'start', additive: press.additive })
+            }
+            if (anchor && press.mode === 'draw') {
+              onDraw?.({ start: anchor, end: anchor }, { phase: 'start', ...keysRef.current })
+            }
+          } else if (pannable) {
+            setPanning(true)
           }
           break
         case 'drag': {
           const scale = unitsPerPixel()
           if (press.mode === 'drag' && press.target) {
             const total = { x: event.total.x * scale, y: event.total.y * scale }
-            onTargetDrag?.({ target: press.target, phase: 'move', total })
+            pressRef.current = { ...press, last: total }
+            onTargetDrag?.({ target: press.target, phase: 'move', total, constrain: keysRef.current.constrain })
           } else if (press.mode === 'marquee') {
             const rect = marqueeRect(press.anchor, event.point)
             if (rect) onMarquee?.(rect, { phase: 'move', additive: press.additive })
+          } else if (press.mode === 'draw') {
+            const end = toPlan(event.point)
+            if (press.anchor && end) {
+              pressRef.current = { ...press, last: end }
+              onDraw?.({ start: press.anchor, end }, { phase: 'move', ...keysRef.current })
+            }
           } else if (pannable) {
             changeView(planView.pan(viewRef.current, { x: -event.delta.x * scale, y: -event.delta.y * scale }))
           }
@@ -205,11 +259,16 @@ export function Viewport<S extends string>({
               target: press.target,
               phase: 'end',
               total: { x: event.total.x * scale, y: event.total.y * scale },
+              constrain: keysRef.current.constrain,
             })
           } else if (press.mode === 'marquee') {
             const rect = marqueeRect(press.anchor, event.point)
             if (rect) onMarquee?.(rect, { phase: 'end', additive: press.additive })
+          } else if (press.mode === 'draw') {
+            const end = toPlan(event.point) ?? press.last
+            if (press.anchor && end) onDraw?.({ start: press.anchor, end }, { phase: 'end', ...keysRef.current })
           }
+          setPanning(false)
           // After a pinch the remaining finger pans — it never drags the target the gesture began on.
           pressRef.current = IDLE_PRESS
           break
@@ -223,6 +282,27 @@ export function Viewport<S extends string>({
           break
         }
       }
+    }
+  }
+
+  // Drops a stroke in progress — it must not create anything.
+  function cancelStroke() {
+    const press = pressRef.current
+    if (press.mode === 'draw' && press.anchor && press.last) {
+      onDraw?.({ start: press.anchor, end: press.last }, { phase: 'cancel', ...keysRef.current })
+    }
+    pressRef.current = IDLE_PRESS
+  }
+
+  // Shift or Alt changed mid-drag — report the drag or the stroke again, shaped by the keys held now.
+  function restate() {
+    const press = pressRef.current
+    if (gestureRef.current.kind !== 'dragging' || press.last === null) return
+    if (press.mode === 'draw' && press.anchor) {
+      onDraw?.({ start: press.anchor, end: press.last }, { phase: 'move', ...keysRef.current })
+    }
+    if (press.mode === 'drag' && press.target) {
+      onTargetDrag?.({ target: press.target, phase: 'move', total: press.last, constrain: keysRef.current.constrain })
     }
   }
 
@@ -249,17 +329,26 @@ export function Viewport<S extends string>({
     if (e.pointerType === 'mouse' && e.button !== 0 && !middle) return
     if (middle) e.preventDefault() // no autoscroll
     setKeyboardFocus(false)
-    const pointer = pointerOf(e, gestureRef.current.kind === 'idle')
-    if (gestureRef.current.kind === 'idle') {
-      const target = middle ? null : targetOf<S>(e.target)
+    keysRef.current = keysOf(e)
+    const idle = gestureRef.current.kind === 'idle'
+    const pointer = pointerOf(e, idle)
+    if (idle) {
       const additive = e.shiftKey || e.metaKey || e.ctrlKey
-      const mode =
-        target !== null && (canDrag?.(target) ?? false)
-          ? 'drag'
-          : onMarquee && !middle && (additive || target !== null)
-            ? 'marquee'
-            : 'pan'
-      pressRef.current = { target, mode, additive, anchor: null }
+      const pan = middle || (spaceRef.current && pannable)
+      const target = pan ? null : targetOf<S>(e.target)
+      const mode: Press<S>['mode'] = pan
+        ? 'pan'
+        : onDraw
+          ? 'draw'
+          : target !== null && (canDrag?.(target) ?? false)
+            ? 'drag'
+            : onMarquee && (additive || target !== null || e.pointerType !== 'touch')
+              ? 'marquee'
+              : 'pan'
+      pressRef.current = { target, mode, additive, anchor: null, last: null }
+    } else if (pressRef.current.mode === 'draw') {
+      // A second finger turns the press into a pinch — the stroke is dropped, not drawn.
+      cancelStroke()
     }
     e.currentTarget.setPointerCapture(e.pointerId)
     const result = gesture.down(gestureRef.current, pointer, pressRef.current.target ? 'target' : null)
@@ -272,13 +361,17 @@ export function Viewport<S extends string>({
 
   function handlePointerMove(e: PointerEvent<SVGSVGElement>) {
     if (gestureRef.current.kind === 'idle') {
-      const place = hoveredPlace(e.target)
+      insideRef.current = true
+      const target = targetOf<S>(e.target)
+      const place = target?.kind === 'place' ? placeById(target.id) : undefined
       if ((place?.id ?? null) !== hoverRef.current) {
         hoverRef.current = place?.id ?? null
         onPlaceHover?.(place ?? null)
       }
+      onHover?.(toPlan(pointerOf(e)), target)
       return
     }
+    keysRef.current = keysOf(e)
     const threshold = e.pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD_PX : undefined
     const result = gesture.move(gestureRef.current, pointerOf(e), threshold)
     gestureRef.current = result.state
@@ -286,30 +379,29 @@ export function Viewport<S extends string>({
   }
 
   function handlePointerUp(e: PointerEvent<SVGSVGElement>) {
+    keysRef.current = keysOf(e)
     const result = gesture.up(gestureRef.current, pointerOf(e))
     gestureRef.current = result.state
     handle(result.events)
   }
 
   function handlePointerCancel() {
+    if (pressRef.current.mode === 'draw') cancelStroke()
     const result = gesture.cancel(gestureRef.current)
     gestureRef.current = result.state
     handle(result.events)
   }
 
   function handlePointerLeave() {
+    insideRef.current = false
+    onHover?.(null, null)
     if (hoverRef.current === null) return
     hoverRef.current = null
     onPlaceHover?.(null)
   }
 
-  function hoveredPlace(element: EventTarget | null) {
-    const target = targetOf<S>(element)
-    return target?.kind === 'place' ? placeById(target.id) : undefined
-  }
-
   function handleKeyDown(e: KeyboardEvent<SVGSVGElement>) {
-    const direction = ARROW_KEYS[e.key]
+    const direction = navigable ? ARROW_KEYS[e.key] : undefined
     if (direction) {
       e.preventDefault()
       setKeyboardFocus(true)
@@ -323,11 +415,15 @@ export function Viewport<S extends string>({
       }
       return
     }
-    if ((e.key === 'Enter' || e.key === ' ') && active) {
+    // Only the place the ring shows is picked — a place tapped earlier is not picked again by a stray key.
+    if (navigable && (e.key === 'Enter' || e.key === ' ') && active && keyboardFocus) {
       e.preventDefault()
       onTap?.({ kind: 'place', id: active.id }, { point: seatPlan.centerOf(active), additive: e.shiftKey })
       onPlaceClick?.(active)
+      return
     }
+    // Space is held to pan — it must not scroll the page.
+    if (e.key === ' ' && pannable) e.preventDefault()
   }
 
   // Keep the focused place on screen — recentre on it when it leaves the view.
@@ -343,20 +439,90 @@ export function Viewport<S extends string>({
 
   // Wheel zoom needs a non-passive listener to stop the page from scrolling; React's wheel handler is passive.
   const onWheel = useEffectEvent((e: WheelEvent) => {
+    // A trackpad pinch arrives as a wheel event with Ctrl held; ⌘ or Ctrl with a wheel zooms by hand.
+    const zoomKey = e.ctrlKey || e.metaKey
+    const dx = wheelPixels(e.deltaX, e.deltaMode)
+    const dy = wheelPixels(e.deltaY, e.deltaMode)
+    if (wheel === 'pan' && !zoomKey) {
+      if (!pannable || (dx === 0 && dy === 0)) return
+      e.preventDefault()
+      const scale = unitsPerPixel()
+      // Shift turns a plain wheel sideways where the browser does not already.
+      const delta = e.shiftKey && dx === 0 ? { x: dy, y: 0 } : { x: dx, y: dy }
+      changeView(planView.pan(viewRef.current, { x: delta.x * scale, y: delta.y * scale }))
+      return
+    }
     // Horizontal swipes (deltaY 0) are not zoom — leave them to the page.
-    if (!zoomable || e.deltaY === 0) return
+    if (!zoomable || dy === 0) return
     e.preventDefault()
     const origin = originOf(false)
     const center = origin ? toPlan({ x: e.clientX - origin.left, y: e.clientY - origin.top }) : null
     if (!center) return
-    changeView(planView.zoom(viewRef.current, e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP, center, homeView))
+    changeView(planView.zoom(viewRef.current, zoomFactorOf(dy, e.ctrlKey), center, homeView))
+  })
+  // Safari reports a trackpad pinch as gesture events — the scale since it began — instead of Ctrl + wheel.
+  const pinchRef = useRef(1)
+  const onGesture = useEffectEvent((e: Event) => {
+    if (!zoomable) return
+    e.preventDefault() // not the page's zoom
+    const pinch = e as Event & { scale: number; clientX: number; clientY: number }
+    if (e.type === 'gesturestart') pinchRef.current = 1
+    if (e.type !== 'gesturechange') return
+    const factor = pinch.scale / pinchRef.current
+    pinchRef.current = pinch.scale
+    const origin = originOf(false)
+    const center = origin ? toPlan({ x: pinch.clientX - origin.left, y: pinch.clientY - origin.top }) : null
+    if (center && factor > 0 && Number.isFinite(factor)) {
+      changeView(planView.zoom(viewRef.current, factor, center, homeView))
+    }
   })
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
-    const listener = (e: WheelEvent) => onWheel(e)
-    svg.addEventListener('wheel', listener, { passive: false })
-    return () => svg.removeEventListener('wheel', listener)
+    const wheelListener = (e: WheelEvent) => onWheel(e)
+    const gestureListener = (e: Event) => onGesture(e)
+    svg.addEventListener('wheel', wheelListener, { passive: false })
+    for (const type of GESTURE_EVENTS) svg.addEventListener(type, gestureListener)
+    return () => {
+      svg.removeEventListener('wheel', wheelListener)
+      for (const type of GESTURE_EVENTS) svg.removeEventListener(type, gestureListener)
+    }
+  }, [])
+
+  // Space held over the viewport (or with it focused) turns presses into pans; Shift and Alt pressed or let go
+  // mid-drag reshape the drag at once.
+  const onWindowKey = useEffectEvent((e: globalThis.KeyboardEvent) => {
+    if (e.key === 'Shift' || e.key === 'Alt') {
+      keysRef.current = keysOf(e)
+      restate()
+      return
+    }
+    if (e.code !== 'Space' || isTyping(e.target) || inDialog(e.target)) return
+    const down = e.type === 'keydown'
+    // Over a viewport that pans, Space is ours: it neither scrolls the page nor presses the button that has focus.
+    // Letting go always counts, so a key released after panning was turned off is not left held.
+    const ours = pannable && (insideRef.current || e.target === svgRef.current)
+    if (down && !ours) return
+    if (ours) e.preventDefault()
+    if (spaceRef.current === down) return
+    spaceRef.current = down
+    setSpaceHeld(down)
+  })
+  const onWindowBlur = useEffectEvent(() => {
+    spaceRef.current = false
+    setSpaceHeld(false)
+  })
+  useEffect(() => {
+    const key = (e: globalThis.KeyboardEvent) => onWindowKey(e)
+    const blur = () => onWindowBlur()
+    window.addEventListener('keydown', key)
+    window.addEventListener('keyup', key)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('keydown', key)
+      window.removeEventListener('keyup', key)
+      window.removeEventListener('blur', blur)
+    }
   }, [])
 
   useEffect(() => {
@@ -404,16 +570,20 @@ export function Viewport<S extends string>({
     svg.setAttribute('aria-activedescendant', element.id)
   }, [activeId, idPrefix])
 
-  const ring = active && keyboardFocus ? active : null
+  const ring = navigable && keyboardFocus && active ? active : null
   const gestures = pannable || zoomable
+  const pan = panning ? 'active' : spaceHeld && pannable ? 'ready' : undefined
 
   return (
     <svg
       ref={svgRef}
       viewBox={`${current.x} ${current.y} ${current.w} ${current.h}`}
       data-ichno-root=""
+      data-pan={pan}
       role="listbox"
       tabIndex={0}
+      // A presentation attribute, so a consumer's cursor rule still wins.
+      cursor={pan === 'active' ? 'grabbing' : pan === 'ready' ? 'grab' : undefined}
       style={{
         display: 'block',
         width: '100%',
@@ -431,7 +601,11 @@ export function Viewport<S extends string>({
       onPointerLeave={handlePointerLeave}
       onKeyDown={handleKeyDown}
       onFocus={(e) => {
-        if (activeId === null && e.target === e.currentTarget) setActiveId(placeNavigation.first(navigation))
+        if (e.target === e.currentTarget) {
+          if (activeId === null) setActiveId(placeNavigation.first(navigation))
+          // Focus from the keyboard shows the ring at once, so Enter picks the place it shows.
+          if (e.currentTarget.matches(':focus-visible')) setKeyboardFocus(true)
+        }
         onFocus?.(e)
       }}
       onBlur={(e) => {
@@ -486,6 +660,33 @@ function targetOf<S extends string>(element: EventTarget | null): PlanTarget<S> 
   return null
 }
 
+function keysOf(e: { shiftKey: boolean; altKey: boolean }): Keys {
+  return { constrain: e.shiftKey, fromCenter: e.altKey }
+}
+
+// Keys typed into a field are text, not commands.
+function isTyping(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]') !== null
+}
+
+// Keys pressed in a dialog belong to it, even while the pointer rests over the viewport behind it.
+function inDialog(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('dialog') !== null
+}
+
+// Wheel deltas in pixels, whatever unit the browser reports them in.
+function wheelPixels(delta: number, mode: number): number {
+  return mode === 1 ? delta * WHEEL_LINE_PX : mode === 2 ? delta * WHEEL_PAGE_PX : delta
+}
+
+// How much one wheel event zooms — in proportion to how far it scrolled, so a trackpad's many small events zoom as
+// smoothly as a mouse's few large ones. A pinch (Ctrl) scrolls in small steps and zooms faster per pixel. Never
+// more than ZOOM_STEP per event.
+function zoomFactorOf(deltaY: number, pinch: boolean): number {
+  const factor = Math.exp(-deltaY * (pinch ? PINCH_ZOOM_RATE : WHEEL_ZOOM_RATE))
+  return Math.min(ZOOM_STEP, Math.max(1 / ZOOM_STEP, factor))
+}
+
 const ARROW_KEYS: Partial<Record<string, NavigationDirection>> = {
   ArrowUp: 'up',
   ArrowDown: 'down',
@@ -496,6 +697,13 @@ const ARROW_KEYS: Partial<Record<string, NavigationDirection>> = {
 const FOCUS_RING_GAP = 6
 // How far beyond the view the frame region reaches, as a share of the view size on each side.
 const REGION_MARGIN = 0.5
-// How long a cached viewport position stays trusted for wheel events between gestures.
+// How long a cached viewport position stays trusted for wheel and hover events between gestures.
 const ORIGIN_TTL_MS = 1000
-const IDLE_PRESS: Press<never> = { target: null, mode: 'pan', additive: false, anchor: null }
+// A mouse wheel notch — about 100 pixels, or three lines — zooms by one ZOOM_STEP.
+const WHEEL_ZOOM_RATE = Math.log(ZOOM_STEP) / 100
+const PINCH_ZOOM_RATE = 0.01
+const WHEEL_LINE_PX = 33
+const WHEEL_PAGE_PX = 800
+const GESTURE_EVENTS = ['gesturestart', 'gesturechange', 'gestureend'] as const
+const IDLE_PRESS: Press<never> = { target: null, mode: 'pan', additive: false, anchor: null, last: null }
+const NO_KEYS: Keys = { constrain: false, fromCenter: false }

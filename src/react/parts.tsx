@@ -350,6 +350,23 @@ export function HandlesPart({
   )
 }
 
+// A thin outline around something on the plan — the editor's `frames` (each selected item) and `hoverFrame` (what a
+// tap would select). A fixed 1px on screen at any zoom; it never takes the pointer.
+export function OutlinePart({ points, ...rest }: Omit<GProps, 'points'> & { points: readonly PlanPoint[] | null }) {
+  if (!points || points.length < 2) return null
+  return (
+    <g data-part="outline" pointerEvents="none" {...rest}>
+      <polygon
+        points={pointsOf(points)}
+        fill="none"
+        stroke={cssVar('accent')}
+        strokeWidth={1}
+        vectorEffect="non-scaling-stroke"
+      />
+    </g>
+  )
+}
+
 // The rubber band of a marquee selection.
 export function MarqueePart({ rect, ...rest }: GProps & { rect: PlanRect | null }) {
   if (!rect) return null

@@ -20,8 +20,9 @@ createSeatPlanSchema({ sectionIds: ['R'] }).SeatPlan.parse(roomPlan)
 const lounge = seatPlan.sectionPlanOf(venuePlan, 'L')!
 
 const PLAYGROUND_POINTS = [
-  'Rows, tables, desks, booths and standing areas — laid out as plain places and fixtures',
-  'An inspector for ids, labels, categories, seat counts, curves and turns',
+  'The playground’s own objects — rows, seat blocks, tables, desks, booths, areas and fixtures made from ichno’s places, fixtures and groups — drawn at any size',
+  'Save anything as your own object and place it again; copy and paste under the pointer',
+  'An inspector for ids, labels, categories, positions, sizes, seat counts, curves and turns',
   'Schema errors and lint warnings as you edit, with severities you choose',
   'A customer preview with selection rules and bookings that lock the editor',
   'JSON export and import — including documents from ichno 0.1 and 0.2',
@@ -45,7 +46,7 @@ const FEATURES = [
   },
   {
     title: 'An editor hook, not an editor',
-    body: 'useSeatPlanEditor holds the document, selection, snapping, handles and undo history. Build whatever panels your product needs around it.',
+    body: 'useSeatPlanEditor holds the document, selection, creation tools, clipboard, snapping, handles and undo history. Build whatever panels your product needs around it.',
   },
   {
     title: 'Fast at 20,000 seats',
@@ -120,20 +121,29 @@ validateSelection(plan, { selected, unavailable }, { max: 8, consecutive: true, 
   {
     id: 'edit',
     title: 'Edit',
-    caption: 'The hook holds the state; the buttons are yours.',
+    caption: 'The hook holds the state and runs your tools; the buttons are yours.',
     code: `import { layout } from 'ichno'
-import { useSeatPlanEditor } from 'ichno/editor'
+import { planEdits, useSeatPlanEditor, type EditorTool } from 'ichno/editor'
 
 const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 46 } })
-const seats = layout.arc({ start, end, curve: -0.1, count: 12, size: 40 })
 
-<SeatMap.Viewport {...editor.viewportProps}>
-  <SeatMap.Grid plan={editor.displayPlan} />
+// Your tool: a drag draws a row, a seat every 46 units.
+const row: EditorTool<'hall'> = {
+  draw: 'line',
+  create: (plan, { start, end }) => {
+    const count = Math.floor(Math.hypot(end.x - start.x, end.y - start.y) / 46) + 1
+    const { plan: grouped, id } = planEdits.addGroup(plan, { role: 'row' })
+    return planEdits.addPlaces(grouped, 'hall', layout.line({ start, end, count, size: 40 }), { group: id })?.plan ?? null
+  },
+}
+
+<SeatMap.Viewport {...editor.viewportProps} wheel="pan">
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} invalid={editor.conflictIds} />
+  {editor.draft && <SeatMap.Content plan={editor.draft} />}
   <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
 </SeatMap.Viewport>
 
-<button onClick={() => editor.addPlaces('hall', seats, { group: { role: 'row', label: 'A' } })}>Add row</button>
+<button onClick={() => editor.setTool(row)}>Row</button>
 <button disabled={!editor.dirty} onClick={() => save(editor.plan)}>Save</button>`,
   },
   {

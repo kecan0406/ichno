@@ -97,9 +97,23 @@ export type PlanHandle<S extends string = string> = {
 }
 
 // A drag of a target, reported by viewports while it moves. `total` is the movement since the drag started, in
-// plan units.
+// plan units. `constrain` is set while Shift is held: a move keeps to one axis, a turn steps by 15°, a corner keeps
+// the proportions.
 export type PlanDrag<S extends string = string> = {
   target: PlanTarget<S>
   phase: 'start' | 'move' | 'end'
   total: PlanPoint
+  constrain?: boolean
 }
+
+// A stroke drawn with a creation tool — from where the press started to where the pointer is (or was let go), in
+// plan units. A tap is a stroke with no length.
+export type PlanStroke = { start: PlanPoint; end: PlanPoint }
+
+// A reusable piece of a plan — some objects and the groups they form, placed around its own centre (0, 0). The
+// editor makes one from a selection and adds it to any plan with fresh ids: a clipboard, or a library of objects
+// people saved. Places carry no section; they take the one they land in. Like the document, a stored template
+// keeps its `version` so it can be upgraded.
+export type PlanTemplate = { version: 3; groups: Group[]; objects: TemplateObject[] }
+
+export type TemplateObject = Omit<Place, 'section'> | Fixture | GroupLabel

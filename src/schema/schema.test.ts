@@ -148,6 +148,33 @@ describe('SeatPlan schema (editor save guard)', () => {
   })
 })
 
+describe('Template schema (saved objects)', () => {
+  const { Template } = createSeatPlanSchema({ sectionIds: ['A'] })
+  const template = {
+    version: 3,
+    groups: [{ id: 'row-1', role: 'row' }],
+    objects: [
+      { kind: 'place', id: 'A1', x: -20, y: -20, w: 40, h: 40, shape: 'ellipse', group: 'row-1' },
+      { kind: 'label', id: 'row-1-l', group: 'row-1', x: 30, y: -20, w: 40, h: 40 },
+    ],
+  }
+
+  it('reads places without a section — they take the one they land in', () => {
+    expect(Template.parse(template).objects[0]).toMatchObject({ capacity: 1 })
+  })
+
+  it('checks its references like a document does', () => {
+    const broken = Template.safeParse({
+      ...template,
+      objects: [...template.objects, fixture('A1', 0, 0, 10, 10, { group: 'row-9' })],
+    })
+    expect(broken.success ? [] : broken.error.issues.map(seatPlanIssueOf)).toEqual([
+      { code: 'duplicate_id', id: 'A1' },
+      { code: 'unknown_group', id: 'A1', group: 'row-9' },
+    ])
+  })
+})
+
 describe('SeatPlan schema — documents stored by ichno 0.2', () => {
   const v2 = {
     version: 2,

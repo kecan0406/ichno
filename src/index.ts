@@ -15,11 +15,14 @@ export {
   type PlanPoint,
   type PlanRect,
   type PlanSize,
+  type PlanStroke,
   type PlanTarget,
+  type PlanTemplate,
   type SeatPlan,
   type Section,
   type SectionPlan,
   type Shape,
+  type TemplateObject,
 } from './core/types'
 export { upgradeSeatPlan, type PlanObjectV2, type SeatPlanV1, type SeatPlanV2 } from './core/legacy'
 export { GRID_CELL } from './core/grid'

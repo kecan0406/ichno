@@ -162,7 +162,7 @@
 
 .body {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr) 340px;
+  grid-template-columns: 264px minmax(0, 1fr) 340px;
   min-height: 0;
 }
 
@@ -170,30 +170,39 @@
   grid-template-columns: minmax(0, 1fr) 340px;
 }
 
-/* ---------- Tool rail ---------- */
+/* ---------- Objects ---------- */
 
-.rail {
+.objects {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  padding: 10px 8px;
+  gap: 18px;
+  min-height: 0;
+  padding: 12px 12px 20px;
+  overflow-y: auto;
   border-right: 1px solid var(--theme-border);
   background: var(--theme-surface);
 }
 
-.tool {
-  display: flex;
-  flex-direction: column;
+.modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--theme-subtle);
+}
+
+.modes button {
+  display: inline-flex;
   align-items: center;
-  gap: 3px;
-  width: 100%;
-  padding: 8px 0 6px;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
   border: 0;
-  border-radius: var(--radius-s);
+  border-radius: 9px;
   background: none;
   color: var(--theme-muted);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -201,55 +210,156 @@
     color 0.15s;
 }
 
-.tool:hover {
-  background: var(--theme-hover);
-  color: var(--theme-fg);
-}
-
-.tool[aria-pressed='true'],
-.tool[aria-expanded='true'] {
-  background: var(--theme-accent-soft);
+.modes button[aria-pressed='true'] {
+  background: var(--theme-surface);
   color: var(--theme-accent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--theme-fg) 12%, transparent);
 }
 
-.railRule {
-  height: 1px;
-  margin: 6px 4px;
-  background: var(--theme-border);
+.shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.menuAnchor {
+.shelf h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.shelf h3 {
+  margin: 6px 0 0;
+  color: var(--theme-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shelfHint {
+  margin: 0;
+  color: var(--theme-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cards[data-compact] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.card {
   position: relative;
 }
 
-.menu {
-  position: absolute;
-  top: 0;
-  left: calc(100% + 10px);
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  min-width: 140px;
+.cardPick {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
   padding: 6px;
-  border: 1px solid var(--theme-border);
-  border-radius: var(--radius-m);
-  background: var(--theme-surface);
-  box-shadow: 0 12px 32px -8px color-mix(in srgb, var(--theme-fg) 25%, transparent);
-}
-
-.menu button {
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
   background: none;
-  font-size: 13px;
-  font-weight: 500;
+  color: inherit;
   text-align: left;
   cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
-.menu button:hover {
+.cardPick:hover {
   background: var(--theme-hover);
+}
+
+.cardPick[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--theme-accent) 45%, transparent);
+  background: var(--theme-accent-soft);
+}
+
+.cardText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cardTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cardName {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardPick[aria-pressed='true'] .cardName {
+  color: var(--theme-accent);
+}
+
+.cardMakeup {
+  color: var(--theme-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.cardKey {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--theme-border-strong);
+  border-radius: 5px;
+  color: var(--theme-muted);
+  font-family: var(--font-monospace);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+
+.thumb {
+  flex: none;
+  border-radius: 6px;
+  background: var(--theme-subtle);
+}
+
+.cardDelete {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--theme-surface);
+  color: var(--theme-muted);
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+.card:hover .cardDelete,
+.cardDelete:focus-visible {
+  opacity: 1;
+}
+
+.cardDelete:hover {
+  color: #dc2626;
 }
 
 /* ---------- Canvas ---------- */
@@ -276,6 +386,34 @@
 
 .canvas [data-ichno-id]:not([data-disabled]) {
   cursor: pointer;
+}
+
+/* A tool draws wherever it is pressed — over places too. */
+.canvas:not([data-tool='select']) [data-ichno-id] {
+  cursor: inherit;
+}
+
+/* Space held, or a pan under way. */
+.canvas .viewport[data-pan='ready'],
+.canvas .viewport[data-pan='ready'] * {
+  cursor: grab;
+}
+
+.canvas .viewport[data-pan='active'],
+.canvas .viewport[data-pan='active'] * {
+  cursor: grabbing;
+}
+
+/* What the tool would make — drawn through, and never in the way of the pointer. */
+.draft {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* What a tap would select. */
+.hoverOutline polygon {
+  stroke-width: 1.5px;
+  stroke-opacity: 0.6;
 }
 
 .canvas [data-status='booked'] [data-part='shape'] {
@@ -306,7 +444,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  max-width: calc(100% - 140px);
+  max-width: calc(100% - 250px);
   padding: 6px 12px;
   border: 1px solid var(--theme-border);
   border-radius: 999px;
@@ -317,7 +455,8 @@
   pointer-events: none;
 }
 
-.statusWarn {
+.statusWarn,
+.status[data-warn] {
   color: color-mix(in srgb, var(--ichno-warning) 75%, var(--theme-fg));
   font-weight: 600;
 }
@@ -335,6 +474,18 @@
   padding: 0;
   font-size: 15px;
   box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-fg) 10%, transparent);
+}
+
+.zoom .zoomLevel {
+  width: 58px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history button[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--theme-accent) 45%, transparent);
+  background: var(--theme-accent-soft);
+  color: var(--theme-accent);
 }
 
 /* ---------- Side panel ---------- */
@@ -408,6 +559,21 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.storedAs {
+  margin: -6px 0 0;
+  color: var(--theme-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.storedAs code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--theme-subtle);
+  color: var(--theme-fg);
+  font-size: 12px;
 }
 
 .badge {
@@ -557,6 +723,19 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 8px;
+}
+
+.saveForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
 }
 
 .fieldLabel {
@@ -735,6 +914,57 @@ button.check:hover:not(:disabled) {
   background: color-mix(in srgb, #000 40%, transparent);
 }
 
+.dialog[data-wide] {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.shortcutGroups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px 28px;
+}
+
+.shortcutGroups h3 {
+  margin: 0 0 8px;
+  color: var(--theme-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.shortcuts div {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.shortcuts dd {
+  margin: 0;
+  color: var(--theme-muted);
+}
+
+.shortcuts kbd,
+.panelHint kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--theme-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--theme-subtle);
+  font-family: var(--font-monospace);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
 .dialogBody {
   display: flex;
   flex-direction: column;
@@ -786,27 +1016,10 @@ button.check:hover:not(:disabled) {
     flex-direction: column;
   }
 
-  .rail {
-    flex-direction: row;
-    flex-wrap: wrap;
+  .objects {
+    max-height: 42dvh;
     border-right: 0;
     border-bottom: 1px solid var(--theme-border);
-  }
-
-  .tool {
-    flex: none;
-    width: 60px;
-  }
-
-  .railRule {
-    width: 1px;
-    height: auto;
-    margin: 4px 6px;
-  }
-
-  .menu {
-    top: calc(100% + 8px);
-    left: 0;
   }
 
   .canvas {

@@ -10,16 +10,17 @@ import {
   type LintSeverity,
   type Place,
   type PlanPoint,
+  type PlanRect,
   type PlanTarget,
   type PlanView,
 } from 'ichno'
-import { useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
+import { planEdits, useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
 import { SeatMap } from 'ichno/react'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { fixtureNames } from '../../_demo/plans'
 import { Logo } from '../../_ui/logo'
-import { fixtureAt, placeAt, type Made, type Placing } from '../_lib/build'
+import { rectOf } from '../_lib/build'
 import {
   DEFAULT_LINT,
   PRESETS,
@@ -29,39 +30,19 @@ import {
   selectionOf,
   type Workbench,
 } from '../_lib/documents'
+import { loadLibrary, newObjectId, saveLibrary, type SavedObject } from '../_lib/library'
+import { PLAYGROUND_OBJECTS, savedObjectTool, type ToolDef } from '../_lib/playground-objects'
 import styles from '../playground.module.css'
-import { Icon, type IconName } from './icons'
+import { Icon } from './icons'
 import { Inspector } from './inspector'
+import { ObjectPanel } from './objects'
 import { ChecksPanel, ImportDialog, JsonPanel, PreviewPanel, type PickRules } from './panels'
+import { ShortcutsDialog } from './shortcuts'
 
-type Tool = 'select' | Placing | 'fixture'
 type Panel = 'inspect' | 'checks' | 'json'
 
-// Tap-to-place tools — the thing lands where the floor is tapped, in the section under it. ichno stores places,
-// fixtures and groups; these tools (../_lib/build) assemble this site's rows, tables and desks from them.
-const PLACING: { tool: Tool; name: string; icon: IconName; hint: string }[] = [
-  {
-    tool: 'select',
-    name: 'Select',
-    icon: 'select',
-    hint: 'Tap to select (again to pick one seat of a group), drag to move, drag the floor to marquee.',
-  },
-  { tool: 'row', name: 'Row', icon: 'row', hint: 'Tap the floor to drop a row of seven seats.' },
-  { tool: 'table', name: 'Table', icon: 'table', hint: 'Tap the floor to drop a round table for six.' },
-  { tool: 'desk', name: 'Desk', icon: 'desk', hint: 'Tap the floor to drop a desk with its chair.' },
-  { tool: 'booth', name: 'Booth', icon: 'booth', hint: 'Tap the floor to drop a booth.' },
-  { tool: 'area', name: 'Area', icon: 'area', hint: 'Tap the floor to drop a standing area for forty.' },
-]
-
-// Fixtures are the app's words — these are this site's.
-const FIXTURES: { role: string; size: { w: number; h: number } }[] = [
-  { role: 'stage', size: { w: 414, h: 115 } },
-  { role: 'screen', size: { w: 460, h: 46 } },
-  { role: 'bar', size: { w: 368, h: 69 } },
-  { role: 'wall', size: { w: 23, h: 230 } },
-  { role: 'door', size: { w: 92, h: 23 } },
-  { role: 'pillar', size: { w: 46, h: 46 } },
-]
+const SELECT_HINT =
+  'Tap to select, again for one seat of a group. Drag to move, or drag the floor to select an area. ? for keys.'
 
 export function Workspace({
   initial,
@@ -73,15 +54,16 @@ export function Workspace({
   onReplace(next: Workbench): void
 }) {
   const [booked, setBooked] = useState<string[]>(initial.booked)
-  const editor = useSeatPlanEditor({ initialPlan: initial.plan, lockedIds: booked, snap: SNAP })
+  const [snapping, setSnapping] = useState(true)
+  const editor = useSeatPlanEditor({ initialPlan: initial.plan, lockedIds: booked, snap: snapping ? SNAP : undefined })
   useSeatPlanEditorShortcuts(editor)
   const { onTap, ...viewportProps } = editor.viewportProps
 
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
-  const [tool, setTool] = useState<Tool>('select')
   const [panel, setPanel] = useState<Panel>('inspect')
-  const [fixtureMenu, setFixtureMenu] = useState(false)
-  const [fixture, setFixture] = useState<(typeof FIXTURES)[number] | null>(null)
+  // Keep the object picked after placing one, instead of going back to selecting.
+  const [keep, setKeep] = useState(false)
+  const [library, setLibrary] = useState<SavedObject[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [lint, setLint] = useState<Record<LintCode, LintSeverity>>(DEFAULT_LINT)
   const [picking, setPicking] = useState<'pick' | 'book'>('pick')
@@ -100,62 +82,79 @@ export function Workspace({
   const pickIssues = validateSelection(plan, { selected: picked, unavailable: booked }, rules)
   const sectionLabel = (section: { id: string }) => initial.sectionNames[section.id] ?? section.id
 
+  // The object being placed, as this site knows it — its name and hint.
+  const activeTool =
+    editor.tool === null
+      ? null
+      : ([...PLAYGROUND_OBJECTS, ...library.map(savedObjectTool)].find((def) => def.id === editor.tool?.id) ?? null)
+
   // Kept in this browser, so a reload picks up where you left off.
   useEffect(() => {
     if (autosave) saveWorkbench({ plan, sectionNames: initial.sectionNames, booked })
   }, [autosave, plan, booked, initial.sectionNames])
 
-  // A tool is a one-shot; Escape drops it (and closes the fixture menu).
+  // Saved objects live in localStorage, which the server cannot read.
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      setTool('select')
-      setFixtureMenu(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    setLibrary(loadLibrary())
+  }, [])
+
+  // The site's own keys — objects and the view.
+  const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if (e.defaultPrevented || mode !== 'edit') return
+    if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], dialog')) return
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    if (e.shiftKey && e.code === 'Digit1') return fitPlan()
+    if (e.shiftKey && e.code === 'Digit2') return zoomToSelection()
+    if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) return openDialog('shortcuts-dialog')
+    if (e.key === '=' || e.key === '+') return zoomBy(ZOOM_BUTTON_STEP)
+    if (e.key === '-' || e.key === '_') return zoomBy(1 / ZOOM_BUTTON_STEP)
+    if (e.shiftKey) return
+    const object = PLAYGROUND_OBJECTS.find((def) => def.key !== '' && def.key === e.key)
+    if (object) return choose(object)
+    if (e.code === 'KeyV') return choose(null)
+    if (e.code === 'KeyQ') toggleKeep()
+  })
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => onKeyDown(e)
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
   }, [])
 
   function handleTap(target: PlanTarget<string> | null, info: { point: PlanPoint | null; additive: boolean }) {
     setNotice(null)
-    if (tool !== 'select' && info.point) {
-      place(tool, info.point)
-      setTool('select')
-      return
-    }
     onTap(target, info)
   }
 
-  function place(kind: Exclude<Tool, 'select'>, point: PlanPoint) {
-    const at = { x: snap(point.x), y: snap(point.y) }
-    let made: Made | null
-    if (kind === 'fixture') {
-      if (!fixture) return
-      made = fixtureAt(plan, fixture.role, fixture.size, at)
-    } else {
-      const section = seatPlan.sectionAt(plan, point)
-      if (section === null) {
-        setNotice('Tap inside a section — every place belongs to one.')
-        return
-      }
-      made = placeAt(plan, kind, section, at)
-    }
-    if (!made) {
-      setNotice('Could not place it there — its ids would be too long.')
-      return
-    }
-    const { plan: next, select } = made
-    // One undo step for everything the tool builds (a row with its labels, a table with its top).
-    editor.edit(() => next)
-    editor.select(select)
+  // Picks an object to place, or back to selecting with null.
+  function choose(def: ToolDef | null) {
     setNotice(null)
-    setPanel('inspect')
+    editor.setTool(def === null ? null : { ...def.tool, keep })
   }
 
-  function chooseFixture(choice: (typeof FIXTURES)[number]) {
-    setFixtureMenu(false)
-    setFixture(choice)
-    setTool('fixture')
+  function toggleKeep() {
+    const next = !keep
+    setKeep(next)
+    if (editor.tool) editor.setTool({ ...editor.tool, keep: next })
+  }
+
+  function saveObject(name: string) {
+    const made = planEdits.templateOf(editor.plan, editor.selectedIds)
+    if (!made) return
+    const next = [...library, { id: newObjectId(), name, template: made.template }]
+    setLibrary(next)
+    saveLibrary(next)
+    setNotice(`Saved “${name}” — it is under Your objects, ready to place again.`)
+    // Show where it went, once the panel has drawn it.
+    requestAnimationFrame(() =>
+      document.querySelector('[aria-labelledby="your-objects"]')?.scrollIntoView({ block: 'end', behavior: 'smooth' }),
+    )
+  }
+
+  function deleteObject(id: string) {
+    const next = library.filter((saved) => saved.id !== id)
+    setLibrary(next)
+    saveLibrary(next)
+    if (editor.tool?.id === `saved:${id}`) editor.setTool(null)
   }
 
   function focus(ids: string[]) {
@@ -166,12 +165,31 @@ export function Workspace({
     if (next) setView(next)
   }
 
+  function zoomBy(factor: number) {
+    setView((current) => planView.zoom(current, factor, centerOf(current), home))
+  }
+
+  function fitPlan() {
+    setView(home)
+  }
+
+  function zoomToSelection() {
+    const rects: PlanRect[] = [
+      ...editor.selectedObjects.map(seatPlan.boundsOf),
+      ...(editor.selectedSection ? [seatPlan.sectionBoundsOf(editor.selectedSection)] : []),
+    ]
+    const next = planView.fitTo(rects, 80, home)
+    if (next) setView(next)
+  }
+
   function switchMode(next: 'edit' | 'preview') {
     setMode(next)
-    setTool('select')
     setNotice(null)
-    // Keep the editor's shortcuts from acting on a selection that preview hides.
-    if (next === 'preview') editor.select(null)
+    // Keep the editor's shortcuts from acting on a selection or a tool that preview hides.
+    if (next === 'preview') {
+      editor.setTool(null)
+      editor.select(null)
+    }
   }
 
   function previewTap(target: Place<string>) {
@@ -194,11 +212,16 @@ export function Workspace({
     onReplace(preset.workbench)
   }
 
-  const zoomed = view.w < home.w - 1
-  const activeHint =
-    tool === 'fixture' && fixture
-      ? `Tap the floor to place the ${(fixtureNames[fixture.role] ?? fixture.role).toLowerCase()}.`
-      : PLACING.find((option) => option.tool === tool)?.hint
+  const zoom = Math.round((home.w / view.w) * 100)
+  // Over the plan with a tool that can make nothing there — its places need a section to belong to.
+  const nowhere = activeTool !== null && editor.pointer !== null && editor.draft === null
+  const status =
+    notice ??
+    (mode === 'preview'
+      ? 'Drag to pan, scroll or pinch to zoom.'
+      : nowhere
+        ? 'Every place belongs to a section — move inside one to place it.'
+        : (activeTool?.hint ?? SELECT_HINT))
 
   return (
     <div className={styles.app}>
@@ -230,6 +253,27 @@ export function Workspace({
           </button>
         </div>
         <span className={styles.spacer} />
+        {mode === 'edit' && (
+          <div className={styles.history}>
+            <button
+              type="button"
+              aria-pressed={snapping}
+              onClick={() => setSnapping((on) => !on)}
+              title="Snap to the grid — places land on half cells, turns on 15°"
+            >
+              <Icon name="snap" />
+              Snap
+            </button>
+            <button
+              type="button"
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts (?)"
+              onClick={() => openDialog('shortcuts-dialog')}
+            >
+              <Icon name="keyboard" />
+            </button>
+          </div>
+        )}
         <div className={styles.history}>
           <button type="button" onClick={editor.undo} disabled={!editor.canUndo} title="⌘Z">
             Undo
@@ -245,55 +289,31 @@ export function Workspace({
 
       <div className={styles.body} data-mode={mode}>
         {mode === 'edit' && (
-          <nav className={styles.rail} aria-label="Tools">
-            {PLACING.map((option) => (
-              <button
-                key={option.tool}
-                type="button"
-                className={styles.tool}
-                aria-pressed={tool === option.tool}
-                onClick={() => setTool(option.tool)}
-              >
-                <Icon name={option.icon} />
-                <span>{option.name}</span>
-              </button>
-            ))}
-            <span className={styles.railRule} />
-            <div className={styles.menuAnchor}>
-              <button
-                type="button"
-                className={styles.tool}
-                aria-pressed={tool === 'fixture'}
-                aria-expanded={fixtureMenu}
-                onClick={() => setFixtureMenu((open) => !open)}
-              >
-                <Icon name="fixture" />
-                <span>Fixture</span>
-              </button>
-              {fixtureMenu && (
-                <div className={styles.menu} role="menu">
-                  {FIXTURES.map((choice) => (
-                    <button key={choice.role} type="button" role="menuitem" onClick={() => chooseFixture(choice)}>
-                      {fixtureNames[choice.role] ?? choice.role}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </nav>
+          <ObjectPanel
+            objects={PLAYGROUND_OBJECTS}
+            saved={library}
+            activeId={editor.tool?.id ?? null}
+            keep={keep}
+            canSave={editor.selectedIds.length > 0}
+            onPick={choose}
+            onToggleKeep={toggleKeep}
+            onSave={saveObject}
+            onDelete={deleteObject}
+          />
         )}
 
-        <main className={styles.canvas} data-tool={tool}>
+        <main className={styles.canvas} data-tool={editor.tool === null ? 'select' : editor.tool.draw}>
           {mode === 'edit' ? (
             <SeatMap.Viewport
               {...viewportProps}
               onTap={handleTap}
               view={view}
               onViewChange={setView}
+              wheel="pan"
               className={styles.viewport}
               aria-label="Seat plan editor"
             >
-              <SeatMap.Grid plan={editor.displayPlan} />
+              {snapping && <SeatMap.Grid plan={editor.displayPlan} />}
               <SeatMap.Content
                 plan={editor.displayPlan}
                 selected={editor.selectedPlaceIds}
@@ -304,6 +324,20 @@ export function Workspace({
                 fixtureLabel={fixtureLabel}
                 fixtureVariant={fixtureVariant}
               />
+              {editor.draft && (
+                <g className={styles.draft}>
+                  <SeatMap.Content
+                    plan={editor.draft}
+                    invalid={editor.conflictIds}
+                    fixtureLabel={fixtureLabel}
+                    fixtureVariant={fixtureVariant}
+                  />
+                </g>
+              )}
+              {editor.stroke && editor.tool?.draw === 'box' && <SeatMap.Marquee rect={rectOf(editor.stroke)} />}
+              {editor.selection.length > 1 &&
+                editor.frames.map((points, i) => <SeatMap.Outline key={i} points={points} />)}
+              <SeatMap.Outline points={editor.hoverFrame} className={styles.hoverOutline} />
               <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
               <SeatMap.Marquee rect={editor.marquee} />
             </SeatMap.Viewport>
@@ -329,8 +363,8 @@ export function Workspace({
             </SeatMap.Viewport>
           )}
 
-          <div className={styles.status} aria-live="polite">
-            {notice ?? (mode === 'edit' ? activeHint : 'Drag to pan, scroll or pinch to zoom.')}
+          <div className={styles.status} aria-live="polite" data-warn={nowhere || undefined}>
+            {status}
             {mode === 'edit' && editor.conflictIds.length > 0 && (
               <span className={styles.statusWarn}>{editor.conflictIds.length} overlapping</span>
             )}
@@ -338,22 +372,29 @@ export function Workspace({
           <div className={styles.zoom}>
             <button
               type="button"
-              aria-label="Zoom in"
-              onClick={() => setView((current) => planView.zoom(current, 1.4, centerOf(current), home))}
-            >
-              +
-            </button>
-            <button
-              type="button"
               aria-label="Zoom out"
-              disabled={!zoomed}
-              onClick={() => setView((current) => planView.zoom(current, 1 / 1.4, centerOf(current), home))}
+              title="Zoom out (−)"
+              onClick={() => zoomBy(1 / ZOOM_BUTTON_STEP)}
             >
               −
             </button>
-            <button type="button" aria-label="Fit the plan" disabled={!zoomed} onClick={() => setView(home)}>
-              ⤢
+            <button type="button" className={styles.zoomLevel} title="Fit the plan (⇧1)" onClick={fitPlan}>
+              {zoom}%
             </button>
+            <button type="button" aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoomBy(ZOOM_BUTTON_STEP)}>
+              +
+            </button>
+            {mode === 'edit' && (
+              <button
+                type="button"
+                aria-label="Zoom to the selection"
+                title="Zoom to the selection (⇧2)"
+                disabled={editor.selection.length === 0}
+                onClick={zoomToSelection}
+              >
+                <Icon name="focus" />
+              </button>
+            )}
           </div>
         </main>
 
@@ -383,17 +424,18 @@ export function Workspace({
               </div>
               <div className={styles.panel} role="tabpanel">
                 {panel === 'inspect' && (
-                  <Inspector editor={editor} sectionNames={initial.sectionNames} booked={booked} onNotice={setNotice} />
+                  <Inspector
+                    editor={editor}
+                    sectionNames={initial.sectionNames}
+                    booked={booked}
+                    onNotice={setNotice}
+                    onSaveObject={saveObject}
+                  />
                 )}
                 {panel === 'checks' && (
                   <ChecksPanel checks={checks} lint={lint} onLintChange={setLint} onFocus={focus} />
                 )}
-                {panel === 'json' && (
-                  <JsonPanel
-                    plan={plan}
-                    onImport={() => (document.getElementById('import-dialog') as HTMLDialogElement | null)?.showModal()}
-                  />
-                )}
+                {panel === 'json' && <JsonPanel plan={plan} onImport={() => openDialog('import-dialog')} />}
               </div>
             </>
           ) : (
@@ -416,8 +458,13 @@ export function Workspace({
       </div>
 
       <ImportDialog onLoad={(next) => onReplace({ plan: next, sectionNames: {}, booked: [] })} />
+      <ShortcutsDialog />
     </div>
   )
+}
+
+function openDialog(id: string) {
+  ;(document.getElementById(id) as HTMLDialogElement | null)?.showModal()
 }
 
 function never(): boolean {
@@ -434,12 +481,9 @@ function fixtureVariant(fixture: Fixture): 'box' | 'wall' {
   return fixture.role === 'wall' ? 'wall' : 'box'
 }
 
-// The editor snaps to the site's 46-unit cells; taps place things on half cells.
+// The editor snaps to the site's 46-unit cells when Snap is on.
 const SNAP = { cell: GRID_CELL }
-
-function snap(value: number): number {
-  return Math.round(value / (GRID_CELL / 2)) * (GRID_CELL / 2)
-}
+const ZOOM_BUTTON_STEP = 1.4
 
 function centerOf(view: PlanView): PlanPoint {
   return { x: view.x + view.w / 2, y: view.y + view.h / 2 }

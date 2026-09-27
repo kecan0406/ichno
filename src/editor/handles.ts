@@ -11,12 +11,13 @@ import { boxOf, turnObjects, withGroupRotation } from './turn'
 // An object resizes from its corners (the opposite corner staying put, in the object's own turned frame) and
 // turns from the knob above its top edge. A group turns as one from the knob above its frame — the box around its
 // members in the direction it faces — so the knob, the frame and the centre turn with it. Sections move one
-// vertex at a time. Handles show for a single selected item only.
+// vertex at a time. Handles show for a single selected item only; `frames` outlines any number of them.
 
 export const planHandles = {
   of: handlesOf,
   drag: dragHandle,
   frame: frameOf,
+  frames: framesOf,
 }
 
 const CORNERS = ['nw', 'ne', 'se', 'sw'] as const
@@ -56,17 +57,42 @@ function frameOf<S extends string>(plan: SeatPlan<S>, selection: readonly Editor
   return box ? outlineOf(box, 'rect') : null
 }
 
-// The plan with a handle dragged by `total` plan units. Unknown handles leave the plan as it is.
+// The outline of every selected object and group, the way `frame` outlines one — in one pass over the plan, so a
+// selection of thousands stays cheap. Sections have none.
+function framesOf<S extends string>(plan: SeatPlan<S>, selection: readonly EditorSelection<S>[]): PlanPoint[][] {
+  const groups = new Map(plan.groups.map((group) => [group.id, group]))
+  const objects = new Map(plan.objects.map((object) => [object.id, object]))
+  const members = new Map<string, PlanObject<S>[]>()
+  for (const object of plan.objects) {
+    if (object.group === undefined) continue
+    const list = members.get(object.group)
+    if (list) list.push(object)
+    else members.set(object.group, [object])
+  }
+  return selection.flatMap((item) => {
+    if (item.kind === 'section') return []
+    const group = item.kind === 'group' ? groups.get(item.id) : undefined
+    const box = group
+      ? seatPlan.frameOf(members.get(group.id) ?? [], group.rotation ?? 0)
+      : (objects.get(item.id) ?? null)
+    return box ? [outlineOf(box, 'rect')] : []
+  })
+}
+
+// The plan with a handle dragged by `total` plan units. Unknown handles leave the plan as it is. `constrain`
+// (Shift) turns in 15° steps, keeps a resized object's proportions and moves a vertex straight along one axis.
 function dragHandle<S extends string>(
   plan: SeatPlan<S>,
   owner: HandleOwner<S>,
   name: string,
   total: PlanPoint,
   snap: Snap | null = null,
+  constrain = false,
 ): SeatPlan<S> {
   if (owner.kind === 'section') {
     const index = Number(name.replace('vertex-', ''))
     const step = snap ? snap.cell : 1
+    const by = constrain ? alongAxis(total) : total
     return {
       ...plan,
       sections: plan.sections.map((section) => {
@@ -74,8 +100,8 @@ function dragHandle<S extends string>(
         const points = section.points.map((p, i) =>
           i === index
             ? {
-                x: clamp(roundTo(p.x + total.x, step), 0, Math.floor(plan.width / step) * step),
-                y: clamp(roundTo(p.y + total.y, step), 0, Math.floor(plan.height / step) * step),
+                x: clamp(roundTo(p.x + by.x, step), 0, Math.floor(plan.width / step) * step),
+                y: clamp(roundTo(p.y + by.y, step), 0, Math.floor(plan.height / step) * step),
               }
             : p,
         )
@@ -90,7 +116,7 @@ function dragHandle<S extends string>(
     if (name !== 'rotate' || !group || !frame) return plan
     // The knob sets the direction the group faces; the members turn by the difference, about the frame's centre.
     const center = seatPlan.centerOf(frame)
-    const facing = stepped(angleOf(center, add(knobOf(frame), total)) + 90, snap)
+    const facing = stepped(angleOf(center, add(knobOf(frame), total)) + 90, snap !== null || constrain)
     const turn = shortest(facing - (group.rotation ?? 0))
     const turned = turnObjects(plan, seatPlan.membersOf(plan, owner.id), center, turn)
     return withGroupRotation(turned, owner.id, facing)
@@ -98,7 +124,7 @@ function dragHandle<S extends string>(
   return {
     ...plan,
     objects: plan.objects.map((object) =>
-      object.id === owner.id ? reshaped(plan, object, name, total, snap) : object,
+      object.id === owner.id ? reshaped(plan, object, name, total, snap, constrain) : object,
     ),
   }
 }
@@ -109,11 +135,14 @@ function reshaped<S extends string>(
   name: string,
   total: PlanPoint,
   snap: Snap | null,
+  constrain: boolean,
 ): PlanObject<S> {
   const rotation = object.rotation ?? 0
   const center = seatPlan.centerOf(object)
   if (name === 'rotate') {
-    const turned = normalizeRotation(stepped(angleOf(center, add(knobOf(object), total)) + 90, snap))
+    const turned = normalizeRotation(
+      stepped(angleOf(center, add(knobOf(object), total)) + 90, snap !== null || constrain),
+    )
     const { rotation: _, ...rest } = object
     return (turned === 0 ? rest : { ...rest, rotation: turned }) as PlanObject<S>
   }
@@ -126,8 +155,14 @@ function reshaped<S extends string>(
   const u = { x: Math.cos(a), y: Math.sin(a) }
   const v = { x: -Math.sin(a), y: Math.cos(a) }
   const d = { x: moved.x - anchor.x, y: moved.y - anchor.y }
-  const du = d.x * u.x + d.y * u.y
-  const dv = d.x * v.x + d.y * v.y
+  let du = d.x * u.x + d.y * u.y
+  let dv = d.x * v.x + d.y * v.y
+  if (constrain) {
+    // Proportions kept — the box grows by whichever side was pulled further, the other follows.
+    const k = Math.max(Math.abs(du) / object.w, Math.abs(dv) / object.h)
+    du = Math.sign(du || 1) * object.w * k
+    dv = Math.sign(dv || 1) * object.h * k
+  }
   const step = snap ? snap.cell / 2 : 1
   let w = Math.max(step, roundTo(Math.abs(du), step))
   let h = Math.max(step, roundTo(Math.abs(dv), step))
@@ -174,8 +209,13 @@ function angleOf(from: PlanPoint, to: PlanPoint): number {
 }
 
 // A turn in whole degrees — in ROTATION_STEP steps when snapping.
-function stepped(degrees: number, snap: Snap | null): number {
-  return roundTo(degrees, snap ? ROTATION_STEP : 1)
+function stepped(degrees: number, snapping: boolean): number {
+  return roundTo(degrees, snapping ? ROTATION_STEP : 1)
+}
+
+// A movement kept to the axis it went furthest along.
+export function alongAxis(delta: PlanPoint): PlanPoint {
+  return Math.abs(delta.x) >= Math.abs(delta.y) ? { x: delta.x, y: 0 } : { x: 0, y: delta.y }
 }
 
 const OPPOSITE: Record<Corner, Corner> = { nw: 'se', ne: 'sw', se: 'nw', sw: 'ne' }

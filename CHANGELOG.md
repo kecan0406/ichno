@@ -49,6 +49,33 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   `addArea`, `setSeatCount`, `labelSeats`, `labelObjects`, `rotateDesk`, `moveObject`, `DEFAULT_*` sizes, row end and
   curve handles, and grid normalization on open. `isLocked` takes an id. Shortcuts: R / ⇧R turn the selection a
   quarter, ⌘G groups.
+- `ichno/editor`: creation tools — `setTool(tool)` with an `EditorTool` (`draw: 'box' | 'line' | 'point'`,
+  `create(plan, stroke)`, optional `keep` and `id`). Presses on the plan then draw strokes: the editor previews what
+  the tool would make under the pointer and while the stroke is drawn (`draft`, `stroke`, `pointer`), commits it as
+  one undo step, selects what it made and goes back to selecting unless `keep` is set. Strokes snap like moves;
+  Shift keeps a box square and a line to 15° steps, Alt draws from the centre, and a tap is a stroke with no
+  length. `cancelDraw` drops a stroke; handles hide while a tool is active.
+- `ichno/editor`: saved objects — `planEdits.templateOf(plan, ids)` keeps what a selection holds as a
+  `PlanTemplate`, and `planEdits.insertTemplate(plan, template, at, { section })` adds one with fresh ids, in the
+  sections it lands in and inside the plan; `editor.insert(template, at)`. A clipboard: `copySelected`,
+  `cutSelected`, `paste(at?)` (under the pointer, or beside what was copied) and `clipboard`.
+- `ichno/editor`: `selectAll`; `frames` outlines every selected item and `hoverFrame` what a tap would select
+  (`planHandles.frames`); `moveSelected` moves selected sections too; the selection drops what an undo, a redo or an
+  edit took away. Shift constrains drags — moves keep to one axis, turns step by 15° without snapping, corners keep
+  their proportions and vertices move straight (`planHandles.drag` takes `constrain`).
+- `ichno/editor`: shortcuts — the arrow keys move the selection (Shift: ten units, or a cell when snapping), Escape
+  drops the stroke, then the tool, then the selection, ⌘A selects everything and ⌘C / ⌘X / ⌘V copy, cut and paste.
+  Keys a handler already took (`preventDefault`) are left alone.
+- `ichno`: `PlanTemplate`, `TemplateObject` and `PlanStroke`; `PlanDrag` carries `constrain`.
+- `ichno/schema`: `createSeatPlanSchema` also returns `Template`, which checks a stored template's ids and group
+  references.
+- `ichno/react`: `SeatMap.Viewport` takes `onDraw` (presses draw strokes for a creation tool), `onHover` (the
+  pointer while nothing is pressed), `wheel: 'zoom' | 'pan'` and `navigable`. Space held or the middle button pans
+  whatever is under the pointer, and the svg carries `data-pan` (`ready`, `active`) with a grab cursor. Wheel zoom
+  follows how far the wheel turned, so trackpads zoom smoothly, and Safari's pinch zooms the plan instead of the
+  page. With `onMarquee`, a mouse drag on empty space outside every section draws a marquee instead of panning
+  (touch still pans). Enter and Space pick only the place the focus ring shows, and focus from the keyboard shows
+  the ring at once. New part `SeatMap.Outline` draws the editor's `frames` and `hoverFrame`.
 
 ## 0.2.1 — 2026-09-25
 

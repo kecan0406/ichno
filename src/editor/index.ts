@@ -1,4 +1,5 @@
 export { useSeatPlanEditor, useSeatPlanEditorShortcuts, type SeatPlanEditor } from './use-seat-plan-editor'
 export { planEdits, type Added, type AlignEdge, type GroupMembers, type Snap } from './operations'
 export { planHandles } from './handles'
+export type { EditorTool } from './tools'
 export type { EditorSelection } from './selection'

@@ -133,7 +133,10 @@ off (duplicate labels, places outside their section, places without a category, 
   server-safe.
 
 The editor stays a headless hook: it owns the document, selection, history and commands, and hands the viewport
-its drag and click handlers.
+its drag, click and draw handlers. Creation follows the same split as the document: the viewport turns a press into
+a stroke, the editor previews and commits it, and what the stroke makes — a row, a table, a stage — is a tool the
+consumer writes with `layout` and `planEdits`. Saved objects are `PlanTemplate`s the consumer stores; they never
+enter the document.
 
 ## Roadmap
 
@@ -168,6 +171,10 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
 6. ✅ **Document v3** — pure primitives (above): types, schema, v2 upgrade, `rotation` through hit-testing, bounds
    and overlap; `layout` functions in core; editor `addPlaces`, `arrange` and `snap`; `SeatMap.Table` and
    `SeatMap.RowLabel` give way to `SeatMap.Fixture` and `SeatMap.Label`. Ships as 0.3.
+7. ✅ **Editor creation** — creation tools (`EditorTool`: a `box`, `line` or `point` stroke in, a plan out,
+   previewed while drawn and committed as one step), saved objects and the clipboard as `PlanTemplate`s (objects
+   and groups around their centre, no sections, versioned like documents), selection and hover outlines, Shift
+   constraints, keyboard nudging, Space and wheel panning. Ships with phase 6 as 0.3.
 
 ## Out of scope
 
