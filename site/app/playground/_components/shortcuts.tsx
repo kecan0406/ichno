@@ -1,15 +1,19 @@
-import styles from '../playground.module.css'
+import controls from './controls.module.css'
+import styles from './panels.module.css'
 
-// Every key the playground answers to — ichno's editor shortcuts plus the site's own keys for its objects.
+// Every key the playground answers to — ichno's editor shortcuts plus the site's own keys for its tools and panels.
 
 const GROUPS: { title: string; keys: [string, string][] }[] = [
   {
-    title: 'Objects',
+    title: 'Tools',
     keys: [
       ['V', 'Select'],
-      ['1 – 6', 'Row, seat block, round table, desk, booth, standing area — the playground’s objects'],
-      ['Q', 'Keep the object picked after placing one'],
-      ['Esc', 'Drop the drawing, drag or marquee under way, put the object down, then clear the selection'],
+      ['H', 'Hand — drag to pan'],
+      ['P  F', 'Draw a place, a fixture — ichno’s primitives'],
+      ['1 – 6', 'Row, seat block, round table, desk, booth, standing area — the playground’s assets'],
+      ['⇧I', 'Assets'],
+      ['Q', 'Keep the tool after placing'],
+      ['Esc', 'Drop the drawing, drag or marquee under way, put the tool down, then clear the selection'],
     ],
   },
   {
@@ -24,14 +28,15 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
   {
     title: 'Selection',
     keys: [
-      ['Tap', 'Select — tap again for one seat of a group'],
-      ['Shift-tap', 'Add to or take from the selection'],
+      ['Click', 'Select — again for one seat of a group'],
+      ['Shift-click', 'Add to or take from the selection'],
       ['Drag the floor', 'Select everything it touches'],
+      ['↵  ⇧↵', 'The selected groups’ members, the selected objects’ groups'],
       ['⌘A', 'Select everything'],
       ['← ↑ → ↓', 'Move — with Shift, a whole cell'],
       ['Shift-drag', 'Move along one axis; turn in 15° steps; resize in proportion'],
       ['R  ⇧R', 'Turn a quarter clockwise, anticlockwise'],
-      ['Delete', 'Delete'],
+      ['⌫', 'Delete'],
     ],
   },
   {
@@ -40,6 +45,8 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['⌘C  ⌘X  ⌘V', 'Copy, cut, paste — under the pointer'],
       ['⌘D', 'Duplicate'],
       ['⌘G  ⇧⌘G', 'Group, ungroup'],
+      ['⌘]  ⌘[', 'Bring forward, send backward'],
+      ['⌥⌘]  ⌥⌘[', 'Bring to front, send to back'],
       ['⌘Z  ⇧⌘Z', 'Undo, redo'],
     ],
   },
@@ -52,6 +59,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['Drag to the edge', 'Scroll the plan while moving, selecting or drawing'],
       ['+  −', 'Zoom in, out'],
       ['⇧1  ⇧2', 'Fit the plan, zoom to the selection'],
+      ['⌘\\', 'Hide or show the panels'],
       ['?', 'This list'],
     ],
   },
@@ -61,15 +69,15 @@ export function ShortcutsDialog() {
   return (
     <dialog
       id="shortcuts-dialog"
-      className={styles.dialog}
+      className={controls.dialog}
       data-wide=""
       aria-labelledby="shortcuts-title"
       // Keys pressed here are for the dialog, not the editor behind it.
       onKeyDown={(e) => e.stopPropagation()}
     >
-      <form method="dialog" className={styles.dialogBody}>
+      <form method="dialog" className={controls.dialogBody}>
         <h2 id="shortcuts-title">Keyboard shortcuts</h2>
-        <p className={styles.panelHint}>⌘ is Ctrl on Windows and Linux.</p>
+        <p className={controls.hint}>⌘ is Ctrl on Windows and Linux.</p>
         <div className={styles.shortcutGroups}>
           {GROUPS.map((group) => (
             <section key={group.title}>
@@ -78,7 +86,7 @@ export function ShortcutsDialog() {
                 {group.keys.map(([keys, what]) => (
                   <div key={keys}>
                     <dt>
-                      <kbd>{keys}</kbd>
+                      <kbd className={controls.kbd}>{keys}</kbd>
                     </dt>
                     <dd>{what}</dd>
                   </div>
@@ -87,8 +95,8 @@ export function ShortcutsDialog() {
             </section>
           ))}
         </div>
-        <div className={styles.actions}>
-          <button type="submit" className={styles.button} data-primary="">
+        <div className={controls.dialogActions}>
+          <button type="submit" className={controls.button} data-primary="">
             Done
           </button>
         </div>

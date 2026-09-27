@@ -137,6 +137,16 @@ export function boxPlaceTool(role: 'booth' | 'area') {
   }
 }
 
+// A bare place — ichno's bookable primitive, with no role — drawn at any size, or a seat-sized one dropped with a tap.
+// What it is for (a role, a capacity, a category) is set in Design afterwards.
+export function placeTool(plan: Plan, stroke: PlanStroke): Plan | null {
+  const drawn = rectOf(stroke)
+  const box = drawn.w < PITCH / 2 || drawn.h < PITCH / 2 ? around(stroke.end, { w: SEAT, h: SEAT }) : drawn
+  const section = seatPlan.sectionAt(plan, seatPlan.centerOf(box))
+  if (section === null) return null
+  return planEdits.addPlaces(plan, section, [box], { shape: 'rect', capacity: 1 })?.plan ?? null
+}
+
 // A fixture of the site's `role` — drawn as a box, or (walls) along a line; a tap drops it at its default size.
 export function fixtureTool(role: string | undefined, size: { w: number; h: number }, along: boolean) {
   return (plan: Plan, stroke: PlanStroke): Plan => {

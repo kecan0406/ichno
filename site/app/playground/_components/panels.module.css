@@ -1,0 +1,142 @@
+/* ---------- Checks ---------- */
+
+.verdict {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--theme-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.verdict[data-state='ok'] {
+  background: color-mix(in srgb, #16a34a 12%, transparent);
+  color: color-mix(in srgb, #16a34a 80%, var(--theme-fg));
+}
+
+.verdict[data-state='warning'] {
+  background: color-mix(in srgb, var(--ichno-warning) 14%, transparent);
+}
+
+.verdict[data-state='error'] {
+  background: color-mix(in srgb, #dc2626 12%, transparent);
+  color: color-mix(in srgb, #dc2626 80%, var(--theme-fg));
+}
+
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.check {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+}
+
+button.check:not(:disabled) {
+  cursor: pointer;
+}
+
+button.check:hover:not(:disabled) {
+  background: var(--theme-hover);
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ichno-warning);
+  transform: translateY(-1px);
+}
+
+.check[data-severity='error'] .dot {
+  background: #dc2626;
+}
+
+.rule {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+/* ---------- JSON ---------- */
+
+.json {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px 12px 12px 16px;
+}
+
+.code {
+  flex: 1;
+  min-height: 200px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--theme-subtle);
+  color: var(--theme-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* ---------- Preview ---------- */
+
+.summary {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------- Keyboard shortcuts ---------- */
+
+.shortcutGroups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px 28px;
+}
+
+.shortcutGroups h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+}
+
+.shortcuts div {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.shortcuts dd {
+  margin: 0;
+  color: var(--theme-muted);
+}

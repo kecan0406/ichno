@@ -1,0 +1,382 @@
+/* The editor's frame — layers and assets on the left, the plan in the middle, the properties on the right, the way a
+   design tool lays itself out. The side panels are `--left` and `--right` wide (resizable, kept in this browser). */
+
+.app {
+  --left: 248px;
+  --right: 272px;
+
+  display: grid;
+  grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--theme-bg);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0;
+}
+
+/* Previewing shows the plan as customers see it — no layers, no tools. */
+.app[data-mode='preview'] {
+  grid-template-columns: 0 minmax(0, 1fr) var(--right);
+}
+
+.app[data-panels='hidden'] {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.app[data-mode='preview'] .left,
+.app[data-panels='hidden'] :is(.left, .right) {
+  display: none;
+}
+
+/* ---------- Panels ---------- */
+
+.left,
+.right {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--theme-surface);
+}
+
+.left {
+  grid-column: 1;
+  border-right: 1px solid var(--theme-border);
+}
+
+.right {
+  grid-column: 3;
+  border-left: 1px solid var(--theme-border);
+}
+
+.head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 0 10px;
+}
+
+.right > .head {
+  gap: 6px;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.tabPanel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The document — the main menu, then its name. */
+.document {
+  flex: none;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.mainMenu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  margin-left: -4px;
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--theme-fg);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+}
+
+.mainMenu:hover,
+.mainMenu[aria-expanded='true'] {
+  background: var(--theme-hover);
+}
+
+.logo {
+  width: 18px;
+  height: 18px;
+}
+
+.docName {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 16px 12px;
+}
+
+.docName strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docName span {
+  color: var(--theme-muted);
+  font-size: 11px;
+}
+
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--theme-fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.zoom:hover,
+.zoom[aria-expanded='true'] {
+  background: var(--theme-hover);
+}
+
+/* The edge a panel is resized by. */
+.resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resizer[data-side='left'] {
+  right: -4px;
+}
+
+.resizer[data-side='right'] {
+  left: -4px;
+}
+
+.resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  content: '';
+  transition: background 0.15s;
+}
+
+.resizer:is(:hover, :focus-visible, [data-active])::after {
+  background: var(--theme-accent);
+}
+
+.resizer:focus-visible {
+  outline: none;
+}
+
+/* ---------- Canvas ---------- */
+
+.canvas {
+  position: relative;
+  grid-column: 2;
+  min-width: 0;
+  min-height: 0;
+  background: var(--theme-bg);
+}
+
+.viewport {
+  cursor: default;
+}
+
+.canvas[data-tool='draw'] .viewport {
+  cursor: crosshair;
+}
+
+.canvas[data-tool='hand'] .viewport,
+.canvas[data-tool='hand'] .viewport * {
+  cursor: grab;
+}
+
+/* The grid sits under the drawing — let it show through the section floor. */
+.canvas [data-part='floor'] {
+  fill: transparent;
+}
+
+.canvas [data-ichno-id]:not([data-disabled]) {
+  cursor: pointer;
+}
+
+/* A tool draws wherever it is pressed — over places too. */
+.canvas:not([data-tool='select']) [data-ichno-id] {
+  cursor: inherit;
+}
+
+/* Space held, or a pan under way. */
+.canvas .viewport[data-pan='ready'],
+.canvas .viewport[data-pan='ready'] * {
+  cursor: grab;
+}
+
+.canvas .viewport[data-pan='active'],
+.canvas .viewport[data-pan='active'] * {
+  cursor: grabbing;
+}
+
+/* What the tool would make — drawn through, and never in the way of the pointer. */
+.draft {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* What a tap would select, or the layers row under the pointer — a little heavier than ichno draws it. */
+.canvas [data-part='hover'] polygon {
+  stroke-width: 1.5px;
+}
+
+.canvas [data-status='booked'] [data-part='shape'] {
+  stroke-dasharray: 4 3;
+}
+
+.canvas [data-ichno-id]:not([data-selected]):not([data-disabled]) [data-part='shape'] {
+  fill: color-mix(in srgb, var(--cat, transparent) 14%, var(--ichno-surface));
+}
+
+.canvas [data-category='premium'] {
+  --cat: var(--theme-premium);
+}
+
+.canvas [data-category='access'] {
+  --cat: var(--theme-access);
+}
+
+.app[data-mode='preview'] [data-status='booked'] [data-part='shape'] {
+  stroke-dasharray: none;
+}
+
+/* What the tool in use does, or what just happened — above the toolbar. */
+.hint {
+  position: absolute;
+  bottom: 70px;
+  left: 50%;
+  z-index: 2;
+  max-width: min(560px, calc(100% - 32px));
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #1c1c21 90%, transparent);
+  color: #f2f2f4;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.hint[data-warn] {
+  background: color-mix(in srgb, var(--ichno-warning) 88%, #000);
+  color: #fff;
+}
+
+.conflicts {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 2;
+  margin: 0;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--ichno-warning) 50%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ichno-warning) 14%, var(--theme-surface));
+  color: color-mix(in srgb, var(--ichno-warning) 60%, var(--theme-fg));
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* 2D or 3D, over the preview. */
+.dimension {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 108px;
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 12%, transparent);
+}
+
+.showPanels {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, #000 20%, transparent);
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--theme-muted);
+  font-size: 13px;
+}
+
+/* ---------- Narrow screens: the plan, then its properties, then its layers ---------- */
+
+@media (max-width: 860px) {
+  .app,
+  .app[data-mode='preview'] {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .canvas {
+    flex: none;
+    order: 1;
+    height: 62dvh;
+  }
+
+  .right {
+    order: 2;
+    border-top: 1px solid var(--theme-border);
+    border-left: 0;
+  }
+
+  .left {
+    order: 3;
+    max-height: 70dvh;
+    border-top: 1px solid var(--theme-border);
+    border-right: 0;
+  }
+
+  .tabPanel {
+    overflow: visible;
+  }
+
+  .left .tabPanel {
+    overflow-y: auto;
+  }
+
+  .resizer {
+    display: none;
+  }
+}

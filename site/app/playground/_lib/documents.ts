@@ -13,17 +13,36 @@ import { createSeatPlanSchema, seatPlanIssueOf, type SeatPlanIssue } from 'ichno
 import { blankPlan, roomPlan, venuePlan, venueSectionNames } from '../../_demo/plans'
 import { lintIssueText, planIssueText } from '../../_demo/messages'
 
-// What the playground edits: a document, the names it shows for its sections, and the places marked booked.
-export type Workbench = { plan: SeatPlan<string>; sectionNames: Record<string, string>; booked: string[] }
+// What the playground edits: a document with a name to show for it, the names it shows for its sections, and the
+// places marked booked.
+export type Workbench = {
+  name: string
+  plan: SeatPlan<string>
+  sectionNames: Record<string, string>
+  booked: string[]
+}
 
 export const PRESETS: { id: string; name: string; workbench: Workbench }[] = [
   {
     id: 'venue',
     name: 'Venue',
-    workbench: { plan: venuePlan, sectionNames: venueSectionNames, booked: ['A5', 'A6', 'D9', 'D10', 'S3', 'T2-1'] },
+    workbench: {
+      name: 'Venue',
+      plan: venuePlan,
+      sectionNames: venueSectionNames,
+      booked: ['A5', 'A6', 'D9', 'D10', 'S3', 'T2-1'],
+    },
   },
-  { id: 'room', name: 'Room', workbench: { plan: roomPlan, sectionNames: { R: 'Room' }, booked: ['R5'] } },
-  { id: 'blank', name: 'Blank floor', workbench: { plan: blankPlan, sectionNames: { A: 'Floor' }, booked: [] } },
+  {
+    id: 'room',
+    name: 'Room',
+    workbench: { name: 'Room', plan: roomPlan, sectionNames: { R: 'Room' }, booked: ['R5'] },
+  },
+  {
+    id: 'blank',
+    name: 'Blank floor',
+    workbench: { name: 'Blank floor', plan: blankPlan, sectionNames: { A: 'Floor' }, booked: [] },
+  },
 ]
 
 export const DEFAULT_LINT: Record<LintCode, LintSeverity> = {
@@ -125,6 +144,7 @@ export function loadWorkbench(): Workbench | null {
     const parsed = parseDocument(JSON.stringify(stored.plan))
     if (!('plan' in parsed)) return null
     return {
+      name: typeof stored.name === 'string' && stored.name !== '' ? stored.name : 'Seat plan',
       plan: parsed.plan,
       sectionNames: stored.sectionNames ?? {},
       booked: Array.isArray(stored.booked) ? stored.booked.filter((id) => typeof id === 'string') : [],
@@ -140,6 +160,35 @@ export function saveWorkbench(workbench: Workbench) {
   } catch {
     // Storage full or blocked — the playground still works, it just forgets on reload.
   }
+}
+
+// The document as your app would store it.
+export function jsonOf(plan: SeatPlan<string>): string {
+  return JSON.stringify(plan, null, 2)
+}
+
+// Copies the document; false when the browser blocks the clipboard.
+export async function copyDocument(plan: SeatPlan<string>): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(jsonOf(plan))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function downloadDocument(plan: SeatPlan<string>, name: string) {
+  const url = URL.createObjectURL(new Blob([jsonOf(plan)], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-') || 'seat-plan'
+  }.json`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function schemaFor(plan: SeatPlan<string>) {

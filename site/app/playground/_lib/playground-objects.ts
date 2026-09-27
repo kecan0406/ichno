@@ -1,15 +1,15 @@
 import type { Group, PlanObject, PlanTemplate, SeatPlan } from 'ichno'
 import { planEdits, type EditorTool } from 'ichno/editor'
-import { blockTool, boxPlaceTool, deskTool, fixtureTool, rowTool, tableTool } from './build'
+import { blockTool, boxPlaceTool, deskTool, fixtureTool, placeTool, rowTool, tableTool } from './build'
 import type { SavedObject } from './library'
 
 // The playground's own objects — made in advance for this demo out of ichno's places, fixtures and groups
 // (./build.ts), the way an app makes its own. ichno ships none of them. Most are drawn: a drag sizes them and a tap
 // drops the standard one. Two are fixed arrangements, placed as they are — like the objects people save.
 
-// Something the object panel can place — its name, its key, what the status line says while it is picked, and the
-// ichno tool that places it.
-export type ToolDef = { id: string; name: string; key: string; hint: string; tool: EditorTool<string> }
+// Something the playground can place — its name, the key that picks it (`key` as shown, `code` the physical key),
+// what the hint says while it is picked, and the ichno tool that places it.
+export type ToolDef = { id: string; name: string; key: string; code: string; hint: string; tool: EditorTool<string> }
 
 export type PlaygroundObject = ToolDef & {
   shelf: 'seating' | 'fixtures'
@@ -36,20 +36,22 @@ function drawn({
   id,
   shelf,
   name,
-  key = '',
+  digit,
   hint,
   draw,
   create,
-}: Omit<PlaygroundObject, 'tool' | 'sample' | 'key'> & Pick<EditorTool<string>, 'draw' | 'create'> & { key?: string }) {
+}: Pick<PlaygroundObject, 'id' | 'shelf' | 'name' | 'hint'> &
+  Pick<EditorTool<string>, 'draw' | 'create'> & { digit?: number }) {
   const at = { x: SCRATCH.width / 2, y: SCRATCH.height / 2 }
   const made = create(SCRATCH, { start: at, end: at })!
   const units = [...made.groups.map((g) => g.id), ...made.objects.flatMap((o) => (o.group === undefined ? [o.id] : []))]
   const sample = planEdits.templateOf(made, units)!.template
-  return { id, shelf, name, key, hint, tool: { id, draw, create }, sample } satisfies PlaygroundObject
+  const keys = digit === undefined ? { key: '', code: '' } : { key: String(digit), code: `Digit${digit}` }
+  return { id, shelf, name, ...keys, hint, tool: { id, draw, create }, sample } satisfies PlaygroundObject
 }
 
 function placed(id: string, name: string, template: PlanTemplate): PlaygroundObject {
-  return { id, shelf: 'seating', name, key: '', sample: template, ...placeAsIs(id, name, template) }
+  return { id, shelf: 'seating', name, key: '', code: '', sample: template, ...placeAsIs(id, name, template) }
 }
 
 // A fixed arrangement as a tool — it follows the pointer, and a tap puts it down.
@@ -67,7 +69,7 @@ function placeAsIs(id: string, name: string, template: PlanTemplate): Pick<ToolD
 // An object someone saved, placed the same way.
 export function savedObjectTool(saved: SavedObject): ToolDef {
   const id = `saved:${saved.id}`
-  return { id, name: saved.name, key: '', ...placeAsIs(id, saved.name, saved.template) }
+  return { id, name: saved.name, key: '', code: '', ...placeAsIs(id, saved.name, saved.template) }
 }
 
 // A fixed arrangement drawn on the scratch plan and kept with `planEdits.templateOf` — the way a selection is saved.
@@ -130,15 +132,36 @@ const LOUNGE = arrangement({ id: 'lounge', role: 'lounge' }, [
   },
 ])
 
-// Fixtures are the app's words — these are this site's. A wall is drawn along a line; the rest as boxes.
-const FIXTURES: { role: string | undefined; name: string; size: { w: number; h: number }; along?: boolean }[] = [
+// Fixtures are the app's words — these are this site's. A wall is drawn along a line; the rest as boxes. A fixture
+// with no role is the toolbar's Fixture tool.
+const FIXTURES: { role: string; name: string; size: { w: number; h: number }; along?: boolean }[] = [
   { role: 'stage', name: 'Stage', size: { w: 414, h: 115 } },
   { role: 'screen', name: 'Screen', size: { w: 460, h: 46 } },
   { role: 'bar', name: 'Bar', size: { w: 368, h: 69 } },
   { role: 'wall', name: 'Wall', size: { w: 23, h: 230 }, along: true },
   { role: 'door', name: 'Door', size: { w: 92, h: 23 } },
   { role: 'pillar', name: 'Pillar', size: { w: 46, h: 46 } },
-  { role: undefined, name: 'Other', size: { w: 92, h: 92 } },
+]
+
+// ichno's own primitives as the toolbar's tools — a place (something to book) and a fixture (anything else), each a
+// bare box. What they are for — a role, a capacity, a category — is set in Design once they are drawn.
+export const PRIMITIVE_TOOLS: ToolDef[] = [
+  {
+    id: 'place',
+    name: 'Place',
+    key: 'P',
+    code: 'KeyP',
+    hint: `Drag to draw a place, tap for a seat — every place belongs to a section. ${BOX_KEYS}`,
+    tool: { id: 'place', draw: 'box', create: placeTool },
+  },
+  {
+    id: 'fixture',
+    name: 'Fixture',
+    key: 'F',
+    code: 'KeyF',
+    hint: `Drag to draw a fixture — nothing to book. ${BOX_KEYS}`,
+    tool: { id: 'fixture', draw: 'box', create: fixtureTool(undefined, { w: 92, h: 92 }, false) },
+  },
 ]
 
 export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
@@ -146,7 +169,7 @@ export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
     id: 'row',
     shelf: 'seating',
     name: 'Row',
-    key: '1',
+    digit: 1,
     hint: `Drag to draw a row, a seat every step. Tap for seven seats. ${LINE_KEYS}`,
     draw: 'line',
     create: rowTool,
@@ -155,7 +178,7 @@ export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
     id: 'block',
     shelf: 'seating',
     name: 'Seat block',
-    key: '2',
+    digit: 2,
     hint: `Drag a rectangle to fill it with rows. Tap for four rows of eight. ${BOX_KEYS}`,
     draw: 'box',
     create: blockTool,
@@ -164,7 +187,7 @@ export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
     id: 'table',
     shelf: 'seating',
     name: 'Round table',
-    key: '3',
+    digit: 3,
     hint: `Drag to size a table; seats fill its edge. Tap for one for six. ${BOX_KEYS}`,
     draw: 'box',
     create: tableTool,
@@ -173,7 +196,7 @@ export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
     id: 'desk',
     shelf: 'seating',
     name: 'Desk',
-    key: '4',
+    digit: 4,
     hint: `Drag to fill an area with desks. Tap for one desk. ${BOX_KEYS}`,
     draw: 'box',
     create: deskTool,
@@ -182,7 +205,7 @@ export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
     id: 'booth',
     shelf: 'seating',
     name: 'Booth',
-    key: '5',
+    digit: 5,
     hint: `Drag to draw a booth. Tap for the standard one. ${BOX_KEYS}`,
     draw: 'box',
     create: boxPlaceTool('booth'),
@@ -191,7 +214,7 @@ export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
     id: 'area',
     shelf: 'seating',
     name: 'Standing area',
-    key: '6',
+    digit: 6,
     hint: `Drag to draw an area; its floor sets its capacity. Tap for one for forty. ${BOX_KEYS}`,
     draw: 'box',
     create: boxPlaceTool('area'),
@@ -200,14 +223,12 @@ export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
   placed('lounge', 'Lounge corner', LOUNGE),
   ...FIXTURES.map(({ role, name, size, along = false }) =>
     drawn({
-      id: `fixture:${role ?? 'other'}`,
+      id: `fixture:${role}`,
       shelf: 'fixtures',
       name,
       hint: along
         ? `Drag to draw a ${name.toLowerCase()} along a line. Tap for a short one. ${LINE_KEYS}`
-        : role === undefined
-          ? `Drag to draw a fixture, then name its role in the inspector. ${BOX_KEYS}`
-          : `Drag to draw the ${name.toLowerCase()}. Tap for the standard one. ${BOX_KEYS}`,
+        : `Drag to draw the ${name.toLowerCase()}. Tap for the standard one. ${BOX_KEYS}`,
       draw: along ? 'line' : 'box',
       create: fixtureTool(role, size, along),
     }),

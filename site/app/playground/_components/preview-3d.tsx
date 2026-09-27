@@ -56,7 +56,8 @@ import {
   type Wall,
   type Writing,
 } from '../_lib/scene'
-import styles from '../playground.module.css'
+import ui from './controls.module.css'
+import styles from './preview-3d.module.css'
 
 // The playground's 3D preview — the same document the 2D preview draws, stood up with three.js by this site
 // (ichno draws 2D only). What stands where, how tall and facing which way is the site's reading of its roles
@@ -201,11 +202,11 @@ export default function Preview3D(props: Preview3DProps) {
             </span>
           </div>
           {viewing === null ? (
-            <button type="button" className={styles.button} onClick={() => setViewing(focused.id)}>
+            <button type="button" className={ui.button} onClick={() => setViewing(focused.id)}>
               View from here
             </button>
           ) : (
-            <button type="button" className={styles.button} onClick={() => setViewing(null)} title="Esc">
+            <button type="button" className={ui.button} onClick={() => setViewing(null)} title="Esc">
               Back to overview
             </button>
           )}

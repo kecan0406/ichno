@@ -1,0 +1,97 @@
+.toolbar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 24px);
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  background: var(--theme-surface);
+  box-shadow:
+    0 6px 20px -6px color-mix(in srgb, #000 24%, transparent),
+    0 1px 3px color-mix(in srgb, #000 10%, transparent);
+  transform: translateX(-50%);
+  scrollbar-width: none;
+}
+
+.tool {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--theme-fg);
+  cursor: pointer;
+}
+
+.tool:hover {
+  background: var(--theme-hover);
+}
+
+/* The tool in use — filled, the way a design tool marks it. */
+.tool[aria-pressed='true'] {
+  background: var(--theme-accent);
+  color: var(--theme-accent-fg);
+}
+
+.tool[data-toggle][aria-pressed='true'] {
+  background: var(--theme-accent-soft);
+  color: var(--theme-accent);
+}
+
+.divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--theme-border);
+}
+
+.asset {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  height: 32px;
+  margin-right: 2px;
+  padding: 0 2px 0 4px;
+  border-radius: 8px;
+  background: var(--theme-accent-soft);
+  color: var(--theme-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.asset > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.asset button:hover {
+  background: color-mix(in srgb, var(--theme-accent) 16%, transparent);
+}
