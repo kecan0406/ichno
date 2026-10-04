@@ -29,15 +29,16 @@
   --page-width: 1120px;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* ichno's theme contract, mapped onto the tokens above. */
+  /* ichno's theme contract, mapped onto the tokens above. Two inks only — the selection is the foreground, not the
+     page accent. */
   --ichno-surface: var(--theme-surface);
-  --ichno-fixture: var(--theme-subtle);
-  --ichno-grid: color-mix(in srgb, var(--theme-fg) 7%, var(--theme-surface));
-  --ichno-label: color-mix(in srgb, var(--theme-fg) 55%, var(--theme-surface));
+  --ichno-fixture: transparent;
+  --ichno-grid: color-mix(in srgb, var(--theme-fg) 12%, var(--theme-surface));
+  --ichno-label: color-mix(in srgb, var(--theme-fg) 70%, var(--theme-surface));
   --ichno-ink: var(--theme-fg);
   --ichno-ink-foreground: var(--theme-surface);
-  --ichno-accent: var(--theme-accent);
-  --ichno-accent-foreground: var(--theme-accent-fg);
+  --ichno-accent: var(--theme-fg);
+  --ichno-accent-foreground: var(--theme-surface);
   --ichno-warning: var(--theme-warning);
   --ichno-font: var(--font-sans-serif);
   --ichno-number-font: var(--font-monospace);
@@ -66,6 +67,51 @@
 /* Chairs and table tops are fixtures with this site's roles — drawn like furniture, not like floor fixtures. */
 [data-kind='fixture']:is([data-role='chair'], [data-role='table']) [data-part='shape'] {
   fill: var(--ichno-surface);
+}
+
+/* Seat maps are drawn in hairlines: solid for things, dashed for guides and for what cannot be had, one filled
+   shape — the selection — for weight. */
+[data-ichno-root] [data-part='shape'] {
+  stroke-width: 1px;
+}
+
+[data-ichno-root] [data-part='wall'] {
+  stroke-width: 1px;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+
+[data-ichno-root] [data-part='grid'] path {
+  stroke-dasharray: 2 4;
+}
+
+[data-ichno-root] [data-ichno-id][data-disabled] [data-part='shape'] {
+  fill: transparent;
+  stroke: var(--ichno-label);
+  stroke-dasharray: 3 3;
+}
+
+[data-ichno-root] [data-ichno-id][data-disabled] [data-part='label'] {
+  fill: var(--ichno-label);
+}
+
+@keyframes ichno-march {
+  to {
+    stroke-dashoffset: -6;
+  }
+}
+
+/* A place under the pointer and the editor's frames trace their outline, like a dashed ring turning. */
+[data-ichno-root] [data-ichno-id]:not([data-disabled]):not([data-selected]):hover [data-part='shape'],
+[data-ichno-root] :is([data-part='frame'], [data-part='marquee']) :is(polygon, rect) {
+  stroke-dasharray: 3 3;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-ichno-root] [data-ichno-id]:not([data-disabled]):not([data-selected]):hover [data-part='shape'],
+  [data-ichno-root] :is([data-part='frame'], [data-part='marquee']) :is(polygon, rect) {
+    animation: ichno-march 0.6s linear infinite;
+  }
 }
 
 html {

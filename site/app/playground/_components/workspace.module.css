@@ -263,7 +263,7 @@
   --cat: var(--theme-access);
 }
 
-.app[data-mode='preview'] [data-status='booked'] [data-part='shape'] {
+.app[data-mode='preview'] [data-status='booked']:not([data-disabled]) [data-part='shape'] {
   stroke-dasharray: none;
 }
 

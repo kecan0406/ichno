@@ -165,8 +165,9 @@
 }
 
 .swatch[data-tone='taken'] {
-  --swatch: var(--ichno-ink);
-  background: var(--ichno-ink);
+  --swatch: var(--ichno-label);
+  border-style: dashed;
+  background: transparent;
 }
 
 .palettes {
