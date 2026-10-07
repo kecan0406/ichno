@@ -339,7 +339,7 @@ export default function Build3D(props: Build3DProps) {
     const keys = keysRef.current
     if (press.mode === 'drag' && press.target) {
       const total = { x: to.x - press.anchor.x, y: to.y - press.anchor.y }
-      handlers.onTargetDrag({ target: press.target, phase, total, constrain: keys.constrain })
+      handlers.onTargetDrag({ target: press.target, phase, total, constrain: keys.constrain, copy: keys.fromCenter })
     } else if (press.mode === 'marquee') {
       handlers.onMarquee(rectBetween(press.anchor, to), { phase, additive: press.additive })
     } else if (press.mode === 'draw') {
@@ -375,6 +375,7 @@ export default function Build3D(props: Build3DProps) {
               phase: 'start',
               total: { x: 0, y: 0 },
               constrain: keysRef.current.constrain,
+              copy: keysRef.current.fromCenter,
             })
           } else if (press.mode === 'marquee') {
             handlers.onMarquee({ ...anchor, w: 0, h: 0 }, { phase: 'start', additive: press.additive })

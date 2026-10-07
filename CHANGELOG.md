@@ -127,6 +127,9 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
 - `ichno/editor`: `selectIds(ids)` selects exactly these object and group ids; `selectMembers()` and
   `selectGroups()` are what Enter and ⇧Enter do, for menus. `preview(update)` shows an edit without committing it —
   while a slider is dragged — applied to the plan as it is, until the next edit or `preview(null)`.
+- `ichno/editor`: an Alt-drag moves a copy and leaves the original (`PlanDrag.copy`, reported by the viewport while
+  Alt is held), selecting the copies — a group as a new group. Duplicating the copies again repeats how far they were
+  moved: duplicate, move the copy, ⌘D, and the next one lands as far on.
 
 ## 0.2.1 — 2026-09-25
 

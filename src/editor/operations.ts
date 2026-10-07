@@ -682,7 +682,7 @@ function reshapeSection<S extends string>(
 // The plan with a drag applied — a handle reshapes or turns its owner, a section moves by whole cells, objects by
 // the drag total. When the dragged object is part of `selected` (object and group ids), the whole selection
 // moves; otherwise the object alone, or its group when it has one. A constrained move keeps to the axis it went
-// furthest along.
+// furthest along; a copying one (Alt) leaves them where they were and moves copies (see `duplicate`).
 function applyDrag<S extends string>(
   plan: SeatPlan<S>,
   drag: PlanDrag<S>,
@@ -696,7 +696,10 @@ function applyDrag<S extends string>(
   const object = seatPlan.objectById(plan, target.id)
   if (!object) return plan
   const covered = selected.includes(object.id) || (object.group !== undefined && selected.includes(object.group))
-  return move(plan, covered ? selected : [object.group ?? object.id], total, snap)
+  const ids = covered ? selected : [object.group ?? object.id]
+  if (!drag.copy) return move(plan, ids, total, snap)
+  const copies = duplicate(plan, ids, ORIGIN)
+  return move(copies.plan, copies.ids, total, snap)
 }
 
 // Whether an object or group holds an id other records reference — its own, or one of its members'.
@@ -808,3 +811,4 @@ function defined<T extends object>(object: T): Partial<T> {
 const NONE: ReadonlySet<string> = new Set()
 // Two cells right and down — a copy lands next to its original, not on it.
 const DUPLICATE_OFFSET: PlanPoint = { x: GRID_CELL * 2, y: GRID_CELL * 2 }
+const ORIGIN: PlanPoint = { x: 0, y: 0 }

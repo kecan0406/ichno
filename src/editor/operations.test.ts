@@ -251,6 +251,22 @@ describe('planEdits — arranging', () => {
     expect(xs(planEdits.applyDrag(rowed, seatDrag, []))).toEqual(xs(rowed).map((x) => x + 92))
   })
 
+  it('leaves what a copying drag drags in place and moves copies with fresh ids — a group as a new group', () => {
+    const drag = { target: { kind: 'place' as const, id: 'A1' }, phase: 'end' as const, total: { x: 0, y: 184 } }
+    const copied = planEdits.applyDrag(plan, { ...drag, copy: true }, ['A1', 'A2'])
+    expect(copied.objects.slice(0, 3)).toEqual(plan.objects)
+    expect(copied.objects.slice(3).map((o) => [o.id, o.x, o.y])).toEqual([
+      ['A4', 2, 186],
+      ['A5', 186, 278],
+    ])
+    const { plan: rowed } = withRow()
+    const rowCopy = planEdits.applyDrag(rowed, { ...drag, target: { kind: 'place', id: 'A2' }, copy: true }, [])
+    expect(rowCopy.groups.map((g) => g.id)).toEqual(['row-1', 'row-2'])
+    expect(seatPlan.membersOf(rowCopy, 'row-2').map((o) => o.y)).toEqual(
+      seatPlan.membersOf(rowed, 'row-1').map((o) => o.y + 184),
+    )
+  })
+
   it('snaps a lone object to the half-cell grid and a group by whole half cells', () => {
     const snap = { cell: 46 }
     expect(planEdits.move(plan, ['A1'], { x: 30, y: 5 }, snap).objects[0]).toMatchObject({ x: 23, y: 0 })

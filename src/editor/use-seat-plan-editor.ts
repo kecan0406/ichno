@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { seatPlan } from '../core/geometry'
 import { GRID_CELL } from '../core/grid'
+import { unionBounds } from '../core/math'
 import type { LabelSequence } from '../core/labeling'
 import type {
   Group,
@@ -93,6 +94,8 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   // What a tap would select under the pointer.
   const [hovered, setHovered] = useState<EditorSelection<S> | null>(null)
   const [clipboard, setClipboard] = useState<Clip | null>(null)
+  // The last duplicate — where what it copied stood and the copies' ids — so duplicating the copies repeats the step.
+  const duplicateRef = useRef<{ from: PlanPoint; ids: string[] } | null>(null)
   // An edit shown but not committed (`preview`) — applied to the plan as it is, so undo and edits made meanwhile
   // show through it.
   const [previewing, setPreviewing] = useState<Edit<S> | null>(null)
@@ -331,7 +334,12 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
       return
     }
     setDrag(null)
-    apply((current) => planEdits.applyDrag(current, next, selectedIds, grid))
+    const before = historyRef.current.present
+    if (!apply((current) => planEdits.applyDrag(current, next, selectedIds, grid))) return
+    // A copying drag selects the copies, as a duplicate does.
+    if (next.copy && next.target.kind !== 'handle' && next.target.kind !== 'section') {
+      setChosen(addedSelection(before, historyRef.current.present))
+    }
   }
 
   // The pointer over the plan — the tool previews a tap there; otherwise it outlines what a tap would select.
@@ -497,10 +505,15 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     return ids
   }
 
-  // Copies the selection next to itself and selects the copies.
+  // Copies the selection next to itself and selects the copies. Duplicating the copies again repeats where they went:
+  // duplicate, move the copy, duplicate again — and the next copy lands as far on.
   function duplicateSelected(): string[] {
     const current = historyRef.current.present
-    const result = planEdits.duplicate(current, selectedIds)
+    const here = centerOfIds(current, selectedIds)
+    const last = duplicateRef.current
+    const again = last !== null && here !== null && sameIds(last.ids, selectedIds)
+    const offset = again ? { x: here.x - last.from.x, y: here.y - last.from.y } : undefined
+    const result = planEdits.duplicate(current, selectedIds, offset)
     if (result.ids.length === 0) return []
     apply(() => result.plan)
     setChosen(
@@ -508,6 +521,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
         seatPlan.groupById(result.plan, id) ? { kind: 'group' as const, id } : { kind: 'object' as const, id },
       ),
     )
+    duplicateRef.current = here === null ? null : { from: here, ids: result.ids }
     return result.ids
   }
 
@@ -889,6 +903,16 @@ function addedPart<S extends string>(before: SeatPlan<S>, after: SeatPlan<S>): S
 }
 
 // The selection of what `after` adds to `before` — new groups as groups, new objects outside them one by one.
+// The middle of what ids cover, or null when they cover nothing.
+function centerOfIds(plan: SeatPlan<string>, ids: readonly string[]): PlanPoint | null {
+  const extent = unionBounds(seatPlan.boundsOfIds(plan, ids))
+  return extent ? seatPlan.centerOf(extent) : null
+}
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id) => b.includes(id))
+}
+
 function addedSelection<S extends string>(before: SeatPlan<S>, after: SeatPlan<S>): EditorSelection<S>[] {
   const known = new Set(seatPlan.idsOf(before))
   const groups = after.groups.filter((g) => !known.has(g.id)).map((g) => g.id)

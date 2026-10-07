@@ -89,7 +89,7 @@ type Press<S extends string> = {
   at: ScreenPoint | null
 }
 
-// Shift constrains a drag or a stroke, Alt draws from the centre.
+// Shift constrains a drag or a stroke; Alt draws a stroke from the centre and drags a copy.
 type Keys = { constrain: boolean; fromCenter: boolean }
 
 // The interactive plan — an <svg> that pans, zooms (wheel, pinch), reports taps, drags and strokes, and moves a
@@ -206,7 +206,7 @@ export function Viewport<S extends string>({
     const keys = keysRef.current
     if (press.mode === 'drag' && press.target) {
       const total = { x: to.x - press.anchor.x, y: to.y - press.anchor.y }
-      onTargetDrag?.({ target: press.target, phase, total, constrain: keys.constrain })
+      onTargetDrag?.({ target: press.target, phase, total, constrain: keys.constrain, copy: keys.fromCenter })
     } else if (press.mode === 'marquee') {
       onMarquee?.(rectBetween(press.anchor, to), { phase, additive: press.additive })
     } else if (press.mode === 'draw') {
@@ -258,6 +258,7 @@ export function Viewport<S extends string>({
               phase: 'start',
               total: { x: 0, y: 0 },
               constrain: keysRef.current.constrain,
+              copy: keysRef.current.fromCenter,
             })
           } else if (press.mode === 'marquee') {
             onMarquee?.({ ...anchor, w: 0, h: 0 }, { phase: 'start', additive: press.additive })

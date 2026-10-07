@@ -35,6 +35,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['⌘A', 'Select everything'],
       ['← ↑ → ↓', 'Move — with Shift, a whole cell'],
       ['Shift-drag', 'Move along one axis; turn in 15° steps; resize in proportion'],
+      ['Alt-drag', 'Move a copy, leaving the original'],
       ['R  ⇧R', 'Turn a quarter clockwise, anticlockwise'],
       ['⌫', 'Delete'],
     ],
@@ -43,7 +44,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     title: 'Editing',
     keys: [
       ['⌘C  ⌘X  ⌘V', 'Copy, cut, paste — under the pointer'],
-      ['⌘D', 'Duplicate'],
+      ['⌘D', 'Duplicate — again to repeat how far the copy was moved'],
       ['⌘G  ⇧⌘G', 'Group, ungroup'],
       ['⌘]  ⌘[', 'Bring forward, send backward'],
       ['⌥⌘]  ⌥⌘[', 'Bring to front, send to back'],

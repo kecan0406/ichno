@@ -287,7 +287,8 @@ const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, c
 ```
 
 Tapping a grouped object selects its group; tapping it again selects the object alone (shift/⌘ adds to the
-selection). Dragging moves the selection with the snapping the commit will use — with Shift along one axis.
+selection). Dragging moves the selection with the snapping the commit will use — with Shift along one axis, with
+Alt a copy, leaving the original (`PlanDrag.copy`).
 Dragging empty floor draws a marquee that selects everything it touches; a selected section moves instead. Space
 and the middle mouse button pan. `cancel()` (Escape) drops the drag, marquee or stroke under way — what was
 dragged goes back and letting go changes nothing. Nothing stops you from dragging one place onto another; `conflictIds` lists the
@@ -370,7 +371,8 @@ is over the plan, otherwise beside what was copied. `insert(template, at)` adds 
 Operations take object and group ids alike — a group acts as one.
 
 - **Create:** `addPlaces(section, boxes, { shape, capacity, role, category, group })`, `addFixtures(boxes, …)`,
-  `addLabels(groupId, boxes)`, `insert(template, at)`, `duplicateSelected`, `groupSelected` — each returns the new
+  `addLabels(groupId, boxes)`, `insert(template, at)`, `duplicateSelected` (duplicating the copies again repeats
+  how far they were moved), `groupSelected` — each returns the new
   ids and selects them (`group: { role, label }` makes a new group in the same step). New places continue the
   section numbering.
 - **Change:** `layoutGroup(groupId, boxes)` (grow, shrink or bend a row — members move onto the boxes, extra boxes

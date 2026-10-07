@@ -98,12 +98,13 @@ export type PlanHandle<S extends string = string> = {
 
 // A drag of a target, reported by viewports while it moves. `total` is the movement since the drag started, in
 // plan units. `constrain` is set while Shift is held: a move keeps to one axis, a turn steps by 15°, a corner keeps
-// the proportions.
+// the proportions. `copy` is set while Alt is held: a move leaves what it drags where it was and moves a copy.
 export type PlanDrag<S extends string = string> = {
   target: PlanTarget<S>
   phase: 'start' | 'move' | 'end'
   total: PlanPoint
   constrain?: boolean
+  copy?: boolean
 }
 
 // A stroke drawn with a creation tool — from where the press started to where the pointer is (or was let go), in
