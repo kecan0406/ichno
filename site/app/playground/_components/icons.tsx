@@ -186,6 +186,12 @@ const GLYPHS = {
       <rect x={6} y={6} width={4} height={4} rx={0.8} />
     </>
   ),
+  theme: (
+    <>
+      <circle cx={8} cy={8} r={5.5} />
+      <path d="M8 2.5a5.5 5.5 0 010 11z" fill="currentColor" />
+    </>
+  ),
   keyboard: (
     <>
       <rect x={1.5} y={4} width={13} height={8} rx={1.5} />

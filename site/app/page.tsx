@@ -3,7 +3,7 @@ import pkg from 'ichno/package.json'
 import { SeatMap } from 'ichno/react'
 import { createSeatPlanSchema } from 'ichno/schema'
 import Link from 'next/link'
-import { fixtureNames, roomPlan, venuePlan, venueSectionIds, venueStatus } from './_demo/plans'
+import { fixtureNames, hallPlan, roomPlan, venuePlan, venueSectionIds, venueStatus } from './_demo/plans'
 import { VenueDemo } from './_demo/venue-demo'
 import { CodeTabs, type CodeTab } from './_ui/code-tabs'
 import { InstallCommand } from './_ui/install-command'
@@ -15,6 +15,7 @@ import styles from './page.module.css'
 // build instead of the page.
 createSeatPlanSchema({ sectionIds: venueSectionIds }).SeatPlan.parse(venuePlan)
 createSeatPlanSchema({ sectionIds: ['R'] }).SeatPlan.parse(roomPlan)
+createSeatPlanSchema({ sectionIds: ['H'] }).SeatPlan.parse(hallPlan)
 
 // The lounge on its own — `sectionPlanOf` crops a plan to one section, for narrow screens and thumbnails.
 const lounge = seatPlan.sectionPlanOf(venuePlan, 'L')!

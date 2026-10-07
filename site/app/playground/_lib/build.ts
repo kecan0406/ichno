@@ -23,16 +23,22 @@ import { planEdits, type EditorHandles } from 'ichno/editor'
 
 type Plan = SeatPlan<string>
 
-const SEAT = 40
+// A row's seats are square, like the Hall's (../../_demo/plans.ts).
+const SEAT = 36
 // Seat centre to seat centre along a row, and row to row in a block.
-const PITCH = 46
-const ROW_PITCH = 69
+const PITCH = 54
+const ROW_PITCH = 66
 const ROW_SEATS = 7
 const BLOCK = { columns: 8, rows: 4 }
 const TABLE = 92
 const TABLE_SEAT = 36
-// Row labels sit one pitch beyond the end seats.
+// Seat centre to seat centre round a table's edge.
+const TABLE_PITCH = 46
+// Row labels sit this far beyond the end seats.
 const LABEL_SIZE = 40
+const LABEL_OFFSET = 46
+// A box stroke narrower than this either way is a tap.
+const TAP = 23
 const DESK = { w: 88, h: 60 }
 const CHAIR = { w: 38, h: 18 }
 // The spot one desk with its chair takes in a block of desks.
@@ -85,9 +91,9 @@ export function blockTool(plan: Plan, stroke: PlanStroke): Plan | null {
 // table for six.
 export function tableTool(plan: Plan, stroke: PlanStroke): Plan | null {
   const box = rectOf(stroke)
-  const tap = box.w < PITCH || box.h < PITCH
+  const tap = box.w < TABLE_PITCH || box.h < TABLE_PITCH
   const top = tap ? around(stroke.end, { w: TABLE, h: TABLE }) : box
-  const count = tap ? 6 : clamp(Math.round((Math.PI * (top.w + top.h)) / 2 / PITCH), 2, 20)
+  const count = tap ? 6 : clamp(Math.round((Math.PI * (top.w + top.h)) / 2 / TABLE_PITCH), 2, 20)
   const section = seatPlan.sectionAt(plan, seatPlan.centerOf(top))
   if (section === null) return null
   const label = nextLabel(plan, 'table', TABLE_LABELS)
@@ -129,7 +135,7 @@ export function boxPlaceTool(role: 'booth' | 'area') {
   const size = role === 'booth' ? { w: 184, h: 138 } : { w: 276, h: 138 }
   return (plan: Plan, stroke: PlanStroke): Plan | null => {
     const drawn = rectOf(stroke)
-    const box = drawn.w < PITCH / 2 || drawn.h < PITCH / 2 ? around(stroke.end, size) : drawn
+    const box = drawn.w < TAP || drawn.h < TAP ? around(stroke.end, size) : drawn
     const section = seatPlan.sectionAt(plan, seatPlan.centerOf(box))
     if (section === null) return null
     const capacity = role === 'area' ? Math.max(1, Math.round((box.w * box.h) / AREA_PER_PERSON)) : 1
@@ -141,7 +147,7 @@ export function boxPlaceTool(role: 'booth' | 'area') {
 // What it is for (a role, a capacity, a category) is set in Design afterwards.
 export function placeTool(plan: Plan, stroke: PlanStroke): Plan | null {
   const drawn = rectOf(stroke)
-  const box = drawn.w < PITCH / 2 || drawn.h < PITCH / 2 ? around(stroke.end, { w: SEAT, h: SEAT }) : drawn
+  const box = drawn.w < TAP || drawn.h < TAP ? around(stroke.end, { w: SEAT, h: SEAT }) : drawn
   const section = seatPlan.sectionAt(plan, seatPlan.centerOf(box))
   if (section === null) return null
   return planEdits.addPlaces(plan, section, [box], { shape: 'rect', capacity: 1 })?.plan ?? null
@@ -156,7 +162,7 @@ export function fixtureTool(role: string | undefined, size: { w: number; h: numb
       ? length === 0
         ? around(stroke.end, size)
         : wallOf(stroke, length)
-      : drawn.w < PITCH / 2 || drawn.h < PITCH / 2
+      : drawn.w < TAP || drawn.h < TAP
         ? around(stroke.end, size)
         : drawn
     return planEdits.addFixtures(plan, [box], { role }).plan
@@ -286,11 +292,11 @@ function leftOf(row: Row): PlanPoint {
 const ROW_MAX = 60
 
 // Where a relaid row ends. A single seat has no ends to span — the row grows the way the seat faces, a seat and a
-// fifth apart.
+// half apart (PITCH for a standard seat).
 function endOf(row: Row, count: number): PlanPoint {
   if (row.seats.length > 1) return row.end
   const heading = ((row.seats[0]!.rotation ?? 0) * Math.PI) / 180
-  const reach = row.size.w * 1.2 * (count - 1)
+  const reach = row.size.w * 1.5 * (count - 1)
   return { x: row.start.x + Math.cos(heading) * reach, y: row.start.y + Math.sin(heading) * reach }
 }
 
@@ -302,13 +308,13 @@ function rowOn(plan: Plan, start: PlanPoint, end: PlanPoint, count: number): Pla
   const label = nextLabel(plan, 'row', ROW_LABELS)
   const { plan: grouped, id } = planEdits.addGroup(plan, { role: 'row', label })
   const boxes = layout.line({ start, end, count, size: SEAT })
-  const seats = planEdits.addPlaces(grouped, section, boxes, { role: 'seat', group: id })
+  const seats = planEdits.addPlaces(grouped, section, boxes, { shape: 'rect', role: 'seat', group: id })
   if (!seats) return null
   const numbered = planEdits.label(seats.plan, seats.ids, labeling.numbers())
   return planEdits.addLabels(numbered, id, labelBoxesOf(boxes)).plan
 }
 
-// A label box one pitch beyond each end seat, along the row.
+// A label box LABEL_OFFSET beyond each end seat, along the row.
 function labelBoxesOf(seats: readonly PlanBox[]): PlanBox[] {
   const first = seats[0]
   const last = seats.at(-1)
@@ -317,8 +323,8 @@ function labelBoxesOf(seats: readonly PlanBox[]): PlanBox[] {
     const a = ((box.rotation ?? 0) * Math.PI) / 180
     const c = seatPlan.centerOf(box)
     return {
-      x: Math.round(c.x + sign * Math.cos(a) * PITCH - LABEL_SIZE / 2),
-      y: Math.round(c.y + sign * Math.sin(a) * PITCH - LABEL_SIZE / 2),
+      x: Math.round(c.x + sign * Math.cos(a) * LABEL_OFFSET - LABEL_SIZE / 2),
+      y: Math.round(c.y + sign * Math.sin(a) * LABEL_OFFSET - LABEL_SIZE / 2),
       w: LABEL_SIZE,
       h: LABEL_SIZE,
     }

@@ -1,4 +1,4 @@
-import { layout, type Group, type PlanBox, type PlanObject, type PlanPoint, type SeatPlan } from 'ichno'
+import { layout, type Group, type PlanBox, type PlanObject, type PlanPoint, type SeatPlan, type Shape } from 'ichno'
 
 // Demo documents for the landing page and the playground — plain SeatPlan JSON, exactly what an app would store.
 // ichno stores primitives only: places, fixtures and group labels. Rows, tables and desks are this site's words
@@ -28,7 +28,8 @@ type Built<S extends string> = { groups: Group[]; objects: PlanObject<S>[] }
 
 const ROW_LETTERS = 'ABCDEFG'
 
-// A labelled row of seats between two points — a group, one place per seat and the row's name at both ends.
+// A labelled row of seats between two points — a group, one place per seat and the row's name at both ends. Seats
+// are 40-unit circles unless `size` and `shape` say otherwise.
 export function row<S extends string>(options: {
   id: string
   label: string
@@ -36,9 +37,12 @@ export function row<S extends string>(options: {
   start: PlanPoint
   end: PlanPoint
   curve: number
+  size?: number
+  shape?: Shape
   seats: { id: string; label?: string; category?: string }[]
 }): Built<S> {
-  const boxes = layout.arc({ ...options, count: options.seats.length, size: 40 })
+  const { size = 40, shape = 'ellipse' } = options
+  const boxes = layout.arc({ ...options, count: options.seats.length, size })
   const ends = [
     { x: options.start.x - 46, y: options.start.y },
     { x: options.end.x + 46, y: options.end.y },
@@ -51,7 +55,7 @@ export function row<S extends string>(options: {
         ...seat,
         section: options.section,
         ...boxes[i]!,
-        shape: 'ellipse',
+        shape,
         capacity: 1,
         group: options.id,
         role: 'seat',
@@ -279,6 +283,42 @@ export const roomPlan: SeatPlan<RoomSection> = assemble<RoomSection>(
     desk<RoomSection>('R10', 'R', { x: 94, y: 416 }, 'up', { label: 'D1' }),
     desk<RoomSection>('R11', 'R', { x: 186, y: 416 }, 'up', { label: 'D2' }),
     roundTable<RoomSection>(1, 'R', { x: 920, y: 483 }, { seats: 5 }),
+  ],
+)
+
+type HallSection = 'H'
+
+// The playground's first document: a stage, six straight rows of fourteen facing it, a round table for six on
+// either side and a bar at the back. Every place is standard, so nothing is tinted until a category is assigned.
+export const hallPlan: SeatPlan<HallSection> = assemble<HallSection>(
+  {
+    width: 1400,
+    height: 1000,
+    sections: [{ id: 'H', points: rect(0, 0, 1400, 1000) }],
+    categories: [{ key: 'premium' }, { key: 'standard' }, { key: 'access', accessible: true }],
+  },
+  [
+    { kind: 'fixture', id: 'stage', shape: 'rect', role: 'stage', x: 450, y: 40, w: 500, h: 140 },
+    ...[...ROW_LETTERS.slice(0, 6)].map((letter, i) =>
+      row<HallSection>({
+        id: `row-${letter}`,
+        label: letter,
+        section: 'H',
+        start: { x: 349, y: 278 + 66 * i },
+        end: { x: 1051, y: 278 + 66 * i },
+        curve: 0,
+        size: 36,
+        shape: 'rect',
+        seats: Array.from({ length: 14 }, (_, n) => ({
+          id: `${letter}${n + 1}`,
+          label: String(n + 1),
+          category: 'standard',
+        })),
+      }),
+    ),
+    roundTable(1, 'H', { x: 190, y: 820 }, { category: 'standard' }),
+    roundTable(2, 'H', { x: 1210, y: 820 }, { category: 'standard' }),
+    { kind: 'fixture', id: 'bar', shape: 'rect', role: 'bar', x: 540, y: 900, w: 320, h: 50 },
   ],
 )
 

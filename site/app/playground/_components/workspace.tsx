@@ -27,20 +27,12 @@ import dynamic from 'next/dynamic'
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { describe } from '../../_demo/messages'
 import { fixtureNames } from '../../_demo/plans'
-import {
-  DEFAULT_LINT,
-  PRESETS,
-  checksOf,
-  copyDocument,
-  downloadDocument,
-  saveWorkbench,
-  type Workbench,
-} from '../_lib/documents'
+import { DEFAULT_LINT, PRESETS, checksOf, copyDocument, downloadDocument, type Workbench } from '../_lib/documents'
 import { rowHandles } from '../_lib/build'
 import { loadLibrary, newObjectId, saveLibrary, type SavedObject } from '../_lib/library'
 import { PLAYGROUND_OBJECTS, PRIMITIVE_TOOLS, savedObjectTool, type ToolDef } from '../_lib/playground-objects'
 import { AssetsPanel } from './assets'
-import type { BuildCamera, BuildControls, BuildView } from './build-3d'
+import type { BuildCamera, BuildControls, BuildView, Handoff } from './build-3d'
 import { CanvasMenu, type CanvasMenuAt } from './context-menu'
 import controls from './controls.module.css'
 import { DesignPanel } from './design'
@@ -86,15 +78,7 @@ function toggled(ids: ReadonlySet<string>, id: string, on: boolean): ReadonlySet
   return next
 }
 
-export function Workspace({
-  initial,
-  autosave,
-  onReplace,
-}: {
-  initial: Workbench
-  autosave: boolean
-  onReplace(next: Workbench): void
-}) {
+export function Workspace({ initial, onReplace }: { initial: Workbench; onReplace(next: Workbench): void }) {
   const [booked, setBooked] = useState<string[]>(initial.booked)
   const [snapping, setSnapping] = useState(true)
   const [guiding, setGuiding] = useState(true)
@@ -118,10 +102,17 @@ export function Workspace({
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   // The plan as ichno draws it (2D), or stood up by the site in 3D — to edit or to preview.
   const [dimension, setDimension] = useState<'2d' | '3d'>('2d')
-  const building = mode === 'edit' && dimension === '3d'
+  // The 2D view lies under the 3D editor while one gives way to the other: until the 3D canvas has faded in, and
+  // while it tilts back and fades away.
+  const [entering3D, setEntering3D] = useState(false)
+  const [leaving3D, setLeaving3D] = useState(false)
+  const building = mode === 'edit' && (dimension === '3d' || leaving3D)
   // The 3D editor's view, for the zoom menu and keys and the turn keys.
   const build = useRef<BuildControls | null>(null)
   const buildCamera = useRef<BuildCamera | null>(null)
+  // The 2D view the 3D editor takes over from.
+  const handoff = useRef<Handoff | null>(null)
+  const canvasRef = useRef<HTMLElement>(null)
   const [buildView, setBuildView] = useState<BuildView>({ level: 1, canZoomIn: true, canZoomOut: false })
   // What the zoom menu and the zoom keys drive — the 2D canvas's view or the 3D editor's.
   const view: ViewControls & BuildView = building
@@ -177,11 +168,6 @@ export function Workspace({
         library.find((saved) => `saved:${saved.id}` === editor.tool?.id)?.template ??
         null)
   const asset = activeTool && placing ? { name: activeTool.name, template: placing } : null
-
-  // Kept in this browser, so a reload picks up where you left off.
-  useEffect(() => {
-    if (autosave) saveWorkbench({ name: initial.name, plan, sectionNames: initial.sectionNames, booked })
-  }, [autosave, plan, booked, initial.name, initial.sectionNames])
 
   // Saved objects live in localStorage, which the server cannot read.
   useEffect(() => {
@@ -329,6 +315,51 @@ export function Workspace({
     onReplace(preset.workbench)
   }
 
+  // What a marquee in 3D touched, picked the way the 2D marquee picks: grouped objects as their group, nothing frozen
+  // or hidden, Shift adding to the selection.
+  function pickSwept(ids: readonly string[], info: { additive: boolean }) {
+    const off = (id: string | undefined) => id !== undefined && (frozen.has(id) || hidden.has(id))
+    const units = ids.flatMap((id): EditorSelection<string>[] => {
+      const object = seatPlan.objectById(plan, id)
+      if (!object || off(object.id) || off(object.group)) return []
+      return [object.group === undefined ? { kind: 'object', id } : { kind: 'group', id: object.group }]
+    })
+    editor.setSelection(info.additive ? [...editor.selection, ...units] : units)
+  }
+
+  // Editing, 2D and 3D hand the view over — the same spot in the middle, zoomed in as far — and the 3D camera tilts
+  // between straight down, where the 2D view is, and its corner.
+  function switchDimension(next: '2d' | '3d') {
+    if (next === dimension) return
+    setDimension(next)
+    const element = canvasRef.current
+    if (mode !== 'edit' || !element) return
+    const size = { width: element.clientWidth, height: element.clientHeight }
+    if (next === '3d') {
+      if (leaving3D) {
+        build.current?.rest()
+        setLeaving3D(false)
+        return
+      }
+      const center = { x: map.view.x + map.view.w / 2, y: map.view.y + map.view.h / 2 }
+      handoff.current = { center, zoom: planView.scaleOf(map.view, size), level: map.level }
+      setEntering3D(true)
+      return
+    }
+    const camera = buildCamera.current
+    if (!camera || !build.current) return
+    // The 2D view over the 3D camera's spot, zoomed in as far.
+    const home = planView.home(plan)
+    const center = { x: camera.x, y: camera.z }
+    const around = { x: center.x - home.w / 2, y: center.y - home.h / 2, w: home.w, h: home.h }
+    const target = planView.zoom(around, buildView.level, center, home)
+    // The 2D view is laid under the 3D one at once — drawing it is the heavy part, done before anything moves — and
+    // shows as the canvas fades away at the end of the tilt.
+    map.setView(target)
+    setLeaving3D(true)
+    build.current.leave({ center, zoom: planView.scaleOf(target, size) }, () => setLeaving3D(false))
+  }
+
   function handleTap(target: PlanTarget<string> | null, info: { point: PlanPoint | null; additive: boolean }) {
     setNotice(null)
     onTap(target, info)
@@ -471,8 +502,8 @@ export function Workspace({
         />
       </aside>
 
-      <main className={styles.canvas} data-tool={canvasTool}>
-        {building ? (
+      <main ref={canvasRef} className={styles.canvas} data-tool={canvasTool}>
+        {building && (
           <Build3D
             plan={editor.displayPlan}
             draft={editor.draft}
@@ -487,7 +518,7 @@ export function Workspace({
               onHover: hover,
               canDrag: viewportProps.canDrag,
               onTargetDrag: viewportProps.onTargetDrag,
-              onMarquee: viewportProps.onMarquee,
+              onMarquee: pickSwept,
               onDraw: viewportProps.onDraw,
             }}
             onMenu={(at, target) =>
@@ -499,11 +530,21 @@ export function Workspace({
             }
             controlsRef={build}
             cameraRef={buildCamera}
+            onCamera={(camera) => {
+              buildCamera.current = camera
+            }}
+            handoffRef={handoff}
             onViewChange={setBuildView}
             sectionName={(id) => initial.sectionNames[id] ?? id}
             fixtureName={fixtureLabel}
+            onShown={() => {
+              // The hand-over is taken — a later opening (after the preview) starts where the camera was.
+              handoff.current = null
+              setEntering3D(false)
+            }}
           />
-        ) : mode === 'edit' ? (
+        )}
+        {building && !entering3D && !leaving3D ? null : mode === 'edit' ? (
           <SeatMap.Viewport
             {...(hand ? { plan: editor.displayPlan } : viewportProps)}
             {...map.viewProps}
@@ -635,7 +676,7 @@ export function Workspace({
                 ? 'The plan as ichno draws it — with handles for exact edits'
                 : 'The plan as ichno draws it'
             }
-            onClick={() => setDimension('2d')}
+            onClick={() => switchDimension('2d')}
           >
             2D
           </button>
@@ -648,7 +689,7 @@ export function Workspace({
                 ? 'Build in 3D, seen from a corner — the same ichno editor, drawn by this playground (three.js)'
                 : 'The same document stood up in 3D by this playground (three.js) — not part of ichno'
             }
-            onClick={() => setDimension('3d')}
+            onClick={() => switchDimension('3d')}
           >
             3D
           </button>

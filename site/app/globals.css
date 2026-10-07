@@ -46,8 +46,9 @@
   --ichno-number-font: var(--font-monospace);
 }
 
+/* Dark follows the system unless the playground's theme button picked one (`data-theme` on <html>). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --theme-bg: #0c0c0e;
     --theme-fg: #ededf0;
     --theme-muted: #9a9aa6;
@@ -58,6 +59,23 @@
     --theme-premium: #fb923c;
     --theme-access: #22d3ee;
   }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --theme-bg: #0c0c0e;
+  --theme-fg: #ededf0;
+  --theme-muted: #9a9aa6;
+  --theme-surface: #17171a;
+  --theme-accent: #8b8bff;
+  --theme-accent-fg: #0c0c0e;
+  --theme-warning: #f5b43d;
+  --theme-premium: #fb923c;
+  --theme-access: #22d3ee;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 *,

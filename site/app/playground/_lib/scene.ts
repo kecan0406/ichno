@@ -1,4 +1,5 @@
 import {
+  SECTION_LABEL_BAND,
   SECTION_LABEL_FONT,
   WALL_THICKNESS,
   seatPlan,
@@ -17,7 +18,7 @@ import {
 type Plan = SeatPlan<string>
 type Thing = Place<string> | Fixture
 
-// Plan units have no size. This site draws a seat 40 units wide — half a metre — so a metre is 80.
+// Plan units have no size. This site draws a seat 36 units wide — 45 cm — so a metre is 80.
 export const METRE = 80
 
 // What stands on a footprint, by the role this site gave it. A role it does not know stands as a plain block.
@@ -78,6 +79,8 @@ export const SCREEN_BOTTOM = 1 * METRE
 // Walls in full, and cut down while the camera is up high, so it sees into the rooms.
 export const WALL_HEIGHT = 2.8 * METRE
 export const WALL_CUT = 0.5 * METRE
+// How high a group's label stands as a sign.
+export const SIGN_HEIGHT = 0.95 * METRE
 const SEATED_EYE = 1.2 * METRE
 const STANDING_EYE = 1.6 * METRE
 
@@ -120,6 +123,10 @@ export type Writing = {
   yaw: number
   anchor: 'start' | 'middle'
   overhead: boolean
+  // Where and how the 2D view writes it, seen from straight above: the middle of its line (its start, for `anchor:
+  // 'start'`) at `y` — upright text lies down there — its size and turn. The 3D views bring each text toward this as
+  // the camera looks down; straight down they write what the 2D view writes, so switching views changes no text.
+  plan: { x: number; y: number; z: number; size: number; yaw: number }
 }
 
 export type Point3 = { x: number; y: number; z: number }
@@ -197,32 +204,40 @@ export function wallsOf(plan: Plan): Wall[] {
   return [...outer, ...inner]
 }
 
-// What the 2D view writes, placed in the room: section names on the top-left corner of their walls, fixture names
-// on the fixture (the names `fixtureName` gives, turned like the 2D view's, and larger — the room is seen from
-// further off), group labels as signs at their label boxes.
+// What the 2D view writes, placed in the room: section names on the top-left corner of their walls (the site names
+// its sections, so the 2D view writes them even for one), fixture names on the fixture (the names `fixtureName`
+// gives, turned like the 2D view's, and larger — the room is seen from further off), group labels as signs at their
+// label boxes. Each carries where the 2D view writes it (`plan`).
 export function writingOf(
   plan: Plan,
   pieces: readonly Piece[],
   sectionName: (id: string) => string,
   fixtureName: (fixture: Fixture) => string | null,
 ): Writing[] {
-  const sections = seatPlan.showsSectionLabels(plan)
-    ? plan.sections.map((section): Writing => {
-        const bounds = seatPlan.sectionBoundsOf(section)
-        return {
-          text: sectionName(section.id),
-          lie: 'sign',
-          tone: 'ink',
-          x: bounds.x - WALL_THICKNESS,
-          y: WALL_CUT + 6,
-          z: bounds.y - WALL_THICKNESS,
-          size: SECTION_LABEL_FONT * 1.4,
-          yaw: 0,
-          anchor: 'start',
-          overhead: true,
-        }
-      })
-    : []
+  const sections = plan.sections.map((section): Writing => {
+    const bounds = seatPlan.sectionBoundsOf(section)
+    const x = bounds.x - WALL_THICKNESS
+    return {
+      text: sectionName(section.id),
+      lie: 'sign',
+      tone: 'ink',
+      x,
+      y: WALL_CUT + 6,
+      z: bounds.y - WALL_THICKNESS,
+      size: SECTION_LABEL_FONT * 1.4,
+      yaw: 0,
+      anchor: 'start',
+      overhead: true,
+      // In the name band above the outline, its line starting 10 units below the band's top.
+      plan: {
+        x,
+        y: WALL_CUT + 6,
+        z: bounds.y - SECTION_LABEL_BAND + 10 + SECTION_LABEL_FONT / 2,
+        size: SECTION_LABEL_FONT,
+        yaw: 0,
+      },
+    }
+  })
   const byId = new Map(pieces.map((piece) => [piece.id, piece]))
   const fixtures = plan.objects.flatMap((object): Writing[] => {
     if (object.kind !== 'fixture') return []
@@ -230,6 +245,10 @@ export function writingOf(
     const layout = piece ? seatPlan.fixtureLabelOf(object, fixtureName(object)) : null
     if (!piece || !layout) return []
     const long = Math.max(object.w, object.h)
+    // Tall fixtures read bottom to top, like the 2D view.
+    const yaw = -radians(object.rotation ?? 0) + (layout.vertical ? Math.PI / 2 : 0)
+    const top = piece.model === 'door' ? 1 : HEIGHT[piece.model] + 1
+    const written = { x: piece.x, y: top, z: piece.z, size: layout.fontSize, yaw }
     if (piece.model === 'screen') {
       // On the picture, facing the room.
       const out = piece.d / 2 + 1
@@ -245,6 +264,7 @@ export function writingOf(
           yaw: piece.yaw,
           anchor: 'middle',
           overhead: false,
+          plan: written,
         },
       ]
     }
@@ -255,13 +275,13 @@ export function writingOf(
         tone: 'label',
         x: piece.x,
         // A door's name is on the floor between its posts; everything else's on its top.
-        y: piece.model === 'door' ? 1 : HEIGHT[piece.model] + 1,
+        y: top,
         z: piece.z,
         size: Math.max(layout.fontSize, fitted(layout.text, long, Math.min(object.w, object.h) * 0.4)),
-        // Tall fixtures read bottom to top, like the 2D view.
-        yaw: -radians(object.rotation ?? 0) + (layout.vertical ? Math.PI / 2 : 0),
+        yaw,
         anchor: 'middle',
         overhead: false,
+        plan: written,
       },
     ]
   })
@@ -269,18 +289,21 @@ export function writingOf(
     if (object.kind !== 'label') return []
     const group = seatPlan.groupById(plan, object.group)
     const center = seatPlan.centerOf(object)
+    const layout = seatPlan.groupLabelOf(object, group?.label ?? object.group)
+    if (!layout) return []
     return [
       {
-        text: group?.label ?? object.group,
+        text: layout.text,
         lie: 'sign',
         tone: 'label',
         x: center.x,
-        y: 0.95 * METRE,
+        y: SIGN_HEIGHT,
         z: center.y,
         size: Math.max(12, Math.min(object.w, object.h) * 0.6),
         yaw: 0,
         anchor: 'middle',
         overhead: false,
+        plan: { x: center.x, y: SIGN_HEIGHT, z: center.y, size: layout.fontSize, yaw: 0 },
       },
     ]
   })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
+import { useFrame, useThree, type RootState, type ThreeEvent } from '@react-three/fiber'
 import type { PlanPoint, PlanTarget } from 'ichno'
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
@@ -20,9 +20,11 @@ import {
   type Camera,
   type InstancedMesh,
   type Mesh,
+  type MeshBasicMaterial,
   type Object3D,
   type OrthographicCamera,
   type PerspectiveCamera,
+  type Sprite,
 } from 'three'
 import { creasesOf, facesOf, polesOf, type Solid3D } from '../_lib/models'
 import type { Writing } from '../_lib/scene'
@@ -47,7 +49,8 @@ export type Palette = {
   font: string
 }
 
-// The theme's colours, read again when the page switches between light and dark.
+// The theme's colours, read again when the page switches between light and dark — with the system, or with the
+// playground's theme button (`data-theme` on <html>).
 export function usePalette(hostRef: RefObject<HTMLElement | null>): Palette | null {
   const [palette, setPalette] = useState<Palette | null>(null)
   useLayoutEffect(() => {
@@ -57,7 +60,12 @@ export function usePalette(hostRef: RefObject<HTMLElement | null>): Palette | nu
     read()
     const scheme = window.matchMedia('(prefers-color-scheme: dark)')
     scheme.addEventListener('change', read)
-    return () => scheme.removeEventListener('change', read)
+    const picked = new MutationObserver(read)
+    picked.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => {
+      scheme.removeEventListener('change', read)
+      picked.disconnect()
+    }
   }, [hostRef])
   return palette
 }
@@ -117,8 +125,9 @@ const LIGHT_FROM = new Vector3(0.25, 1, 0.45)
 export type Ink = 'ink' | 'paper' | 'label' | 'warning' | 'grid'
 
 // How a solid is drawn: its faces' colour (null for none — only its edges), its edges' ink, dashed or solid, and
-// whether the dashes march (as the 2D view's outlines do under the pointer and round the selection).
-export type Look = { fill: Color | null; line: Ink; dash?: boolean; march?: boolean }
+// whether the dashes march (as the 2D view's outlines do under the pointer and round the selection). `flat` is the
+// colour the 2D view paints it where that differs — the faces turn to it as the camera looks straight down.
+export type Look = { fill: Color | null; line: Ink; dash?: boolean; march?: boolean; flat?: Color }
 
 // Something standing on the floor: a model on a footprint centred at (x, z), `w` across and `d` along the way it
 // faces, turned by `yaw` radians about the vertical; `h` stretches it upward (walls). `target` is what a tap on it
@@ -202,18 +211,28 @@ function Faces({
   const invalidate = useThree((state) => state.invalidate)
   const first = solids[0]!
 
+  // How far the faces have turned to their 2D paint, as last painted.
+  const down = useRef(0)
+  const turns = solids.some((solid) => solid.look.flat !== undefined)
+
   useLayoutEffect(() => {
     const mesh = ref.current
     if (!mesh) return
     drawn.current = solids
-    solids.forEach((solid, i) => {
-      mesh.setMatrixAt(i, matrixOf(solid))
-      mesh.setColorAt(i, solid.look.fill!)
-    })
+    solids.forEach((solid, i) => mesh.setMatrixAt(i, matrixOf(solid)))
     mesh.instanceMatrix.needsUpdate = true
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    paintFaces(mesh, solids, down.current)
     mesh.computeBoundingSphere()
     invalidate()
+  })
+
+  useFrame((state) => {
+    const mesh = ref.current
+    if (!mesh || !turns) return
+    const now = downOf(state.camera)
+    if (Math.abs(now - down.current) < 0.001) return
+    down.current = now
+    paintFaces(mesh, solids, now)
   })
 
   useEffect(() => {
@@ -252,6 +271,16 @@ function Faces({
       }
     />
   )
+}
+
+// Each solid's colour, `down` of the way to its 2D paint.
+function paintFaces(mesh: InstancedMesh, solids: readonly Solid[], down: number) {
+  solids.forEach((solid, i) => mesh.setColorAt(i, paintOf(solid.look.fill!, solid.look.flat, down)))
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+}
+
+function paintOf(fill: Color, flat: Color | undefined, down: number): Color {
+  return flat === undefined || down === 0 ? fill : PAINT.copy(fill).lerp(flat, down)
 }
 
 // The edges of solids sharing a look — the folds of their models, fixed to them, and the outline of their round
@@ -384,22 +413,37 @@ export function inkOf(palette: Palette, ink: Ink): Color {
 // what cannot be had and the outlines, `2 4` for the grid), and marching while `march` unless motion is reduced.
 export function Hairlines({ geometry, color, look }: { geometry: BufferGeometry; color: Color; look: Look }) {
   const [material] = useState(() => inkMaterial())
+  const invalidate = useThree((state) => state.invalidate)
   useEffect(() => () => material.dispose(), [material])
-  const uniforms = material.uniforms as InkUniforms
-  uniforms.color.value.copy(color)
   const [dash, gap] = !look.dash ? [0, 0] : look.line === 'grid' ? [2, 4] : [3, 3]
-  uniforms.dash.value = dash
-  uniforms.gap.value = gap
-
+  const march = look.march === true
+  // The material is three.js's, changed outside render: its ink once drawn, its scale and march every frame.
+  useLayoutEffect(() => {
+    setInk(material, color, dash, gap)
+    invalidate()
+  }, [material, color, dash, gap, invalidate])
   useFrame((state, delta) => {
-    uniforms.scale.value = pixelsPerUnit(state.camera, state.size.height)
-    if (!look.march || reducedMotion()) return
-    // Six pixels in 0.6 s, the 2D view's march.
-    uniforms.offset.value = (uniforms.offset.value - Math.min(delta, 0.1) * 10) % 6
-    state.invalidate()
+    if (stepInk(material, state, delta, march)) state.invalidate()
   })
 
   return <lineSegments geometry={geometry} material={material} frustumCulled={false} renderOrder={1} />
+}
+
+function setInk(material: ShaderMaterial, color: Color, dash: number, gap: number) {
+  const uniforms = material.uniforms as InkUniforms
+  uniforms.color.value.copy(color)
+  uniforms.dash.value = dash
+  uniforms.gap.value = gap
+}
+
+// A frame of the ink: dashes measured in screen pixels, and marching — true while they march.
+function stepInk(material: ShaderMaterial, state: RootState, delta: number, march: boolean): boolean {
+  const uniforms = material.uniforms as InkUniforms
+  uniforms.scale.value = pixelsPerUnit(state.camera, state.size.height)
+  if (!march || reducedMotion()) return false
+  // Six pixels in 0.6 s, the 2D view's march.
+  uniforms.offset.value = (uniforms.offset.value - Math.min(delta, 0.1) * 10) % 6
+  return true
 }
 
 // Replaces a geometry's segments (x, y, z pairs), each measured from its own start so its dashes begin there.
@@ -505,14 +549,21 @@ export function Floor({
   id,
   points,
   color,
+  flat,
   picks,
 }: {
   id: string
   points: readonly PlanPoint[]
   color: Color
+  // The 2D view's paint, which the floor turns to as the camera looks straight down.
+  flat?: Color
   picks?: Picks
 }) {
   const ref = useRef<Mesh>(null)
+  useFrame((state) => {
+    const mesh = ref.current
+    if (mesh && flat) paintFloor(mesh, color, flat, downOf(state.camera))
+  })
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null)
   useEffect(() => {
     // Drawn in x and −y, then laid down: y becomes z and the face looks up.
@@ -536,42 +587,105 @@ export function Floor({
   )
 }
 
-// Text drawn once into a canvas and shown on a plane (flat or upright) or a sprite (a sign facing the camera).
+function paintFloor(mesh: Mesh, color: Color, flat: Color, down: number) {
+  ;(mesh.material as MeshBasicMaterial).color.copy(color).lerp(flat, down)
+}
+
+// Text drawn once into a canvas and shown on a plane (flat or upright) or a sprite (a sign facing the camera). The
+// steeper the camera looks down, the nearer each text comes to where and how large the 2D view writes it
+// (`writing.plan`) — straight down it is the 2D view's — so text never jumps between the views. Upright text cannot
+// lie down: a flat copy takes over from it instead.
 export function Text({ writing, color, font }: { writing: Writing; color: Color; font: string }) {
   const [label, setLabel] = useState<{ texture: CanvasTexture; aspect: number } | null>(null)
   const hex = color.getHexString()
+  const shown = useRef<Mesh | Sprite>(null)
+  const lying = useRef<Mesh>(null)
   useEffect(() => {
     const made = textTexture(writing.text, `#${hex}`, font)
     setLabel(made)
     return () => made.texture.dispose()
   }, [writing.text, hex, font])
+  useFrame((state) => {
+    if (label) placeText(writing, label.aspect, downOf(state.camera), shown.current, lying.current)
+  })
   if (!label) return null
+  // Drawn at the 3D size; every frame scales and moves it (placeText).
   const h = writing.size * TEXT_LINE
   const w = h * label.aspect
-  // Left-aligned text starts at its point; the plane is centred, so shift it along the line.
-  const shift = writing.anchor === 'start' ? w / 2 : 0
   if (writing.lie === 'sign') {
     return (
-      <sprite
-        position={[writing.x, writing.y, writing.z]}
-        scale={[w, h, 1]}
-        center={[writing.anchor === 'start' ? 0 : 0.5, 0]}
-      >
+      <sprite ref={shown as RefObject<Sprite>}>
         <spriteMaterial map={label.texture} transparent depthWrite={false} />
       </sprite>
     )
   }
-  const along = { x: Math.cos(writing.yaw), z: -Math.sin(writing.yaw) }
   return (
-    <mesh
-      position={[writing.x + along.x * shift, writing.y, writing.z + along.z * shift]}
-      // Laid down with its top toward the top of the plan, then turned; upright text faces the way its piece does.
-      rotation={writing.lie === 'flat' ? [-Math.PI / 2, 0, writing.yaw] : [0, writing.yaw + Math.PI, 0]}
-    >
-      <planeGeometry args={[w, h]} />
-      <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
-    </mesh>
+    <>
+      <mesh
+        ref={shown as RefObject<Mesh>}
+        // Laid down with its top toward the top of the plan, then turned; upright text faces the way its piece does.
+        rotation={writing.lie === 'flat' ? [-Math.PI / 2, 0, writing.yaw] : [0, writing.yaw + Math.PI, 0]}
+      >
+        <planeGeometry args={[w, h]} />
+        <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
+      </mesh>
+      {writing.lie === 'face' && (
+        <mesh ref={lying} rotation={[-Math.PI / 2, 0, writing.plan.yaw]}>
+          <planeGeometry args={[w, h]} />
+          <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
+        </mesh>
+      )}
+    </>
   )
+}
+
+// How far a camera looks straight down, 0 to 1: nothing from the corner view's tilt (or flatter) up, all of it from
+// a degree off straight down, smoothly between.
+function downOf(camera: Camera): number {
+  camera.getWorldDirection(AHEAD)
+  const steep = (Math.asin(Math.min(1, Math.max(-1, -AHEAD.y))) * 180) / Math.PI
+  const t = Math.min(1, Math.max(0, (steep - TEXT_FROM_DEG) / (TEXT_TO_DEG - TEXT_FROM_DEG)))
+  return t * t * (3 - 2 * t)
+}
+
+// Puts a text `down` of the way from its 3D place and size to the 2D view's. `shown` is the text as the 3D view
+// writes it; `lying`, for upright text, its flat copy, coming in as the upright one goes.
+function placeText(writing: Writing, aspect: number, down: number, shown: Mesh | Sprite | null, lying: Mesh | null) {
+  if (!shown) return
+  const mix = (a: number, b: number) => a + (b - a) * down
+  const upright = writing.lie === 'face'
+  const size = upright ? writing.size : mix(writing.size, writing.plan.size)
+  const h = size * TEXT_LINE
+  const w = h * aspect
+  // The canvas leaves TEXT_PAD of the size either side of the letters: left-aligned text is drawn that much left of
+  // its point, so the letters start on it.
+  const pad = writing.anchor === 'start' ? TEXT_PAD * size : 0
+  const x = upright ? writing.x : mix(writing.x, writing.plan.x)
+  const z = upright ? writing.z : mix(writing.z, writing.plan.z)
+  if ((shown as Sprite).isSprite) {
+    shown.position.set(x - pad, writing.y, z)
+    shown.scale.set(w, h, 1)
+    // A sign stands on its point; seen from above it is centred on it, as the 2D view writes it.
+    ;(shown as Sprite).center.set(writing.anchor === 'start' ? 0 : 0.5, mix(0, 0.5))
+    return
+  }
+  const yaw = upright ? writing.yaw : mix(writing.yaw, writing.plan.yaw)
+  const along = { x: Math.cos(yaw), z: -Math.sin(yaw) }
+  // A plane is centred on its position — a left-aligned one moves half its width along the line.
+  const shift = pad === 0 ? 0 : w / 2 - pad
+  shown.position.set(x + along.x * shift, writing.y, z + along.z * shift)
+  shown.scale.setScalar(size / writing.size)
+  if (!upright) {
+    shown.rotation.z = yaw
+    return
+  }
+  ;(shown.material as MeshBasicMaterial).opacity = 1 - down
+  shown.visible = down < 1
+  if (!lying) return
+  lying.position.set(writing.plan.x, writing.plan.y, writing.plan.z)
+  lying.scale.setScalar(writing.plan.size / writing.size)
+  ;(lying.material as MeshBasicMaterial).opacity = down
+  lying.visible = down > 0
 }
 
 function textTexture(text: string, color: string, font: string): { texture: CanvasTexture; aspect: number } {
@@ -580,7 +694,7 @@ function textTexture(text: string, color: string, font: string): { texture: Canv
   const context = canvas.getContext('2d', { willReadFrequently: true })!
   const style = `700 ${TEXT_PX}px ${font}`
   context.font = style
-  canvas.width = Math.ceil(context.measureText(text).width + TEXT_PX * 0.4)
+  canvas.width = Math.ceil(context.measureText(text).width + TEXT_PX * TEXT_PAD * 2)
   canvas.height = Math.ceil(TEXT_PX * TEXT_LINE)
   // Resizing a canvas resets its state.
   context.font = style
@@ -631,6 +745,11 @@ const CLICK_SLOP_PX = 6
 // Text is drawn this many pixels tall, on a line this many times its size.
 const TEXT_PX = 96
 const TEXT_LINE = 1.3
+// The room the canvas leaves either side of the letters, in the text's size.
+const TEXT_PAD = 0.2
+// Text is the 3D view's from the corner view's tilt and the 2D view's from a degree off straight down.
+const TEXT_FROM_DEG = 35
+const TEXT_TO_DEG = 89
 
 // Faces sit a little behind their edges, so the hairlines are never hidden in them.
 const FACES = new MeshLambertMaterial({ polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
@@ -649,3 +768,4 @@ const TURN = new Quaternion()
 const SCALE = new Vector3()
 const POINT = new Vector3()
 const AHEAD = new Vector3()
+const PAINT = new Color()

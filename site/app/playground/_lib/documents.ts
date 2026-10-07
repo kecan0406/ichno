@@ -9,7 +9,7 @@ import {
   type SeatPlanV2,
 } from 'ichno'
 import { createSeatPlanSchema, seatPlanIssueOf } from 'ichno/schema'
-import { blankPlan, roomPlan, venuePlan, venueSectionNames } from '../../_demo/plans'
+import { blankPlan, hallPlan, roomPlan } from '../../_demo/plans'
 import { lintIssueText, planIssueText } from '../../_demo/messages'
 
 // What the playground edits: a document with a name to show for it, the names it shows for its sections, and the
@@ -23,14 +23,9 @@ export type Workbench = {
 
 export const PRESETS: { id: string; name: string; workbench: Workbench }[] = [
   {
-    id: 'venue',
-    name: 'Venue',
-    workbench: {
-      name: 'Venue',
-      plan: venuePlan,
-      sectionNames: venueSectionNames,
-      booked: ['A5', 'A6', 'D9', 'D10', 'S3', 'T2-1'],
-    },
+    id: 'hall',
+    name: 'Hall',
+    workbench: { name: 'Hall', plan: hallPlan, sectionNames: { H: 'Hall' }, booked: ['A5', 'A6'] },
   },
   {
     id: 'room',
@@ -108,35 +103,6 @@ export function parseDocument(text: string): { plan: SeatPlan<string> } | { erro
       const planIssue = seatPlanIssueOf(issue)
       return planIssue ? planIssueText(plan, planIssue) : `${issue.path.join('.') || 'document'}: ${issue.message}`
     }),
-  }
-}
-
-const STORAGE_KEY = 'ichno-playground'
-
-// The last workbench, kept in this browser only. Anything unreadable is ignored.
-export function loadWorkbench(): Workbench | null {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const stored = JSON.parse(raw) as Partial<Workbench>
-    const parsed = parseDocument(JSON.stringify(stored.plan))
-    if (!('plan' in parsed)) return null
-    return {
-      name: typeof stored.name === 'string' && stored.name !== '' ? stored.name : 'Seat plan',
-      plan: parsed.plan,
-      sectionNames: stored.sectionNames ?? {},
-      booked: Array.isArray(stored.booked) ? stored.booked.filter((id) => typeof id === 'string') : [],
-    }
-  } catch {
-    return null
-  }
-}
-
-export function saveWorkbench(workbench: Workbench) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workbench))
-  } catch {
-    // Storage full or blocked — the playground still works, it just forgets on reload.
   }
 }
 

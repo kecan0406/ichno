@@ -74,6 +74,15 @@ export function DocumentHead({
         <button
           type="button"
           className={controls.iconButton}
+          aria-label="Switch between light and dark"
+          title="Light / dark"
+          onClick={toggleTheme}
+        >
+          <Icon name="theme" />
+        </button>
+        <button
+          type="button"
+          className={controls.iconButton}
           aria-label="Hide panels"
           title="Hide panels (⌘\)"
           onClick={onHidePanels}
@@ -83,8 +92,18 @@ export function DocumentHead({
       </div>
       <div className={styles.docName}>
         <strong>{name}</strong>
-        <span>{dirty ? 'Edited · kept in this browser' : 'Playground · kept in this browser'}</span>
+        <span>{dirty ? 'Edited · not saved' : 'Playground'}</span>
       </div>
     </div>
   )
+}
+
+// Light or dark for this visit — the opposite of what shows now (the system's until picked). Nothing is kept: the
+// next visit follows the system again, and leaving the playground hands the page back to it (./playground.tsx).
+function toggleTheme() {
+  const root = document.documentElement
+  const dark = root.dataset.theme
+    ? root.dataset.theme === 'dark'
+    : window.matchMedia('(prefers-color-scheme: dark)').matches
+  root.dataset.theme = dark ? 'light' : 'dark'
 }
