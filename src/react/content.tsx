@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, memo, type ReactNode } from 'react'
 import { seatPlan } from '../core/geometry'
 import type { Fixture, Group, Place, PlanRect, SeatPlan, Section } from '../core/types'
 import {
@@ -39,8 +39,12 @@ type ContentProps<S extends string> = {
 }
 
 // The whole plan in drawing order — sections, then every object in document order. A convenience over the parts;
-// compose them yourself when you need something else.
-export function Content<S extends string>({
+// compose them yourself when you need something else. It skips redrawing when its props are the ones it last drew
+// with (parts are not compiled, so this is the one `memo`): an editor's `stillPlan` keeps its identity through a
+// drag, and the layer drawing it stays put while only the moving part redraws.
+export const Content = memo(ContentOf) as typeof ContentOf
+
+function ContentOf<S extends string>({
   plan,
   status,
   selected,

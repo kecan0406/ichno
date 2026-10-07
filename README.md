@@ -311,6 +311,42 @@ corner and a tool's stroke to those lines, within 6 screen pixels and ahead of t
 the middle of their centres. `displayPlan` is the plan with the drag in progress; `plan` is what you save. A
 selection never holds what an undo, a redo or an edit took away.
 
+**Large plans.** While a drag or a `preview` changes some objects, `stillPlan` is the plan without them and
+`movingPlan` only them (no sections; null while nothing moves). The still part keeps its identity for the whole drag,
+and so do `selectedPlaceIds` and `conflictIds` while they say the same, so `SeatMap.Content` — which skips redrawing
+when its props are unchanged — draws it once per drag; only the moving part redraws each frame. Overlaps are checked
+for what moves only. A drag of a section, or of more than half the objects, is drawn as one layer (`stillPlan` is then
+`displayPlan`). With 20,000 seats a row drags at the idle frame rate zoomed in; drawing `displayPlan` in one layer
+redraws every place in view on every move.
+
+```tsx
+<SeatMap.Viewport {...editor.viewportProps} {...map.viewProps}>
+  {(frame) => (
+    <>
+      <SeatMap.Content
+        plan={editor.stillPlan}
+        selected={editor.selectedPlaceIds}
+        invalid={editor.conflictIds}
+        region={frame.region}
+        scale={frame.scale}
+      />
+      {editor.movingPlan && (
+        <SeatMap.Content
+          plan={editor.movingPlan}
+          selected={editor.selectedPlaceIds}
+          invalid={editor.conflictIds}
+          scale={frame.scale}
+        />
+      )}
+      <SeatMap.EditorOverlay {...editor.overlayProps} />
+    </>
+  )}
+</SeatMap.Viewport>
+```
+
+Whatever else you pass `Content` (`status`, label functions) must keep its identity too — compile your app with the
+React Compiler, or hold them steady yourself.
+
 ### Creation tools
 
 Rows, tables and booths are your words, so the tools that make them are yours too: an `EditorTool` says what a drag

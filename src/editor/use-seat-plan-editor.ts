@@ -25,6 +25,7 @@ import { planGuides } from './guides'
 import { alongAxis, planHandles, type EditorHandles } from './handles'
 import { planEdits, type AlignEdge, type GroupMembers, type ObjectProps, type Reorder, type Snap } from './operations'
 import type { EditorSelection } from './selection'
+import { KEY_SEPARATOR, changedKey, idsKey, onlyIds, overlapsOf, overlapsWith, withoutIds } from './moving'
 import { strokeOf, type EditorTool } from './tools'
 
 export type SeatPlanEditor<S extends string> = ReturnType<typeof useSeatPlanEditor<S>>
@@ -88,6 +89,7 @@ const NO_FRAMES: PlanPoint[][] = []
 const NO_HANDLE_SETS: readonly EditorHandles<never>[] = []
 const NO_GUIDES: PlanGuide[] = []
 const NONE: ReadonlySet<string> = new Set()
+const NO_IDS: string[] = []
 // How close (screen pixels) a move, a corner or a stroke comes to a guide to snap to it.
 const GUIDE_PX = 6
 
@@ -150,24 +152,15 @@ export function useSeatPlanEditor<S extends string>({
 
   const plan = history.present
   const dirty = history.dirty
-  // What is selected and still in the plan — an undo, a redo or an edit may have taken some of it away.
-  const inPlan = new Set(seatPlan.idsOf(plan))
-  const selection = chosen.filter((item) =>
-    item.kind === 'section' ? seatPlan.sectionOf(plan, item.id) !== undefined : inPlan.has(item.id),
-  )
-  // Selected objects and groups by id — what the operations take.
-  const selectedIds = selection.flatMap((item) => (item.kind === 'section' ? [] : [item.id]))
-  const selectedSectionIds = selection.flatMap((item) => (item.kind === 'section' ? [item.id] : []))
-  // What the selected ids stand for — groups by their members — in one pass, however much is selected.
-  const selectedIdSet = new Set(selectedIds)
-  const selectedObjects = plan.objects.filter(
-    (object) => selectedIdSet.has(object.id) || (object.group !== undefined && selectedIdSet.has(object.group)),
-  )
-  const selectedGroups = selection.flatMap((item) =>
-    item.kind === 'group' ? (seatPlan.groupById(plan, item.id) ?? []) : [],
-  )
-  // The places of the selection — pass them to the renderer as selected.
-  const selectedPlaceIds = selectedObjects.flatMap((object) => (object.kind === 'place' ? [object.id] : []))
+  // What is selected, in every form the editor hands out (see `useSelected`) — the same lists until the selection or
+  // the plan changes, so panels showing them do not redraw while something is dragged.
+  const selected = useSelected(plan, chosen)
+  const selection = selected.selection
+  const selectedIds = selected.selectedIds
+  const selectedSectionIds = selected.selectedSectionIds
+  const selectedObjects = selected.selectedObjects
+  const selectedGroups = selected.selectedGroups
+  const selectedPlaceIds = selected.selectedPlaceIds
   // What the selection covers — objects by their turned bounds, sections by their outline's box. Frame it with a
   // view's zoomTo (useSeatMapView, ichno/react).
   const selectionBounds: PlanRect[] = [
@@ -192,6 +185,18 @@ export function useSeatPlanEditor<S extends string>({
   const dragResult = drag === null ? null : dragged(shown, drag)
   const moved = dragResult?.plan ?? shown
   const displayPlan = hidden.size === 0 ? moved : withoutHidden(moved, hidden)
+  // What a drag or a preview changes, apart from what it leaves alone: `stillPlan` is the plan without the objects
+  // it changes and `movingPlan` only them, without sections (null while nothing moves). The still part is keyed by
+  // the ids that move, so it keeps its identity for the whole drag and a memoized layer drawing it (`SeatMap.Content`)
+  // draws it once per drag, not per frame — draw both in place of `displayPlan` for large plans. A drag that moves a
+  // section, or more than half the objects, is drawn as one: `stillPlan` is then `displayPlan`.
+  const changed = changedKey(plan, moved)
+  // When most of the plan moves, one layer is cheaper: two would hand everything from one to the other on letting go.
+  const movingKey = changed && changed.split(KEY_SEPARATOR).length * 2 > plan.objects.length ? null : changed
+  const still = useStillPart(plan, movingKey)
+  const stillPlan = useShownPlan(still.part ?? moved, hiddenIds)
+  const movingPart = movingKey ? onlyIds(moved, movingKey) : null
+  const movingPlan = movingPart === null || hidden.size === 0 ? movingPart : withoutHidden(movingPart, hidden)
   // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it.
   const toolStroke =
     tool === null
@@ -208,16 +213,23 @@ export function useSeatPlanEditor<S extends string>({
   const strokeGuides =
     guideTargets !== null && strokeEnd !== null ? planGuides.snapPoint(strokeEnd, guideTargets, 0).guides : NO_GUIDES
   // Places that overlap on the plan as drawn, the draft included. The schema refuses to save them; pass them to
-  // <SeatMap.Content invalid> to mark them while arranging.
-  const conflictIds = [...new Set(seatPlan.conflictsOf(created ?? moved).flat())]
-  // Handles for a single selected item, placed on the plan as drawn so they follow a drag. None while a tool is
-  // active — every press draws then.
+  // <SeatMap.Content invalid> to mark them while arranging. While objects move, the still ones' overlaps are found
+  // once and only the moving ones are checked each frame; the list keeps its identity while it says the same.
+  const conflictKey =
+    created !== null
+      ? idsKey(seatPlan.conflictsOf(created).flat())
+      : still.overlaps === null || movingPart === null
+        ? idsKey(seatPlan.conflictsOf(moved).flat())
+        : idsKey([...still.overlaps.ids, ...overlapsWith(movingPart, still.overlaps)])
+  const conflictIds = useKeyedIds(conflictKey)
   // While the selection's knob turns several items, the box and the knob turn with the pointer rather than being
   // drawn round what they turned.
   const turning =
     drag !== null && drag.target.kind === 'handle' && drag.target.owner.kind === 'selection'
       ? planHandles.selectionTurn(shown, selection, drag.total, grid !== null || drag.constrain === true)
       : null
+  // Handles for a single selected item (or the knob for several), placed on the plan as drawn so they follow a
+  // drag. None while a tool is active — every press draws then.
   const handles: PlanHandle<S>[] =
     tool === null
       ? [
@@ -581,22 +593,6 @@ export function useSeatPlanEditor<S extends string>({
     setCornersState(next)
   }
 
-  // A tap of a polygon tool — a corner at `at`, or the polygon closed when it lands on the first corner or the last
-  // one again: the tap itself (`tapped`, before snapping moves it a cell away) within CLOSE_PX on screen, or snapped
-  // right onto it.
-  function addCorner(at: PlanPoint, tapped: PlanPoint, pixel: number) {
-    const placed = cornersRef.current ?? []
-    const near = (corner: PlanPoint | undefined) =>
-      corner !== undefined &&
-      (samePoint(corner, at) || Math.hypot(corner.x - tapped.x, corner.y - tapped.y) <= CLOSE_PX * pixel)
-    if (placed.length >= 3 && (near(placed[0]) || near(placed.at(-1)))) {
-      closePolygon()
-      return
-    }
-    if (samePoint(placed.at(-1) ?? null, at)) return
-    setCorners([...placed, at])
-  }
-
   // Makes the polygon being drawn (Enter) — the tool's `create` gets its corners. false when there is none of three
   // corners yet.
   function closePolygon(): boolean {
@@ -611,6 +607,22 @@ export function useSeatPlanEditor<S extends string>({
       if (!tool.keep) setToolState(null)
     }
     return true
+  }
+
+  // A tap of a polygon tool — a corner at `at`, or the polygon closed when it lands on the first corner or the last
+  // one again: the tap itself (`tapped`, before snapping moves it a cell away) within CLOSE_PX on screen, or snapped
+  // right onto it.
+  function addCorner(at: PlanPoint, tapped: PlanPoint, pixel: number) {
+    const placed = cornersRef.current ?? []
+    const near = (corner: PlanPoint | undefined) =>
+      corner !== undefined &&
+      (samePoint(corner, at) || Math.hypot(corner.x - tapped.x, corner.y - tapped.y) <= CLOSE_PX * pixel)
+    if (placed.length >= 3 && (near(placed[0]) || near(placed.at(-1)))) {
+      closePolygon()
+      return
+    }
+    if (samePoint(placed.at(-1) ?? null, at)) return
+    setCorners([...placed, at])
   }
 
   // Takes back the last corner of the polygon being drawn (Backspace). false when there is none.
@@ -830,6 +842,8 @@ export function useSeatPlanEditor<S extends string>({
   return {
     plan,
     displayPlan,
+    stillPlan,
+    movingPlan,
     dirty,
     selection,
     selectedIds,
@@ -982,6 +996,53 @@ export function useSeatPlanEditor<S extends string>({
       guides: dragResult?.guides ?? strokeGuides,
     },
   }
+}
+
+// What is selected and still in the plan — an undo, a redo or an edit may have taken some of it away: the items; the
+// object and group ids the operations take; the section ids; the objects the ids stand for (groups by their members,
+// in one pass however much is selected); the groups; and the places, to pass to the renderer as selected.
+function useSelected<S extends string>(plan: SeatPlan<S>, chosen: readonly EditorSelection<S>[]) {
+  'use memo'
+  const inPlan = new Set(seatPlan.idsOf(plan))
+  const selection = chosen.filter((item) =>
+    item.kind === 'section' ? seatPlan.sectionOf(plan, item.id) !== undefined : inPlan.has(item.id),
+  )
+  const selectedIds = selection.flatMap((item) => (item.kind === 'section' ? [] : [item.id]))
+  const selectedSectionIds = selection.flatMap((item) => (item.kind === 'section' ? [item.id] : []))
+  const selectedIdSet = new Set(selectedIds)
+  const selectedObjects = plan.objects.filter(
+    (object) => selectedIdSet.has(object.id) || (object.group !== undefined && selectedIdSet.has(object.group)),
+  )
+  const selectedGroups = selection.flatMap((item) =>
+    item.kind === 'group' ? (seatPlan.groupById(plan, item.id) ?? []) : [],
+  )
+  const selectedPlaceIds = selectedObjects.flatMap((object) => (object.kind === 'place' ? [object.id] : []))
+  return { selection, selectedIds, selectedSectionIds, selectedObjects, selectedGroups, selectedPlaceIds }
+}
+
+// These small hooks keep what a drag leaves alone while it moves: each depends only on what stays the same through
+// a drag, so the React Compiler hands back the same value frame after frame. They call no hook, so the directive opts
+// them into compiling.
+
+// The plan without the objects that move (keyed by their ids), and its places' overlaps with an index to check the
+// moving ones against. Nulls while nothing moves, or when sections do (`key` null).
+function useStillPart<S extends string>(plan: SeatPlan<S>, key: string | null) {
+  'use memo'
+  const part = key ? withoutIds(plan, key) : null
+  return { part, overlaps: part === null ? null : overlapsOf(part) }
+}
+
+// A plan without what is hidden.
+function useShownPlan<S extends string>(plan: SeatPlan<S>, hiddenIds: Iterable<string> | undefined): SeatPlan<S> {
+  'use memo'
+  const hidden = new Set(hiddenIds)
+  return hidden.size === 0 ? plan : withoutHidden(plan, hidden)
+}
+
+// Ids from a key (`KEY_SEPARATOR`-joined) as a list that keeps its identity while the key is the same.
+function useKeyedIds(key: string): string[] {
+  'use memo'
+  return key === '' ? NO_IDS : key.split(KEY_SEPARATOR)
 }
 
 // The view controls the zoom keys drive — what useSeatMapView (ichno/react) returns, or your own.

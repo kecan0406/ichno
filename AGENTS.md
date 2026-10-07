@@ -84,6 +84,14 @@ compiler expects:
   Hoist the default to a module-level function.
 - After touching `src/react/client` or `src/editor`, run `pnpm check:compiler`. A bailout is silent in the build
   otherwise.
+- Declare a function before anything that calls it during render or from another function in the same component —
+  a reference to one declared further down can make the compiler give up the whole component.
+- The compiler keeps one cache per component or hook, and a value handed to a function it cannot see into shares a
+  cache block with whatever that function's other arguments depend on. A value that must keep its identity while
+  something else changes every frame (the editor's `stillPlan`, its selection lists) goes in a small hook of its own
+  whose inputs hold still; a hook that calls no hook is not compiled unless it starts with `'use memo'`.
+- `src/react` parts are not compiled. `SeatMap.Content` is wrapped in `memo` — the one exception — because an editor
+  redraws it on every frame of a drag otherwise.
 
 ## Tests
 

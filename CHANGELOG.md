@@ -165,6 +165,13 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
 - `ichno/react`: `SeatMap.EditorOverlay` draws `guides` — lines and equal gaps (`data-part` `guides`, `guide`,
   `gap`) in the new `--ichno-guide` colour. The viewport reports ⌘ or Ctrl on drags and strokes (`free`) and
   `pixel` to `onHover`.
+- `ichno/editor`: large plans drag without redrawing everything — `stillPlan` (the plan without what a drag or a
+  preview changes, keeping its identity for the whole drag) and `movingPlan` (only what moves, without sections; null
+  otherwise). Overlaps are checked for what moves only during a drag, and `conflictIds`, `selectedPlaceIds` and the
+  selection lists keep their identity while they say the same. With 20,000 seats a row now drags at the idle frame
+  rate zoomed in (was about twice it). A drag of a section or of more than half the objects is drawn as one layer.
+- `ichno/react`: `SeatMap.Content` skips redrawing when its props are the ones it last drew with (`memo`), so the layer
+  drawing an editor's `stillPlan` stays put while only the moving part redraws.
 
 ## 0.2.1 — 2026-09-25
 
