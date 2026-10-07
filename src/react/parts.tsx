@@ -1,5 +1,5 @@
 import type { ComponentProps, CSSProperties, ReactNode } from 'react'
-import { SECTION_LABEL_BAND, SECTION_LABEL_FONT, WALL_THICKNESS, seatPlan } from '../core/geometry'
+import { SECTION_LABEL_BAND, SECTION_LABEL_FONT, WALL_THICKNESS, groupLabelFont, seatPlan } from '../core/geometry'
 import { GRID_CELL } from '../core/grid'
 import type {
   Fixture,
@@ -391,11 +391,6 @@ export function MarqueePart({ rect, ...rest }: GProps & { rect: PlanRect | null 
 // A place label's font size in plan units — small seats get a smaller number.
 export function placeLabelFont(place: Pick<Place, 'w' | 'h'>): number {
   return Math.min(SEAT_LABEL_FONT, Math.max(8, Math.min(place.w, place.h) * 0.42))
-}
-
-// A group label's font size in plan units — half its box, within reading bounds.
-export function groupLabelFont(label: Pick<GroupLabel, 'w' | 'h'>): number {
-  return Math.min(SEAT_LABEL_FONT, Math.max(10, Math.min(label.w, label.h) * 0.5))
 }
 
 // Where a box is drawn — moved to its origin and turned about its centre.

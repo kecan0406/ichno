@@ -15,6 +15,7 @@ import { spatialIndex } from './spatial'
 import type {
   Fixture,
   Group,
+  GroupLabel,
   Place,
   PlanBox,
   PlanObject,
@@ -52,6 +53,8 @@ const SECTION_PLAN_PADDING = 20
 
 const FIXTURE_LABEL_MAX_FONT = 20
 const FIXTURE_LABEL_MIN_FONT = 10
+const GROUP_LABEL_MAX_FONT = 20
+const GROUP_LABEL_MIN_FONT = 10
 
 export const seatPlan = {
   objectById,
@@ -66,6 +69,7 @@ export const seatPlan = {
   nextPlaceId,
   nextObjectId,
   fixtureLabelOf,
+  groupLabelOf,
   sectionPlanOf,
   sectionPlansOf,
   objectsInRect,
@@ -159,6 +163,21 @@ function fixtureLabelOf(
   const fontSize = Math.min(FIXTURE_LABEL_MAX_FONT, Math.floor(short * 0.6))
   if (fontSize < FIXTURE_LABEL_MIN_FONT || text.length * fontSize + 8 > long) return null
   return { text, fontSize, vertical }
+}
+
+// Group label layout — the text centred in the label box, upright, its font half the box's short side within
+// reading bounds. `text` is the consumer's name for the group (its `label`, or its id).
+function groupLabelOf(
+  label: Pick<GroupLabel, 'w' | 'h'>,
+  text: string | null | undefined,
+): { text: string; fontSize: number } | null {
+  if (!text) return null
+  return { text, fontSize: groupLabelFont(label) }
+}
+
+// A group label's font size in plan units — for the parts, whose label may be any node.
+export function groupLabelFont(label: Pick<GroupLabel, 'w' | 'h'>): number {
+  return Math.min(GROUP_LABEL_MAX_FONT, Math.max(GROUP_LABEL_MIN_FONT, Math.min(label.w, label.h) * 0.5))
 }
 
 // Section crop — bounded by the section's objects rather than its outline, because rooms keep wide empty floor

@@ -124,6 +124,9 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   `seatPlan.orderAlong(plan, ids, degrees)`, ids in the order they come along a direction (a group by its frame), to
   label seats and rows the way people read them. `issueIdsOf(issue)` reads the objects a schema issue or a lint
   result is about.
+- `ichno`: `seatPlan.groupLabelOf(label, text)` — a group label's text and font size as `SeatMap.Label` writes it,
+  the counterpart of `fixtureLabelOf` for renderers of your own (a 3D view that should write what the 2D view
+  writes).
 - `ichno/editor`: `selectIds(ids)` selects exactly these object and group ids; `selectMembers()` and
   `selectGroups()` are what Enter and ⇧Enter do, for menus. `preview(update)` shows an edit without committing it —
   while a slider is dragged — applied to the plan as it is, until the next edit or `preview(null)`.

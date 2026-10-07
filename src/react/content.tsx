@@ -1,15 +1,7 @@
 import { Fragment, memo, type ReactNode } from 'react'
-import { seatPlan } from '../core/geometry'
+import { groupLabelFont, seatPlan } from '../core/geometry'
 import type { Fixture, Group, Place, PlanRect, SeatPlan, Section } from '../core/types'
-import {
-  FixturePart,
-  LabelPart,
-  PlacePart,
-  SectionPart,
-  groupLabelFont,
-  placeLabelFont,
-  type PlaceProps,
-} from './parts'
+import { FixturePart, LabelPart, PlacePart, SectionPart, placeLabelFont, type PlaceProps } from './parts'
 
 type ContentProps<S extends string> = {
   plan: SeatPlan<S>
