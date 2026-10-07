@@ -615,24 +615,25 @@ function rotate<S extends string>(plan: SeatPlan<S>, ids: readonly string[], deg
 }
 
 // Moves objects and groups by `delta` — snapped to half cells, and held inside the plan by what they draw. A
-// single object snaps its own position instead, so it lands on the grid.
+// single object snaps its own position instead, so it lands on the grid. Axes in `exact` (what a guide lined up)
+// stay off the grid.
 function move<S extends string>(
   plan: SeatPlan<S>,
   ids: readonly string[],
   delta: PlanPoint,
   snap: Snap | null = null,
+  exact: { x?: boolean; y?: boolean } = {},
 ): SeatPlan<S> {
   const moving = new Map(ids.flatMap((id) => unitOf(plan, id)).map((o) => [o.id, o]))
   if (moving.size === 0) return plan
   const objects = [...moving.values()]
   const step = snap ? snap.cell / 2 : 1
   const only = objects.length === 1 && ids.length === 1 && seatPlan.groupById(plan, ids[0]!) === undefined
-  let d = only
-    ? {
-        x: roundTo(objects[0]!.x + delta.x, step) - objects[0]!.x,
-        y: roundTo(objects[0]!.y + delta.y, step) - objects[0]!.y,
-      }
-    : { x: roundTo(delta.x, step), y: roundTo(delta.y, step) }
+  const along = (axis: 'x' | 'y') => {
+    if (exact[axis]) return Math.round(delta[axis])
+    return only ? roundTo(objects[0]![axis] + delta[axis], step) - objects[0]![axis] : roundTo(delta[axis], step)
+  }
+  let d = { x: along('x'), y: along('y') }
   // Labels may sit in the margin; everything else stays on the plan.
   const held = objects.filter((o) => o.kind !== 'label')
   const extent = unionBounds(held.map((o) => seatPlan.translate(seatPlan.boundsOf(o), d.x, d.y)))
@@ -715,12 +716,13 @@ function reshapeSection<S extends string>(
 // the drag total. When the dragged object is part of `selected` (object and group ids), the whole selection
 // moves; otherwise the object alone, or its group when it has one. A constrained move keeps to the axis it went
 // furthest along; a copying one (Alt) leaves them where they were and moves copies (see `duplicate`). The
-// selection's knob turns `selected` together.
+// selection's knob turns `selected` together. Axes in `exact` (what a guide lined up) stay off the grid.
 function applyDrag<S extends string>(
   plan: SeatPlan<S>,
   drag: PlanDrag<S>,
   selected: readonly string[] = [],
   snap: Snap | null = null,
+  exact: { x?: boolean; y?: boolean } = {},
 ): SeatPlan<S> {
   const { target, constrain = false } = drag
   if (target.kind === 'handle' && target.owner.kind === 'selection') {
@@ -739,9 +741,9 @@ function applyDrag<S extends string>(
   if (!object) return plan
   const covered = selected.includes(object.id) || (object.group !== undefined && selected.includes(object.group))
   const ids = covered ? selected : [object.group ?? object.id]
-  if (!drag.copy) return move(plan, ids, total, snap)
+  if (!drag.copy) return move(plan, ids, total, snap, exact)
   const copies = duplicate(plan, ids, ORIGIN)
-  return move(copies.plan, copies.ids, total, snap)
+  return move(copies.plan, copies.ids, total, snap, exact)
 }
 
 // Whether an object or group holds an id other records reference — its own, or one of its members'.

@@ -50,6 +50,13 @@ const GLYPHS = {
       <circle cx={10.5} cy={5.5} r={1.6} fill="currentColor" stroke="none" />
     </>
   ),
+  guides: (
+    <>
+      <rect x={2.5} y={6} width={4.5} height={4.5} rx={0.8} />
+      <rect x={9} y={3} width={4.5} height={4.5} rx={0.8} />
+      <path d="M1.5 10.5h13M11.25 1.5v13" strokeDasharray="1.6 1.4" opacity={0.6} />
+    </>
+  ),
   repeat: (
     <>
       <path d="M2.5 7V6a2 2 0 012-2h8M10.5 2l2 2-2 2" />

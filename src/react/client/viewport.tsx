@@ -69,8 +69,9 @@ type ViewportProps<S extends string> = Omit<
   // shift, ⌘ or Ctrl was held (additive selection). The editor selects with it.
   onTap?(target: PlanTarget<S> | null, info: { point: PlanPoint | null; additive: boolean }): void
   // The pointer moving while nothing is pressed — the plan point under it and what it is over; nulls when it
-  // leaves. Editors preview their tools and outline what a tap would select with it.
-  onHover?(point: PlanPoint | null, target: PlanTarget<S> | null): void
+  // leaves. Editors preview their tools and outline what a tap would select with it. `pixel` is how many plan units
+  // a screen pixel spans.
+  onHover?(point: PlanPoint | null, target: PlanTarget<S> | null, info?: { pixel: number }): void
   // Which targets move instead of panning, and what happens while they do (the editor passes both).
   canDrag?(target: PlanTarget<S>): boolean
   onTargetDrag?(drag: PlanDrag<S>): void
@@ -80,11 +81,17 @@ type ViewportProps<S extends string> = Omit<
   // A creation tool is active: presses draw strokes instead of selecting, moving or panning (Space and the middle
   // button still pan). A tap is a stroke with no length, reported once at `end`. `constrain` (Shift) and
   // `fromCenter` (Alt) are the keys held, reported again when they change mid-stroke; `cancel` ends a stroke that
-  // must not create anything — a second finger landed, or the pointer was lost. `pixel` is how many plan units a
-  // screen pixel spans.
+  // must not create anything — a second finger landed, or the pointer was lost. `free` is ⌘ or Ctrl (smart guides
+  // let go); `pixel` is how many plan units a screen pixel spans.
   onDraw?(
     stroke: PlanStroke,
-    info: { phase: 'start' | 'move' | 'end' | 'cancel'; constrain: boolean; fromCenter: boolean; pixel?: number },
+    info: {
+      phase: 'start' | 'move' | 'end' | 'cancel'
+      constrain: boolean
+      fromCenter: boolean
+      free?: boolean
+      pixel?: number
+    },
   ): void
 }
 
@@ -99,8 +106,9 @@ type Press<S extends string> = {
   at: ScreenPoint | null
 }
 
-// Shift constrains a drag or a stroke; Alt draws a stroke from the centre and drags a copy.
-type Keys = { constrain: boolean; fromCenter: boolean }
+// Shift constrains a drag or a stroke; Alt draws a stroke from the centre and drags a copy; ⌘ or Ctrl lets go of
+// smart guides.
+type Keys = { constrain: boolean; fromCenter: boolean; free: boolean }
 
 // The interactive plan — an <svg> that pans, zooms (wheel, pinch), reports taps, drags and strokes, and moves a
 // focus ring between places with the arrow keys. Children are the same server-safe parts <SeatMap.Root> takes;
@@ -222,6 +230,7 @@ export function Viewport<S extends string>({
         total,
         constrain: keys.constrain,
         copy: keys.fromCenter,
+        free: keys.free,
         pixel: unitsPerPixel(),
       })
     } else if (press.mode === 'marquee') {
@@ -277,6 +286,7 @@ export function Viewport<S extends string>({
               total: { x: 0, y: 0 },
               constrain: keysRef.current.constrain,
               copy: keysRef.current.fromCenter,
+              free: keysRef.current.free,
               pixel: unitsPerPixel(),
             })
           } else if (press.mode === 'marquee') {
@@ -391,7 +401,7 @@ export function Viewport<S extends string>({
         hoverRef.current = place?.id ?? null
         onPlaceHover?.(place ?? null)
       }
-      onHover?.(toPlan(pointerOf(e)), target)
+      onHover?.(toPlan(pointerOf(e)), target, { pixel: unitsPerPixel() })
       return
     }
     // A button let go where the release never reached us (a menu opened mid-drag took it) — end the press where it
@@ -521,10 +531,10 @@ export function Viewport<S extends string>({
     }
   }, [])
 
-  // Space held over the viewport (or with it focused) turns presses into pans; Shift and Alt pressed or let go
-  // mid-drag reshape the drag at once.
+  // Space held over the viewport (or with it focused) turns presses into pans; Shift, Alt, ⌘ and Ctrl pressed or let
+  // go mid-drag reshape the drag at once.
   const onWindowKey = useEffectEvent((e: globalThis.KeyboardEvent) => {
-    if (e.key === 'Shift' || e.key === 'Alt') {
+    if (e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta' || e.key === 'Control') {
       keysRef.current = keysOf(e)
       restate()
       return
@@ -734,8 +744,8 @@ function targetOf<S extends string>(element: EventTarget | null): PlanTarget<S> 
   return null
 }
 
-function keysOf(e: { shiftKey: boolean; altKey: boolean }): Keys {
-  return { constrain: e.shiftKey, fromCenter: e.altKey }
+function keysOf(e: { shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): Keys {
+  return { constrain: e.shiftKey, fromCenter: e.altKey, free: e.metaKey || e.ctrlKey }
 }
 
 // Calls `frame` on every animation frame until the returned function stops it.
@@ -832,4 +842,4 @@ const FRAME_MS = 1000 / 60
 // A frame late by more than this (a background tab) scrolls as if it were not — no leap on return.
 const EDGE_MAX_STEP_MS = 50
 const IDLE_PRESS: Press<never> = { target: null, mode: 'pan', additive: false, anchor: null, at: null }
-const NO_KEYS: Keys = { constrain: false, fromCenter: false }
+const NO_KEYS: Keys = { constrain: false, fromCenter: false, free: false }

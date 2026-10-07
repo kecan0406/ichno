@@ -95,6 +95,7 @@ export function Workspace({
 }) {
   const [booked, setBooked] = useState<string[]>(initial.booked)
   const [snapping, setSnapping] = useState(true)
+  const [guiding, setGuiding] = useState(true)
   // Layers locked and hidden in the layers panel — editor state, never saved with the document.
   const [frozen, setFrozen] = useState<ReadonlySet<string>>(NO_IDS)
   const [hidden, setHidden] = useState<ReadonlySet<string>>(NO_IDS)
@@ -105,6 +106,7 @@ export function Workspace({
     frozenIds: frozen,
     hiddenIds: hidden,
     handles: [rowHandles(new Set(booked))],
+    guides: guiding,
   })
   // One view for both modes — switching keeps where you were looking.
   const map = useSeatMapView(editor.plan)
@@ -576,12 +578,14 @@ export function Workspace({
             asset={asset}
             assetsOpen={leftTab === 'assets'}
             snapping={snapping}
+            guiding={guiding}
             keep={keep}
             onSelect={() => choose(null)}
             onHand={chooseHand}
             onTool={choose}
             onAssets={toggleAssets}
             onSnap={() => setSnapping((on) => !on)}
+            onGuides={() => setGuiding((on) => !on)}
             onKeep={toggleKeep}
           />
         )}

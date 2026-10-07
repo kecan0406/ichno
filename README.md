@@ -304,7 +304,10 @@ outlines every selected item and `hoverFrame` what a tap would select, so fixtur
 selected too. `SeatMap.EditorOverlay` draws all of it in order — the selection's outlines, the hover outline, the
 handles, the marquee and a tool's stroke — from `overlayProps`; draw the pieces yourself with `SeatMap.Outline`,
 `SeatMap.Handles` and `SeatMap.Marquee` when you want another order or look. `selectionBounds` is what the
-selection covers, for `map.zoomTo`. `rotateSelected` turns one item about its own centre and several together about
+selection covers, for `map.zoomTo`. With `guides: true` a move snaps to the edges and centre lines of what stands
+around it — every unit (a group as one) and section — and to the spacing between its neighbours, and a level object's
+corner and a tool's stroke to those lines, within 6 screen pixels and ahead of the grid; ⌘ or Ctrl held lets go.
+`overlayProps.guides` are the lines and equal gaps to draw (`planGuides` is the math, for other renderers). `rotateSelected` turns one item about its own centre and several together about
 the middle of their centres. `displayPlan` is the plan with the drag in progress; `plan` is what you save. A
 selection never holds what an undo, a redo or an edit took away.
 
@@ -473,6 +476,7 @@ defaults (`themeVars` lists them). Classes on parts override them outright.
 | `--ichno-accent`            | picked places, editor selection                 |
 | `--ichno-accent-foreground` | numbers on accent-filled places                 |
 | `--ichno-warning`           | warning marks                                   |
+| `--ichno-guide`             | editor smart guides                             |
 | `--ichno-font`              | text font (inherits when unset)                 |
 | `--ichno-number-font`       | seat number font (falls back to `--ichno-font`) |
 

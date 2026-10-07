@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react'
-import type { PlanHandle, PlanPoint, PlanRect, PlanStroke } from '../core/types'
+import type { PlanGuide, PlanHandle, PlanPoint, PlanRect, PlanStroke } from '../core/types'
 import { cssVar } from '../theme/vars'
 import { HandlesPart, MarqueePart, OutlinePart } from './parts'
 
@@ -17,12 +17,15 @@ export type EditorOverlayProps = Omit<ComponentProps<'g'>, 'children' | 'stroke'
   // drawn corner to corner (back to its first one, which is marked to close it on), a point left to the draft.
   stroke?: PlanStroke | null
   draw?: 'box' | 'line' | 'point' | 'polygon'
+  // Smart guides — the lines and equal gaps what is dragged or drawn lines up on.
+  guides?: readonly PlanGuide[]
 }
 
 // Everything an editor draws over the plan, layered the way it reads: the selection's outlines, what a tap would
-// select, the handles with the frame they belong to, the marquee, and the stroke a creation tool is drawing. The
-// editor's `overlayProps` (ichno/editor) are these props. Pieces are named for styling — `data-part` `selection`,
-// `hover` and `stroke`, beside the `handles`, `outline` and `marquee` of the parts it draws with.
+// select, the smart guides, the handles with the frame they belong to, the marquee, and the stroke a creation tool is
+// drawing. The editor's `overlayProps` (ichno/editor) are these props. Pieces are named for styling — `data-part`
+// `selection`, `hover`, `guides` (each a `guide` line or a `gap`) and `stroke`, beside the `handles`, `outline` and
+// `marquee` of the parts it draws with.
 export function EditorOverlay({
   frames = NO_FRAMES,
   hoverFrame = null,
@@ -31,6 +34,7 @@ export function EditorOverlay({
   marquee = null,
   stroke = null,
   draw,
+  guides = NO_GUIDES,
   ...rest
 }: EditorOverlayProps) {
   const guide = stroke && draw !== 'point' ? stroke : null
@@ -47,6 +51,13 @@ export function EditorOverlay({
         // Fainter than the selection — a suggestion, not a choice.
         <g data-part="hover" opacity={HOVER_OPACITY}>
           <OutlinePart points={hoverFrame} />
+        </g>
+      )}
+      {guides.length > 0 && (
+        <g data-part="guides" pointerEvents="none">
+          {guides.map((guide, i) => (
+            <Guide key={i} guide={guide} />
+          ))}
         </g>
       )}
       <HandlesPart handles={handles} frame={frame} />
@@ -74,6 +85,37 @@ export function EditorOverlay({
           )}
         </g>
       )}
+    </g>
+  )
+}
+
+// A guide line, or equal gaps marked end to end with a dot at each end — 1px lines and 4px dots at any zoom.
+function Guide({ guide }: { guide: PlanGuide }) {
+  const point = (along: number, across: number) =>
+    guide.axis === 'x' ? { x: along, y: across } : { x: across, y: along }
+  if (guide.kind === 'line') {
+    const a = guide.axis === 'x' ? { x: guide.at, y: guide.from } : { x: guide.from, y: guide.at }
+    const b = guide.axis === 'x' ? { x: guide.at, y: guide.to } : { x: guide.to, y: guide.at }
+    return <line data-part="guide" x1={round(a.x)} y1={round(a.y)} x2={round(b.x)} y2={round(b.y)} {...GUIDE_LINE} />
+  }
+  return (
+    <g data-part="gap">
+      {guide.gaps.map((gap, i) => {
+        const a = point(gap.from, guide.at)
+        const b = point(gap.to, guide.at)
+        return (
+          <g key={i}>
+            <line x1={round(a.x)} y1={round(a.y)} x2={round(b.x)} y2={round(b.y)} {...GUIDE_LINE} />
+            <path
+              d={`M${round(a.x)} ${round(a.y)}h0M${round(b.x)} ${round(b.y)}h0`}
+              stroke={cssVar('guide')}
+              strokeWidth={4}
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        )
+      })}
     </g>
   )
 }
@@ -115,6 +157,12 @@ function round(value: number): number {
 
 const NO_FRAMES: readonly (readonly PlanPoint[])[] = []
 const NO_HANDLES: readonly PlanHandle[] = []
+const NO_GUIDES: readonly PlanGuide[] = []
+const GUIDE_LINE = {
+  stroke: cssVar('guide'),
+  strokeWidth: 1,
+  vectorEffect: 'non-scaling-stroke' as const,
+}
 const HOVER_OPACITY = 0.6
 // The first corner of a polygon being drawn, in screen pixels.
 const CORNER_PX = 8

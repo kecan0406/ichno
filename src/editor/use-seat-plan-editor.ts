@@ -9,6 +9,7 @@ import type {
   Group,
   PlanBox,
   PlanDrag,
+  PlanGuide,
   PlanHandle,
   PlanObject,
   PlanPoint,
@@ -20,7 +21,8 @@ import type {
   Section,
   Shape,
 } from '../core/types'
-import { planHandles, type EditorHandles } from './handles'
+import { planGuides } from './guides'
+import { alongAxis, planHandles, type EditorHandles } from './handles'
 import { planEdits, type AlignEdge, type GroupMembers, type ObjectProps, type Reorder, type Snap } from './operations'
 import type { EditorSelection } from './selection'
 import { strokeOf, type EditorTool } from './tools'
@@ -45,6 +47,10 @@ type Options<S extends string> = {
   hiddenIds?: Iterable<string>
   // Handles of your own — shown beside ichno's on the one selected item they are for (see `EditorHandles`).
   handles?: readonly EditorHandles<S>[]
+  // Smart guides: a move snaps to the edges and centre lines of what stands around it and to the spacing between its
+  // neighbours, a corner and a tool's stroke to those lines — within 6 screen pixels, ahead of the grid. ⌘ or Ctrl
+  // held lets go. `overlayProps.guides` are the guides to draw. Off by default.
+  guides?: boolean
 }
 
 type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; future: SeatPlan<S>[]; dirty: boolean }
@@ -56,7 +62,13 @@ type GroupChoice = string | Omit<Group, 'id'>
 type Edit<S extends string> = (current: SeatPlan<S>) => SeatPlan<S> | null
 
 // What the viewport reports about a stroke besides where it runs.
-type DrawInfo = { phase: 'start' | 'move' | 'end' | 'cancel'; constrain: boolean; fromCenter: boolean; pixel?: number }
+type DrawInfo = {
+  phase: 'start' | 'move' | 'end' | 'cancel'
+  constrain: boolean
+  fromCenter: boolean
+  free?: boolean
+  pixel?: number
+}
 
 // What was copied, where it came from, and how many times it was pasted next to it.
 type Clip = { template: PlanTemplate; at: PlanPoint; pastes: number }
@@ -73,6 +85,10 @@ const PASTE_STEP = GRID_CELL * 2
 const NO_KEYS = {}
 const NO_FRAMES: PlanPoint[][] = []
 const NO_HANDLE_SETS: readonly EditorHandles<never>[] = []
+const NO_GUIDES: PlanGuide[] = []
+const NONE: ReadonlySet<string> = new Set()
+// How close (screen pixels) a move, a corner or a stroke comes to a guide to snap to it.
+const GUIDE_PX = 6
 
 // Headless seat plan editor — document state, selection, creation tools, clipboard, undo history and every edit
 // operation; no UI. Spread `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select, drag-to-move,
@@ -90,6 +106,7 @@ export function useSeatPlanEditor<S extends string>({
   frozenIds,
   hiddenIds,
   handles: handleSets = NO_HANDLE_SETS,
+  guides = false,
 }: Options<S>) {
   const [start] = useState(() => ({
     saved: { plan: initialPlan, json: JSON.stringify(initialPlan) },
@@ -162,7 +179,17 @@ export function useSeatPlanEditor<S extends string>({
   // The plan as drawn — the edit being previewed, the drag in progress with the snapping it will commit with, and
   // without what is hidden.
   const shown = previewing === null ? plan : (previewing(plan) ?? plan)
-  const moved = drag === null ? shown : dragged(shown, drag)
+  // What a drag, a corner or a tool's stroke lines up with (`guides`) — every unit and section in sight but what the
+  // press moves. Gathered once a drag starts or a tool is picked, not on every move.
+  const guideTargets =
+    guides && (drag !== null || tool !== null)
+      ? planGuides.targetsOf(
+          hidden.size === 0 ? shown : withoutHidden(shown, hidden),
+          movingOf(shown, drag?.target ?? null),
+        )
+      : null
+  const dragResult = drag === null ? null : dragged(shown, drag)
+  const moved = dragResult?.plan ?? shown
   const displayPlan = hidden.size === 0 ? moved : withoutHidden(moved, hidden)
   // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it.
   const toolStroke =
@@ -175,6 +202,10 @@ export function useSeatPlanEditor<S extends string>({
   // Only the new objects (and the groups they belong to), as a plan without sections — draw it over the plan,
   // e.g. half transparent. null when the tool would make nothing there.
   const draft = created === null ? null : addedPart(plan, created)
+  // The guides through where a tool would draw — what the pointer or the stroke's end lines up with.
+  const strokeEnd = tool === null ? null : (toolStroke?.end ?? null)
+  const strokeGuides =
+    guideTargets !== null && strokeEnd !== null ? planGuides.snapPoint(strokeEnd, guideTargets, 0).guides : NO_GUIDES
   // Places that overlap on the plan as drawn, the draft included. The schema refuses to save them; pass them to
   // <SeatMap.Content invalid> to mark them while arranging.
   const conflictIds = [...new Set(seatPlan.conflictsOf(created ?? moved).flat())]
@@ -216,16 +247,71 @@ export function useSeatPlanEditor<S extends string>({
     )
   }
 
-  // The plan with a drag applied — one of your handles by its set, anything else by `planEdits.applyDrag`.
-  function dragged(current: SeatPlan<S>, next: PlanDrag<S>): SeatPlan<S> {
+  // What a press moves, for guides to leave out — the selection or what it is on (as `applyDrag` picks), a
+  // handle's owner. Nothing for a section or a tool.
+  function movingOf(current: SeatPlan<S>, target: PlanTarget<S> | null): ReadonlySet<string> {
+    if (target === null || target.kind === 'section') return NONE
+    if (target.kind === 'handle') {
+      return target.owner.kind === 'selection' ? new Set(selectedIds) : new Set([target.owner.id])
+    }
+    const object = seatPlan.objectById(current, target.id)
+    if (!object) return NONE
+    const covered =
+      selectedIds.includes(object.id) || (object.group !== undefined && selectedIds.includes(object.group))
+    return new Set(covered ? selectedIds : [object.group ?? object.id])
+  }
+
+  // The plan with a drag applied, and the guides it lines up on — one of your handles by its set, anything else by
+  // `planEdits.applyDrag`, a move or a level object's corner snapped to the guides first.
+  function dragged(current: SeatPlan<S>, next: PlanDrag<S>): { plan: SeatPlan<S>; guides: PlanGuide[] } {
     const { target } = next
-    const colon = target.kind === 'handle' ? target.name.indexOf(':') : -1
-    if (target.kind !== 'handle' || colon < 0) return planEdits.applyDrag(current, next, selectedIds, grid)
-    const set = handleSets.find((candidate) => candidate.id === target.name.slice(0, colon))
-    if (!set || target.owner.kind === 'selection') return current
-    const handle = { owner: target.owner, name: target.name.slice(colon + 1) }
-    const info = { total: next.total, constrain: next.constrain ?? false, snap: grid, pixel: next.pixel }
-    return set.drag(current, handle, info) ?? current
+    const tolerance = GUIDE_PX * (next.pixel ?? 1)
+    const targets = next.free ? null : guideTargets
+    if (target.kind === 'handle') {
+      const colon = target.name.indexOf(':')
+      if (colon >= 0) {
+        const set = handleSets.find((candidate) => candidate.id === target.name.slice(0, colon))
+        if (!set || target.owner.kind === 'selection') return { plan: current, guides: NO_GUIDES }
+        const handle = { owner: target.owner, name: target.name.slice(colon + 1) }
+        const info = { total: next.total, constrain: next.constrain ?? false, snap: grid, pixel: next.pixel }
+        return { plan: set.drag(current, handle, info) ?? current, guides: NO_GUIDES }
+      }
+      const object = target.owner.kind === 'object' ? seatPlan.objectById(current, target.owner.id) : undefined
+      const corner = object && !object.rotation && !next.constrain ? cornerOf(object, target.name) : null
+      if (targets && corner) {
+        const snapped = planGuides.snapPoint(add(corner, next.total), targets, tolerance)
+        if (snapped.exact.x || snapped.exact.y) {
+          const total = { x: snapped.point.x - corner.x, y: snapped.point.y - corner.y }
+          const plan = planHandles.drag(current, target.owner, target.name, total, null, false, next.pixel)
+          return { plan, guides: snapped.guides }
+        }
+      }
+      return { plan: planEdits.applyDrag(current, next, selectedIds, grid), guides: NO_GUIDES }
+    }
+    if (targets && target.kind !== 'section') {
+      const moving = movingOf(current, target)
+      const extent = unionBounds(
+        current.objects.flatMap((o) =>
+          o.kind !== 'label' && (moving.has(o.id) || (o.group !== undefined && moving.has(o.group)))
+            ? [seatPlan.boundsOf(o)]
+            : [],
+        ),
+      )
+      if (extent) {
+        const total = next.constrain ? alongAxis(next.total) : next.total
+        const axes = next.constrain ? { x: total.x !== 0, y: total.y !== 0 } : { x: true, y: true }
+        const snapped = planGuides.snapMove(extent, total, targets, tolerance, axes)
+        const guided = { ...next, total: snapped.delta, constrain: false }
+        return { plan: planEdits.applyDrag(current, guided, selectedIds, grid, snapped.exact), guides: snapped.guides }
+      }
+    }
+    return { plan: planEdits.applyDrag(current, next, selectedIds, grid), guides: NO_GUIDES }
+  }
+
+  // A point a tool draws to, lined up by the guides within GUIDE_PX — unless ⌘ or Ctrl is held.
+  function guided(point: PlanPoint, pixel: number | undefined, free = false): PlanPoint {
+    if (guideTargets === null || free) return point
+    return planGuides.snapPoint(point, guideTargets, GUIDE_PX * (pixel ?? 1)).point
   }
 
   function commit(next: Omit<History<S>, 'dirty'>) {
@@ -419,7 +505,7 @@ export function useSeatPlanEditor<S extends string>({
     }
     setDrag(null)
     const before = historyRef.current.present
-    if (!apply((current) => dragged(current, next))) return
+    if (!apply((current) => dragged(current, next).plan)) return
     // A copying drag selects the copies, as a duplicate does.
     if (next.copy && next.target.kind !== 'handle' && next.target.kind !== 'section') {
       setChosen(addedSelection(before, historyRef.current.present))
@@ -427,10 +513,10 @@ export function useSeatPlanEditor<S extends string>({
   }
 
   // The pointer over the plan — the tool previews a tap there; otherwise it outlines what a tap would select.
-  function handleHover(point: PlanPoint | null, target: PlanTarget<S> | null) {
+  function handleHover(point: PlanPoint | null, target: PlanTarget<S> | null, info?: { pixel: number }) {
     pointerRef.current = point
     if (tool !== null) {
-      const at = point === null ? null : strokeOf('point', point, point, NO_KEYS, grid).end
+      const at = point === null ? null : guided(strokeOf('point', point, point, NO_KEYS, grid).end, info?.pixel)
       setPointer((current) => (samePoint(current, at) ? current : at))
       return
     }
@@ -451,12 +537,21 @@ export function useSeatPlanEditor<S extends string>({
     // A tap is a stroke with no `start` — only its end is reported.
     if (!pressing('stroke', info.phase)) return
     if (tool.draw === 'polygon') {
-      const at = cornerAt(raw.end, info.constrain)
+      const corner = cornerAt(raw.end, info.constrain)
+      const at = info.constrain ? corner : guided(corner, info.pixel, info.free)
       if (info.phase === 'end') addCorner(at, info.pixel ?? 0)
       else setPointer(at)
       return
     }
-    const shaped = strokeOf(tool.draw, raw.start, raw.end, info, grid)
+    // Unconstrained ends line up with the guides; a box or line drawn from its centre keeps its start where it is.
+    const drawn = strokeOf(tool.draw, raw.start, raw.end, info, grid)
+    const shaped =
+      info.constrain || guideTargets === null || info.free
+        ? drawn
+        : {
+            start: info.fromCenter ? drawn.start : guided(drawn.start, info.pixel),
+            end: guided(drawn.end, info.pixel),
+          }
     if (info.phase !== 'end') {
       setStroke(shaped)
       return
@@ -881,6 +976,7 @@ export function useSeatPlanEditor<S extends string>({
       marquee,
       stroke: tool?.draw === 'polygon' ? toolStroke : stroke,
       draw: tool?.draw,
+      guides: dragResult?.guides ?? strokeGuides,
     },
   }
 }
@@ -1067,6 +1163,19 @@ function keyOf(item: EditorSelection<string>): string {
 
 function sameSelection<S extends string>(a: EditorSelection<S>, b: EditorSelection<S>): boolean {
   return a.kind === b.kind && a.id === b.id
+}
+
+// Where a level box's corner (`nw`, `ne`, `se`, `sw`) is — null for any other handle.
+function cornerOf(box: PlanRect, name: string): PlanPoint | null {
+  if (name === 'nw') return { x: box.x, y: box.y }
+  if (name === 'ne') return { x: box.x + box.w, y: box.y }
+  if (name === 'se') return { x: box.x + box.w, y: box.y + box.h }
+  if (name === 'sw') return { x: box.x, y: box.y + box.h }
+  return null
+}
+
+function add(a: PlanPoint, b: PlanPoint): PlanPoint {
+  return { x: a.x + b.x, y: a.y + b.y }
 }
 
 // What a polygon tool is drawing — its corners and the pointer — as the stroke its `create` gets. null with neither.

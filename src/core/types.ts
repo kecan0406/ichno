@@ -102,7 +102,8 @@ export type PlanHandle<S extends string = string> = {
 // plan units. `constrain` is set while Shift is held: a move keeps to one axis, a turn steps by 15°, a corner keeps
 // the proportions. `copy` is set while Alt is held: a move leaves what it drags where it was and moves a copy.
 // `pixel` is how many plan units a screen pixel spans as the drag is reported — for tolerances that should feel the
-// same at any zoom (a vertex dropped on its neighbour merges with it).
+// same at any zoom (a vertex dropped on its neighbour merges with it). `free` is set while ⌘ or Ctrl is held: smart
+// guides let go.
 export type PlanDrag<S extends string = string> = {
   target: PlanTarget<S>
   phase: 'start' | 'move' | 'end'
@@ -110,7 +111,15 @@ export type PlanDrag<S extends string = string> = {
   constrain?: boolean
   copy?: boolean
   pixel?: number
+  free?: boolean
 }
+
+// A smart guide an editor draws while something is dragged or drawn (see `planGuides`, ichno/editor). `line`: along `axis` x a vertical line at x = `at` from y `from` to `to` (along y a horizontal
+// one) — something lines up there. `gap`: equal gaps along `axis`, each from `from` to `to`, drawn at the cross
+// position `at`; `size` is the gap in plan units, to write beside them if you like.
+export type PlanGuide =
+  | { kind: 'line'; axis: 'x' | 'y'; at: number; from: number; to: number }
+  | { kind: 'gap'; axis: 'x' | 'y'; at: number; size: number; gaps: { from: number; to: number }[] }
 
 // A stroke drawn with a creation tool — from where the press started to where the pointer is (or was let go), in
 // plan units. A tap is a stroke with no length. A polygon's stroke also lists its corners in order, from `start` to

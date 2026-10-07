@@ -10,6 +10,7 @@ export {
   type Place,
   type PlanBox,
   type PlanDrag,
+  type PlanGuide,
   type PlanHandle,
   type PlanObject,
   type PlanPoint,

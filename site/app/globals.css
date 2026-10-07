@@ -40,6 +40,8 @@
   --ichno-accent: var(--theme-fg);
   --ichno-accent-foreground: var(--theme-surface);
   --ichno-warning: var(--theme-warning);
+  /* Smart guides are the one passing mark in the page accent — they come and go with the drag. */
+  --ichno-guide: var(--theme-accent);
   --ichno-font: var(--font-sans-serif);
   --ichno-number-font: var(--font-monospace);
 }

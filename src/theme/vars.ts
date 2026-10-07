@@ -21,6 +21,8 @@ export const themeVars = {
   accentForeground: { name: '--ichno-accent-foreground', fallback: '#ffffff' },
   // Warning marks.
   warning: { name: '--ichno-warning', fallback: '#f59e0b' },
+  // Editor smart guides — the lines and gaps what is dragged lines up on.
+  guide: { name: '--ichno-guide', fallback: '#e11d48' },
 } as const
 
 export type ThemeVar = keyof typeof themeVars

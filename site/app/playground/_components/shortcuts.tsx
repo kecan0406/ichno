@@ -37,6 +37,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['← ↑ → ↓', 'Move — with Shift, a whole cell'],
       ['Shift-drag', 'Move along one axis; turn in 15° steps; resize in proportion'],
       ['Alt-drag', 'Move a copy, leaving the original'],
+      ['⌘-drag', 'Move without the smart guides'],
       ['R  ⇧R', 'Turn a quarter clockwise, anticlockwise'],
       ['⌫', 'Delete'],
     ],

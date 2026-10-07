@@ -17,12 +17,14 @@ type Props = {
   asset: { name: string; template: PlanTemplate } | null
   assetsOpen: boolean
   snapping: boolean
+  guiding: boolean
   keep: boolean
   onSelect(): void
   onHand(): void
   onTool(def: ToolDef): void
   onAssets(): void
   onSnap(): void
+  onGuides(): void
   onKeep(): void
 }
 
@@ -31,12 +33,14 @@ export function Toolbar({
   asset,
   assetsOpen,
   snapping,
+  guiding,
   keep,
   onSelect,
   onHand,
   onTool,
   onAssets,
   onSnap,
+  onGuides,
   onKeep,
 }: Props) {
   return (
@@ -67,6 +71,7 @@ export function Toolbar({
       <Tool icon="assets" label="Assets" keys="⇧I" pressed={assetsOpen} toggle onClick={onAssets} />
       <span className={styles.divider} />
       <Tool icon="snap" label="Snap to the grid" pressed={snapping} toggle onClick={onSnap} />
+      <Tool icon="guides" label="Smart guides — ⌘ while dragging lets go" pressed={guiding} toggle onClick={onGuides} />
       <Tool icon="repeat" label="Keep the tool after placing" keys="Q" pressed={keep} toggle onClick={onKeep} />
     </div>
   )

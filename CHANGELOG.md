@@ -156,6 +156,15 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   one dragged. ichno draws them beside its own (named `<set>:<name>`), previews every move and commits the drag as one
   undo step; it never reads what the item is. The playground's rows get an end handle (longer or shorter, a seat
   every pitch) and a curve handle this way.
+- `ichno/editor`: smart guides, opt-in with `useSeatPlanEditor({ guides: true })`. A move snaps to the edges and
+  centre lines of every unit (a group as one) and section around it, or to the spacing between its neighbours —
+  halfway, or repeating the gap beside one; a level object's corner and a tool's stroke snap to those lines. Within 6
+  screen pixels, ahead of the grid (`planEdits.move` and `applyDrag` take the `exact` axes a guide took); ⌘ or Ctrl
+  held lets go (`PlanDrag.free`, and `free` on strokes). `overlayProps.guides` are the guides to draw; `planGuides`
+  (`targetsOf`, `snapMove`, `snapPoint`) is the math. New type `PlanGuide` (`ichno`).
+- `ichno/react`: `SeatMap.EditorOverlay` draws `guides` — lines and equal gaps (`data-part` `guides`, `guide`,
+  `gap`) in the new `--ichno-guide` colour. The viewport reports ⌘ or Ctrl on drags and strokes (`free`) and
+  `pixel` to `onHover`.
 
 ## 0.2.1 — 2026-09-25
 
