@@ -102,8 +102,9 @@ export function LayersPanel({
     if (open) for (const member of members) layers.push({ ...objectRow(plan, member, 2), parent: key })
   }
 
-  function toggle(row: Row, open = !row.open) {
-    setToggled((current) => ({ ...current, [row.item.id]: open }))
+  // Opens or closes a group's row — the other way from how it is, without `open`.
+  function toggle(row: Row, open?: boolean) {
+    setToggled((current) => ({ ...current, [row.item.id]: open ?? !row.open }))
   }
 
   return (

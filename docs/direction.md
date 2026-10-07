@@ -202,26 +202,31 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
    `selectMembers`/`selectGroups`, `preview` for live panel edits, `seatPlan.boundsOfIds`, `seatPlan.orderAlong` and
    `issueIdsOf`.
 
-   **Editor scale**, measured 2026-10-08 with the playground's production build in headless Chrome (a 920×900
-   canvas, rows of 100 seats, snapping on). Steps are an input followed by two frames, p50 / p95 in ms; an idle step
-   costs about 48 ms in this setup (two frames plus DevTools round trips), so read the numbers against that. A
-   minimal editor page — `useSeatPlanEditor`, `SeatMap.Viewport`, `Content` and `EditorOverlay`, as in the README —
-   measures ichno alone:
+   **Editor scale**, measured 2026-10-08 with the site's production build in headless Chrome (a 920×900 canvas,
+   rows of 100 seats, snapping on). Steps are an input followed by two frames, p50 / p95 in ms; an idle step costs
+   about 48 ms in this setup (two frames plus DevTools round trips), so read the numbers against that. A minimal
+   editor page — `useSeatPlanEditor`, `SeatMap.Viewport`, the two `Content` layers and `EditorOverlay`, as in the
+   README — measures ichno alone:
 
    | Seats  | Drag a row, whole plan | Drag a row, zoomed in | Arrow-key nudge | Drag everything | Let go (commit) |
    | ------ | ---------------------- | --------------------- | --------------- | --------------- | --------------- |
-   | 1,000  | 48 / 49                | 48 / 49               | 31 / 33         | 49 / 50         | 33              |
-   | 5,000  | 46 / 63                | 46 / 49               | 28 / 51         | 96 / 96         | 46              |
-   | 20,000 | 152 / 176              | 90 / 124              | 86 / 137        | 314 / 374       | 115             |
+   | 1,000  | 48 / 49                | 48 / 49               | 30 / 32         | 49 / 49         | 32              |
+   | 5,000  | 46 / 47                | 46 / 47               | 29 / 55         | 96 / 97         | 45              |
+   | 20,000 | 109 / 146              | 41 / 93               | 74 / 144        | 305 / 364       | 122             |
 
-   Smart guides add nothing measurable up to 5,000 seats and about 16 ms per step zoomed in at 20,000. The
-   playground itself is slower — 447 / 499 ms dragging a row of 20,000 at the whole plan — because the site does not
-   run the React Compiler and its panels (the checks parse the whole plan) render on every frame.
+   First measured with one layer, a row of 20,000 dragged at 152 / 176 (whole plan) and 90 / 124 (zoomed). The pure
+   work per frame was only about 15 ms (`conflictsOf` 10.6, guide targets 2.8, the move under 1) — the rest was drawing:
+   `displayPlan` is a new plan on every move, and the editor's derived lists got new identities on every render, so
+   `SeatMap.Content` redrew every place in view each frame. The fix is the `stillPlan` / `movingPlan` split (still part
+   keyed by the ids that move), overlaps checked for the moving part only, `Content` memoized, and the selection and
+   id lists derived in small `'use memo'` hooks — the compiler had merged them into cache blocks that depend on the
+   drag. What is left at the whole plan is the browser painting 20,000 SVG nodes. Smart guides add nothing measurable
+   up to 5,000 seats and about 16 ms per step zoomed in at 20,000.
 
-   What it costs at 20,000 seats: the pure work per drag frame is about 15 ms (`conflictsOf` 10.6, guide targets 2.8,
-   the move under 1), and a commit's JSON comparisons about 10. The rest is drawing: `displayPlan` is a new plan on
-   every move, so `SeatMap.Content` redraws every place in view each frame — all of them with the whole plan shown.
-   Editing stays at the idle step up to 5,000 seats; at 20,000 a drag step takes two to three times the idle one.
+   The playground went from 447 / 499 to 188 / 196 (whole plan) and from 272 / 292 to 106 / 140 (zoomed in) for a row
+   of 20,000: the site now compiles with the React Compiler (its main component had silently bailed out, so the checks
+   parsed the whole plan on every frame), draws the two layers, culls to the view and leaves out numbers under 6
+   screen pixels.
 
 ## Out of scope
 

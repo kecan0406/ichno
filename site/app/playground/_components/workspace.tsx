@@ -75,6 +75,8 @@ const Build3D = dynamic(() => import('./build-3d'), {
 
 const NOWHERE = 'Every place belongs to a section — move inside one to place it.'
 const NO_IDS: ReadonlySet<string> = new Set()
+// Seat numbers drawn smaller than this on screen are left out (`SeatMap.Content` defaults to 9).
+const LABEL_MIN_PX = 6
 
 // A set of ids with one put in or taken out.
 function toggled(ids: ReadonlySet<string>, id: string, on: boolean): ReadonlySet<string> {
@@ -131,6 +133,10 @@ export function Workspace({
         zoomTo: (rects: readonly PlanRect[]) => build.current?.zoomTo(rects) ?? false,
       }
     : map
+  // What the zoom menu shows — read apart from the controls, which call into the 3D view's ref.
+  const zoom: BuildView = building
+    ? buildView
+    : { level: map.level, canZoomIn: map.canZoomIn, canZoomOut: map.canZoomOut }
   useSeatPlanEditorShortcuts(editor, { view })
   const [leftTab, setLeftTab] = useState<LeftTab>('layers')
   const [rightTab, setRightTab] = useState<RightTab>('design')
@@ -182,6 +188,31 @@ export function Workspace({
     setLibrary(loadLibrary())
   }, [])
 
+  // Picks a tool to draw with, or goes back to selecting with null.
+  function choose(def: ToolDef | null) {
+    setNotice(null)
+    setHand(false)
+    editor.setTool(def === null ? null : { ...def.tool, keep })
+  }
+
+  function chooseHand() {
+    setNotice(null)
+    editor.setTool(null)
+    setHand(true)
+  }
+
+  function toggleKeep() {
+    const next = !keep
+    setKeep(next)
+    if (editor.tool) editor.setTool({ ...editor.tool, keep: next })
+  }
+
+  function toggleAssets() {
+    const showing = leftTab === 'assets' && !panels.hidden
+    panels.setHidden(false)
+    setLeftTab(showing ? 'layers' : 'assets')
+  }
+
   // The site's own keys — its tools and panels. The editor's and the view's keys are ichno's
   // (useSeatPlanEditorShortcuts).
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
@@ -208,31 +239,6 @@ export function Workspace({
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
   }, [])
-
-  // Picks a tool to draw with, or goes back to selecting with null.
-  function choose(def: ToolDef | null) {
-    setNotice(null)
-    setHand(false)
-    editor.setTool(def === null ? null : { ...def.tool, keep })
-  }
-
-  function chooseHand() {
-    setNotice(null)
-    editor.setTool(null)
-    setHand(true)
-  }
-
-  function toggleKeep() {
-    const next = !keep
-    setKeep(next)
-    if (editor.tool) editor.setTool({ ...editor.tool, keep: next })
-  }
-
-  function toggleAssets() {
-    const showing = leftTab === 'assets' && !panels.hidden
-    panels.setHidden(false)
-    setLeftTab(showing ? 'layers' : 'assets')
-  }
 
   // Opens the Assets tab's form for saving what is selected.
   function startSaving() {
@@ -328,18 +334,6 @@ export function Workspace({
     onTap(target, info)
   }
 
-  // A right-click on the 2D canvas — on whatever its parts say is there.
-  function openMenu(e: MouseEvent<SVGSVGElement>) {
-    e.preventDefault()
-    const element = e.target instanceof Element ? e.target : null
-    const id =
-      element?.closest('[data-ichno-id]')?.getAttribute('data-ichno-id') ??
-      element?.closest('[data-ichno-object]')?.getAttribute('data-ichno-object') ??
-      null
-    const section = element?.closest('[data-ichno-section]')?.getAttribute('data-ichno-section') ?? null
-    openMenuOn({ x: e.clientX, y: e.clientY }, id, section)
-  }
-
   // A right-click selects what it is on (the way a click does) unless that is selected already, then opens the menu.
   function openMenuOn(screen: ScreenPoint, id: string | null, section: string | null) {
     if (mode !== 'edit') return
@@ -350,6 +344,18 @@ export function Workspace({
       editor.select(null)
     }
     setMenu({ screen, plan: pointRef.current })
+  }
+
+  // A right-click on the 2D canvas — on whatever its parts say is there.
+  function openMenu(e: MouseEvent<SVGSVGElement>) {
+    e.preventDefault()
+    const element = e.target instanceof Element ? e.target : null
+    const id =
+      element?.closest('[data-ichno-id]')?.getAttribute('data-ichno-id') ??
+      element?.closest('[data-ichno-object]')?.getAttribute('data-ichno-object') ??
+      null
+    const section = element?.closest('[data-ichno-section]')?.getAttribute('data-ichno-section') ?? null
+    openMenuOn({ x: e.clientX, y: e.clientY }, id, section)
   }
 
   // The pointer over the plan, 2D or 3D — where Paste lands, and what the tool previews (the Hand previews nothing).
@@ -508,28 +514,54 @@ export function Workspace({
             className={styles.viewport}
             aria-label="Seat plan editor"
           >
-            {snapping && <SeatMap.Grid plan={editor.displayPlan} />}
-            <SeatMap.Content
-              plan={editor.displayPlan}
-              selected={editor.selectedPlaceIds}
-              invalid={editor.conflictIds}
-              status={bookedStatus}
-              isDisabled={never}
-              sectionLabel={sectionLabel}
-              fixtureLabel={fixtureLabel}
-              fixtureVariant={fixtureVariant}
-            />
-            {editor.draft && (
-              <g className={styles.draft}>
+            {(frame) => (
+              <>
+                {/* The grid only reads the plan's size — the saved plan's does not change mid-drag. */}
+                {snapping && <SeatMap.Grid plan={editor.plan} />}
+                {/* What a drag leaves alone keeps its identity, so this layer is drawn once per drag. Numbers smaller
+                    than 6 screen pixels are left out — unreadable anyway, and SVG text is what large plans pay for. */}
                 <SeatMap.Content
-                  plan={editor.draft}
+                  plan={editor.stillPlan}
+                  selected={editor.selectedPlaceIds}
                   invalid={editor.conflictIds}
+                  status={bookedStatus}
+                  isDisabled={never}
+                  sectionLabel={sectionLabel}
                   fixtureLabel={fixtureLabel}
                   fixtureVariant={fixtureVariant}
+                  region={frame.region}
+                  scale={frame.scale}
+                  minLabelPx={LABEL_MIN_PX}
                 />
-              </g>
+                {editor.movingPlan && (
+                  <SeatMap.Content
+                    plan={editor.movingPlan}
+                    selected={editor.selectedPlaceIds}
+                    invalid={editor.conflictIds}
+                    status={bookedStatus}
+                    isDisabled={never}
+                    fixtureLabel={fixtureLabel}
+                    fixtureVariant={fixtureVariant}
+                    scale={frame.scale}
+                    minLabelPx={LABEL_MIN_PX}
+                  />
+                )}
+                {editor.draft && (
+                  <g className={styles.draft}>
+                    <SeatMap.Content
+                      plan={editor.draft}
+                      invalid={editor.conflictIds}
+                      fixtureLabel={fixtureLabel}
+                      fixtureVariant={fixtureVariant}
+                    />
+                  </g>
+                )}
+                <SeatMap.EditorOverlay
+                  {...editor.overlayProps}
+                  hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame}
+                />
+              </>
             )}
-            <SeatMap.EditorOverlay {...editor.overlayProps} hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame} />
           </SeatMap.Viewport>
         ) : threeD ? (
           <Preview3D
@@ -678,15 +710,15 @@ export function Workspace({
               align="end"
               button={
                 <>
-                  {Math.round(view.level * 100)}%
+                  {Math.round(zoom.level * 100)}%
                   <Icon name="chevronDown" size={12} />
                 </>
               }
             >
-              <MenuItem keys="+" disabled={!view.canZoomIn} onSelect={view.zoomIn}>
+              <MenuItem keys="+" disabled={!zoom.canZoomIn} onSelect={view.zoomIn}>
                 Zoom in
               </MenuItem>
-              <MenuItem keys="−" disabled={!view.canZoomOut} onSelect={view.zoomOut}>
+              <MenuItem keys="−" disabled={!zoom.canZoomOut} onSelect={view.zoomOut}>
                 Zoom out
               </MenuItem>
               <MenuItem keys="⇧1" onSelect={view.fit}>

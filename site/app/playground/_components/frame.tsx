@@ -19,12 +19,8 @@ export function usePanels() {
 
   // localStorage is the browser's — read after hydration. Anything unreadable leaves the defaults.
   useEffect(() => {
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<Widths> | null
-      if (stored) setWidths({ left: widthOf(stored.left, 'left'), right: widthOf(stored.right, 'right') })
-    } catch {
-      // Blocked or garbled — the defaults stay.
-    }
+    const stored = storedWidths()
+    if (stored) setWidths({ left: widthOf(stored.left, 'left'), right: widthOf(stored.right, 'right') })
   }, [])
 
   // `keep` stores the widths — at the end of a drag, not on every step of it.
@@ -123,4 +119,13 @@ export function Resizer({
       }}
     />
   )
+}
+
+// The widths kept in this browser, or null when there are none or they cannot be read (blocked, garbled).
+function storedWidths(): Partial<Widths> | null {
+  try {
+    return JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<Widths> | null
+  } catch {
+    return null
+  }
 }
