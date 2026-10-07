@@ -36,6 +36,7 @@ import {
   saveWorkbench,
   type Workbench,
 } from '../_lib/documents'
+import { rowHandles } from '../_lib/build'
 import { loadLibrary, newObjectId, saveLibrary, type SavedObject } from '../_lib/library'
 import { PLAYGROUND_OBJECTS, PRIMITIVE_TOOLS, savedObjectTool, type ToolDef } from '../_lib/playground-objects'
 import { AssetsPanel } from './assets'
@@ -103,6 +104,7 @@ export function Workspace({
     snap: snapping ? SNAP : undefined,
     frozenIds: frozen,
     hiddenIds: hidden,
+    handles: [rowHandles(new Set(booked))],
   })
   // One view for both modes — switching keeps where you were looking.
   const map = useSeatMapView(editor.plan)

@@ -350,6 +350,38 @@ rows, round and oval tables, desks with chairs, booths, standing areas sized by 
 grows a row or a table while keeping its numbering: [`site/app/playground/_lib/build.ts`](https://github.com/kecan0406/ichno/blob/main/site/app/playground/_lib/build.ts).
 Copy what fits; it is yours to change, not part of ichno.
 
+### Handles of your own
+
+What a row's end does when dragged is yours to say, like what a row is. An `EditorHandles` set puts handles on the
+one selected item it is for — ichno draws them with its own (`SeatMap.Handles`, named `<set>:<name>` in
+`data-ichno-handle`), previews every move and commits the drag as one undo step:
+
+```ts
+import { seatPlan } from 'ichno'
+import { type EditorHandles } from 'ichno/editor'
+
+const rowEnds: EditorHandles<'hall'> = {
+  id: 'row',
+  of(plan, item) {
+    if (item.kind !== 'group' || seatPlan.groupById(plan, item.id)?.role !== 'row') return []
+    const seats = seatPlan.membersOf(plan, item.id)
+    return [{ name: 'end', point: seatPlan.centerOf(seats.at(-1)!) }]
+  },
+  // Called with the plan as it was at the press and the total since — for the preview, then for the commit.
+  // `lengthenedRow` is yours: `layout.line` from the first seat to the new end, then `planEdits.layoutGroup`.
+  drag(plan, { owner, name }, { total }) {
+    return name === 'end' ? lengthenedRow(plan, owner.id, total) : null
+  },
+}
+
+const editor = useSeatPlanEditor({ initialPlan, handles: [rowEnds] })
+```
+
+`of` decides which items have handles — ichno never reads a role. They show with ichno's own for that item (a
+group's turning knob) and hide while a tool is active. The playground's row handles — drag the last seat to make the
+row longer, a seat every pitch, the middle to bend it — are `rowHandles` in
+[`site/app/playground/_lib/build.ts`](https://github.com/kecan0406/ichno/blob/main/site/app/playground/_lib/build.ts).
+
 ### Saved objects and the clipboard
 
 `planEdits.templateOf(plan, ids)` keeps what a selection holds as a `PlanTemplate` — objects and the groups they

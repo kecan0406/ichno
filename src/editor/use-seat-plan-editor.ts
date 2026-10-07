@@ -20,7 +20,7 @@ import type {
   Section,
   Shape,
 } from '../core/types'
-import { planHandles } from './handles'
+import { planHandles, type EditorHandles } from './handles'
 import { planEdits, type AlignEdge, type GroupMembers, type ObjectProps, type Reorder, type Snap } from './operations'
 import type { EditorSelection } from './selection'
 import { strokeOf, type EditorTool } from './tools'
@@ -43,6 +43,8 @@ type Options<S extends string> = {
   // panel's eye. Like frozen ones they cannot be picked on the plan; the saved `plan` keeps them, and `conflictIds`
   // still counts them.
   hiddenIds?: Iterable<string>
+  // Handles of your own — shown beside ichno's on the one selected item they are for (see `EditorHandles`).
+  handles?: readonly EditorHandles<S>[]
 }
 
 type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; future: SeatPlan<S>[]; dirty: boolean }
@@ -70,6 +72,7 @@ const HISTORY_LIMIT = 100
 const PASTE_STEP = GRID_CELL * 2
 const NO_KEYS = {}
 const NO_FRAMES: PlanPoint[][] = []
+const NO_HANDLE_SETS: readonly EditorHandles<never>[] = []
 
 // Headless seat plan editor — document state, selection, creation tools, clipboard, undo history and every edit
 // operation; no UI. Spread `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select, drag-to-move,
@@ -86,6 +89,7 @@ export function useSeatPlanEditor<S extends string>({
   snap,
   frozenIds,
   hiddenIds,
+  handles: handleSets = NO_HANDLE_SETS,
 }: Options<S>) {
   const [start] = useState(() => ({
     saved: { plan: initialPlan, json: JSON.stringify(initialPlan) },
@@ -158,7 +162,7 @@ export function useSeatPlanEditor<S extends string>({
   // The plan as drawn — the edit being previewed, the drag in progress with the snapping it will commit with, and
   // without what is hidden.
   const shown = previewing === null ? plan : (previewing(plan) ?? plan)
-  const moved = drag === null ? shown : planEdits.applyDrag(shown, drag, selectedIds, grid)
+  const moved = drag === null ? shown : dragged(shown, drag)
   const displayPlan = hidden.size === 0 ? moved : withoutHidden(moved, hidden)
   // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it.
   const toolStroke =
@@ -183,7 +187,12 @@ export function useSeatPlanEditor<S extends string>({
       ? planHandles.selectionTurn(shown, selection, drag.total, grid !== null || drag.constrain === true)
       : null
   const handles: PlanHandle<S>[] =
-    tool === null ? planHandles.of(turning === null ? displayPlan : shown, selection, turning ?? 0) : []
+    tool === null
+      ? [
+          ...planHandles.of(turning === null ? displayPlan : shown, selection, turning ?? 0),
+          ...ownHandlesOf(displayPlan, selection),
+        ]
+      : []
   // The outline those handles belong to (the box around several items) — pass it to <SeatMap.Handles frame>.
   const frame =
     tool === null ? planHandles.frame(turning === null ? displayPlan : shown, selection, turning ?? 0) : null
@@ -197,6 +206,27 @@ export function useSeatPlanEditor<S extends string>({
       : null
   // The rubber band being dragged, in plan units — draw it with <SeatMap.Marquee>.
   const [marquee, setMarquee] = useState<PlanRect | null>(null)
+
+  // Your handles for the one selected item, named `<set>:<name>`.
+  function ownHandlesOf(current: SeatPlan<S>, items: readonly EditorSelection<S>[]): PlanHandle<S>[] {
+    const [item] = items
+    if (items.length !== 1 || item === undefined) return []
+    return handleSets.flatMap((set) =>
+      set.of(current, item).map((handle) => ({ ...handle, owner: item, name: `${set.id}:${handle.name}` })),
+    )
+  }
+
+  // The plan with a drag applied — one of your handles by its set, anything else by `planEdits.applyDrag`.
+  function dragged(current: SeatPlan<S>, next: PlanDrag<S>): SeatPlan<S> {
+    const { target } = next
+    const colon = target.kind === 'handle' ? target.name.indexOf(':') : -1
+    if (target.kind !== 'handle' || colon < 0) return planEdits.applyDrag(current, next, selectedIds, grid)
+    const set = handleSets.find((candidate) => candidate.id === target.name.slice(0, colon))
+    if (!set || target.owner.kind === 'selection') return current
+    const handle = { owner: target.owner, name: target.name.slice(colon + 1) }
+    const info = { total: next.total, constrain: next.constrain ?? false, snap: grid, pixel: next.pixel }
+    return set.drag(current, handle, info) ?? current
+  }
 
   function commit(next: Omit<History<S>, 'dirty'>) {
     const full = { ...next, dirty: JSON.stringify(next.present) !== savedRef.current.json }
@@ -389,7 +419,7 @@ export function useSeatPlanEditor<S extends string>({
     }
     setDrag(null)
     const before = historyRef.current.present
-    if (!apply((current) => planEdits.applyDrag(current, next, selectedIds, grid))) return
+    if (!apply((current) => dragged(current, next))) return
     // A copying drag selects the copies, as a duplicate does.
     if (next.copy && next.target.kind !== 'handle' && next.target.kind !== 'section') {
       setChosen(addedSelection(before, historyRef.current.present))

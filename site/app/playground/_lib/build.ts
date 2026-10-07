@@ -14,7 +14,7 @@ import {
   type SeatPlan,
   type Shape,
 } from 'ichno'
-import { planEdits } from 'ichno/editor'
+import { planEdits, type EditorHandles } from 'ichno/editor'
 
 // What the playground's tools build. ichno stores places, fixtures and groups; rows, tables and desks are this
 // site's roles, assembled here from `layout` and `planEdits` — the same way an app would write its own tools. Each
@@ -191,12 +191,12 @@ export function rowOf(plan: Plan, groupId: string): Row | null {
   }
 }
 
-// The row laid out again between the same ends — with another seat count or curve. Its labels follow its ends, and
-// seats numbered the way the inspector numbers them stay numbered that way, new ones included.
+// The row laid out again — with another seat count, curve or last seat, from the same first seat. Its labels follow
+// its ends, and seats numbered the way the inspector numbers them stay numbered that way, new ones included.
 export function relayRow(
   plan: Plan,
   groupId: string,
-  change: { count?: number; curve?: number },
+  change: { count?: number; curve?: number; end?: PlanPoint },
   locked: ReadonlySet<string>,
 ): Plan | null {
   const row = rowOf(plan, groupId)
@@ -204,7 +204,7 @@ export function relayRow(
   const count = change.count ?? row.seats.length
   const boxes = layout.arc({
     start: row.start,
-    end: endOf(row, count),
+    end: change.end ?? endOf(row, count),
     curve: change.curve ?? row.curve,
     count,
     size: row.size,
@@ -219,6 +219,71 @@ export function relayRow(
   )
   return renumbered(arranged, groupId, numberingOf(row.seats))
 }
+
+// The playground's handles on a selected row, drawn and dragged by ichno (`EditorHandles`): one on its last seat —
+// drag it to make the row longer or shorter, a seat every pitch, or to swing it round its first seat (Shift keeps its
+// direction) — and one on the middle of its arc, to bend it (Shift: steps of 0.05).
+export function rowHandles(locked: ReadonlySet<string>): EditorHandles<string> {
+  return {
+    id: 'row',
+    of(plan, item) {
+      const row =
+        item.kind === 'group' && seatPlan.groupById(plan, item.id)?.role === 'row' ? rowOf(plan, item.id) : null
+      if (!row || row.seats.length < 2) return []
+      return [
+        { name: 'end', point: row.end },
+        { name: 'curve', point: apexOf(row) },
+      ]
+    },
+    drag(plan, { owner, name }, { total, constrain }) {
+      const row = owner.kind === 'group' ? rowOf(plan, owner.id) : null
+      if (!row || row.seats.length < 2) return null
+      const chord = distance(row.start, row.end)
+      if (name === 'curve') {
+        const apex = apexOf(row)
+        const left = leftOf(row)
+        const bow =
+          ((apex.x + total.x - (row.start.x + row.end.x) / 2) * left.x +
+            (apex.y + total.y - (row.start.y + row.end.y) / 2) * left.y) /
+          (chord / 2)
+        const step = constrain ? 0.05 : 0.01
+        return relayRow(plan, owner.id, { curve: clamp(Math.round(bow / step) * step, -1, 1) }, locked)
+      }
+      if (name !== 'end') return null
+      const pitch = chord / (row.seats.length - 1)
+      const along = { x: (row.end.x - row.start.x) / chord, y: (row.end.y - row.start.y) / chord }
+      const pulled = { x: row.end.x + total.x - row.start.x, y: row.end.y + total.y - row.start.y }
+      // Shift keeps the row's direction — only how far it reaches changes.
+      const reach = constrain ? Math.max(0, pulled.x * along.x + pulled.y * along.y) : Math.hypot(pulled.x, pulled.y)
+      const heading = constrain || reach === 0 ? along : { x: pulled.x / reach, y: pulled.y / reach }
+      const count = clamp(Math.round(reach / pitch) + 1, 2, ROW_MAX)
+      const end = {
+        x: row.start.x + heading.x * pitch * (count - 1),
+        y: row.start.y + heading.y * pitch * (count - 1),
+      }
+      return relayRow(plan, owner.id, { count, end }, locked)
+    },
+  }
+}
+
+// The middle of a row's arc — where its curve handle sits.
+function apexOf(row: Row): PlanPoint {
+  const left = leftOf(row)
+  const half = distance(row.start, row.end) / 2
+  return {
+    x: (row.start.x + row.end.x) / 2 + left.x * row.curve * half,
+    y: (row.start.y + row.end.y) / 2 + left.y * row.curve * half,
+  }
+}
+
+// The way a row bows for a positive curve — left of first seat to last (`layout.arc`).
+function leftOf(row: Row): PlanPoint {
+  const length = distance(row.start, row.end) || 1
+  return { x: (row.end.y - row.start.y) / length, y: -(row.end.x - row.start.x) / length }
+}
+
+// The most seats the row handle makes — the inspector's limit too.
+const ROW_MAX = 60
 
 // Where a relaid row ends. A single seat has no ends to span — the row grows the way the seat faces, a seat and a
 // fifth apart.

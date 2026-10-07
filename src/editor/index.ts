@@ -13,6 +13,6 @@ export {
   type Reorder,
   type Snap,
 } from './operations'
-export { planHandles } from './handles'
+export { planHandles, type EditorHandles } from './handles'
 export type { EditorTool } from './tools'
 export type { EditorSelection } from './selection'

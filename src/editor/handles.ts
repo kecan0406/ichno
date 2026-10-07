@@ -16,6 +16,27 @@ import { boxOf, turnObjects, withGroupRotation } from './turn'
 // their centres (as `planEdits.rotate` does); otherwise handles show for a single selected item. `frames` outlines
 // any number of them.
 
+// Handles of your own on a selected item — a row's end to drag it longer, the middle of its arc to bend it, a table's
+// edge to seat more. Like a creation tool, the set says what they are, and ichno draws them with its own
+// (`SeatMap.Handles`), follows the drag and commits it as one undo step. ichno never reads what the item is: `of`
+// decides whether it has any.
+export type EditorHandles<S extends string = string> = {
+  // Your name for the set, without a colon. Its handles are named `<id>:<name>` on the plan (`data-ichno-handle`), so
+  // sets never collide with each other or with ichno's own.
+  id: string
+  // The handles for the one selected item — none for the rest. Called on the plan as drawn, so they follow a drag.
+  // `angle` (degrees clockwise from +x) picks a resize cursor pointing that way; without it the cursor is `move`.
+  of(plan: SeatPlan<S>, item: EditorSelection<S>): { name: string; point: PlanPoint; angle?: number }[]
+  // The plan with one of them dragged by `total` since the press — called for every move to preview it, and once more
+  // when it is let go to commit it. null leaves the plan as it is. `constrain` is Shift, `snap` the editor's grid,
+  // `pixel` the plan units a screen pixel spans. Keep it pure.
+  drag(
+    plan: SeatPlan<S>,
+    handle: { owner: EditorSelection<S>; name: string },
+    drag: { total: PlanPoint; constrain: boolean; snap: Snap | null; pixel?: number },
+  ): SeatPlan<S> | null
+}
+
 export const planHandles = {
   of: handlesOf,
   drag: dragHandle,

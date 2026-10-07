@@ -575,7 +575,8 @@ function RowSection({ editor, group, locked, refused }: GroupSectionProps) {
   return (
     <Section title="Playground row">
       <p className={controls.hint}>
-        The playground reads the row back from its seats and lays it out again — ichno only stores the seats.
+        The playground reads the row back from its seats and lays it out again — ichno only stores the seats. On the
+        plan, drag the handle on its last seat to lengthen it and the one mid-row to bend it.
       </p>
       <div className={controls.row}>
         <span className={controls.rowLabel}>Seats</span>

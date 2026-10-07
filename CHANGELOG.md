@@ -151,6 +151,11 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   the knob turn with the pointer. `HandleOwner` gains `{ kind: 'selection' }`; `planHandles.selectionTurn` is the
   turn a drag of that knob makes, and `planHandles.of` and `frame` take it to draw the knob mid-turn. Taps on handles
   leave the selection as it is.
+- `ichno/editor`: handles of your own — `useSeatPlanEditor({ handles })` takes `EditorHandles` sets: `of(plan, item)`
+  gives the handles for the one selected item, `drag(plan, handle, { total, constrain, snap, pixel })` the plan with
+  one dragged. ichno draws them beside its own (named `<set>:<name>`), previews every move and commits the drag as one
+  undo step; it never reads what the item is. The playground's rows get an end handle (longer or shorter, a seat
+  every pitch) and a curve handle this way.
 
 ## 0.2.1 — 2026-09-25
 
