@@ -87,6 +87,7 @@ const GLYPHS = {
     </>
   ),
   rotate: <path d="M12.8 8.5A4.8 4.8 0 118.5 3.2M12.5 2.5v3.3H9.2" />,
+  turnLeft: <path d="M3.2 8.5A4.8 4.8 0 107.5 3.2M3.5 2.5v3.3h3.3" />,
   asset: <path d="M8 2.5l5.5 5.5L8 13.5 2.5 8z" />,
   // Alignment
   alignLeft: (

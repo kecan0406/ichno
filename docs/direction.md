@@ -196,5 +196,12 @@ A 3D view is a renderer the consumer adds over the same document. The playground
 three.js in the site, loaded only when opened, reading places, fixtures, groups and roles as stored and supplying
 what the document does not hold — a scale for plan units, heights, which way seating faces, where a guest's eyes
 are — as its own reading of its roles (`site/app/playground/_lib/scene.ts`). Nothing in ichno changed for it.
+
+The editor is renderer-independent the same way. The playground also edits in 3D, in a tycoon game's fixed-tilt
+view turned a quarter at a time (`site/app/playground/_components/build-3d.tsx`): presses go through the `gesture`
+core, and plan points are read off the floor under the pointer. They reach the same `useSeatPlanEditor` as the
+2D canvas — taps, drags, marquees and tool strokes, its draft, overlaps and outlines — so one selection, history and
+tool set serve both views. Handles stay in 2D. Both 3D views are drawn like the 2D plan: hairline edges, one fill,
+dashes for guides and for what cannot be had (`_components/drawing-3d.tsx`). ichno did not change for this either.
 Real heights (raked rows, balconies, floors) would be a document change — an optional field and a decision recorded
 here — not a renderer one.

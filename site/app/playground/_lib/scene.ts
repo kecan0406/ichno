@@ -102,8 +102,9 @@ export type Piece = {
   place: Place<string> | null
 }
 
-// A wall as a box on the floor, cut down with the rest in the overview.
-export type Wall = { x: number; z: number; w: number; d: number; yaw: number }
+// A wall as a box on the floor, cut down with the rest in the overview. `id` is the wall fixture it is drawn for
+// (none for a section's outline).
+export type Wall = { x: number; z: number; w: number; d: number; yaw: number; id?: string }
 
 // Text in the room: `flat` lies on a surface (a fixture's name on its top), `face` stands on a screen, `sign` always
 // turns to the camera (a section's name, a group's label). `size` is the height of a line; `tone` the theme colour
@@ -191,7 +192,7 @@ export function wallsOf(plan: Plan): Wall[] {
       center,
       object.rotation ?? 0,
     )
-    return [{ x: at.x, z: at.y, w: band.w, d: band.h, yaw: -radians(object.rotation ?? 0) }]
+    return [{ x: at.x, z: at.y, w: band.w, d: band.h, yaw: -radians(object.rotation ?? 0), id: object.id }]
   })
   return [...outer, ...inner]
 }

@@ -10,7 +10,9 @@ import {
   type LintSeverity,
   type Place,
   type PlanPoint,
+  type PlanRect,
   type PlanTarget,
+  type ScreenPoint,
 } from 'ichno'
 import {
   planEdits,
@@ -18,6 +20,7 @@ import {
   useSeatPlanEditor,
   useSeatPlanEditorShortcuts,
   type EditorSelection,
+  type ViewControls,
 } from 'ichno/editor'
 import { SeatMap, useSeatMapView } from 'ichno/react'
 import dynamic from 'next/dynamic'
@@ -37,6 +40,7 @@ import {
 import { loadLibrary, newObjectId, saveLibrary, type SavedObject } from '../_lib/library'
 import { PLAYGROUND_OBJECTS, PRIMITIVE_TOOLS, savedObjectTool, type ToolDef } from '../_lib/playground-objects'
 import { AssetsPanel } from './assets'
+import type { BuildCamera, BuildControls, BuildView } from './build-3d'
 import { CanvasMenu, type CanvasMenuAt } from './context-menu'
 import controls from './controls.module.css'
 import { DesignPanel } from './design'
@@ -63,6 +67,12 @@ const Preview3D = dynamic(() => import('./preview-3d'), {
   loading: () => <p className={styles.loading}>Loading the 3D view…</p>,
 })
 
+// Editing in 3D is the site's as well — the same ichno editor, drawn by three.js and loaded the same way.
+const Build3D = dynamic(() => import('./build-3d'), {
+  ssr: false,
+  loading: () => <p className={styles.loading}>Loading the 3D view…</p>,
+})
+
 const NOWHERE = 'Every place belongs to a section — move inside one to place it.'
 
 export function Workspace({
@@ -79,13 +89,28 @@ export function Workspace({
   const editor = useSeatPlanEditor({ initialPlan: initial.plan, lockedIds: booked, snap: snapping ? SNAP : undefined })
   // One view for both modes — switching keeps where you were looking.
   const map = useSeatMapView(editor.plan)
-  useSeatPlanEditorShortcuts(editor, { view: map })
   const { onTap, onHover, ...viewportProps } = editor.viewportProps
   const panels = usePanels()
 
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
-  // Preview draws the plan with ichno (2D) or stands it up in the site's 3D view.
+  // The plan as ichno draws it (2D), or stood up by the site in 3D — to edit or to preview.
   const [dimension, setDimension] = useState<'2d' | '3d'>('2d')
+  const building = mode === 'edit' && dimension === '3d'
+  // The 3D editor's view, for the zoom menu and keys and the turn keys.
+  const build = useRef<BuildControls | null>(null)
+  const buildCamera = useRef<BuildCamera | null>(null)
+  const [buildView, setBuildView] = useState<BuildView>({ level: 1, canZoomIn: true, canZoomOut: false })
+  // What the zoom menu and the zoom keys drive — the 2D canvas's view or the 3D editor's.
+  const view: ViewControls & BuildView = building
+    ? {
+        ...buildView,
+        zoomIn: () => build.current?.zoomIn(),
+        zoomOut: () => build.current?.zoomOut(),
+        fit: () => build.current?.fit(),
+        zoomTo: (rects: readonly PlanRect[]) => build.current?.zoomTo(rects) ?? false,
+      }
+    : map
+  useSeatPlanEditorShortcuts(editor, { view })
   const [leftTab, setLeftTab] = useState<LeftTab>('layers')
   const [rightTab, setRightTab] = useState<RightTab>('design')
   // The Hand: every drag pans. It is the site's, not an ichno tool — the viewport simply gets nothing to drag.
@@ -154,7 +179,8 @@ export function Workspace({
     if (def) return choose(def)
     if (e.code === 'KeyV') return choose(null)
     if (e.code === 'KeyH') return chooseHand()
-    if (e.code === 'KeyQ') toggleKeep()
+    if (e.code === 'KeyQ') return toggleKeep()
+    if (building && (e.code === 'Comma' || e.code === 'Period')) build.current?.turn(e.code === 'Period' ? 1 : -1)
   })
   useEffect(() => {
     const listener = (e: KeyboardEvent) => onKeyDown(e)
@@ -225,7 +251,8 @@ export function Workspace({
     editor.setSelection(
       ids.map((id): EditorSelection<string> => ({ kind: seatPlan.groupById(plan, id) ? 'group' : 'object', id })),
     )
-    map.zoomTo(boundsOfIds(plan, ids), 160)
+    if (building) build.current?.zoomTo(boundsOfIds(plan, ids))
+    else map.zoomTo(boundsOfIds(plan, ids), 160)
   }
 
   // A layers row renamed — the label people read, on a group or a place.
@@ -282,31 +309,46 @@ export function Workspace({
     onTap(target, info)
   }
 
-  // A right-click selects what it is on (the way a click does) unless that is selected already, then opens the menu.
+  // A right-click on the 2D canvas — on whatever its parts say is there.
   function openMenu(e: MouseEvent<SVGSVGElement>) {
     e.preventDefault()
-    if (mode !== 'edit') return
-    if (editor.tool !== null) editor.setTool(null)
     const element = e.target instanceof Element ? e.target : null
     const id =
       element?.closest('[data-ichno-id]')?.getAttribute('data-ichno-id') ??
       element?.closest('[data-ichno-object]')?.getAttribute('data-ichno-object') ??
       null
-    const section = element?.closest('[data-ichno-section]')?.getAttribute('data-ichno-section')
+    const section = element?.closest('[data-ichno-section]')?.getAttribute('data-ichno-section') ?? null
+    openMenuOn({ x: e.clientX, y: e.clientY }, id, section)
+  }
+
+  // A right-click selects what it is on (the way a click does) unless that is selected already, then opens the menu.
+  function openMenuOn(screen: ScreenPoint, id: string | null, section: string | null) {
+    if (mode !== 'edit') return
+    if (editor.tool !== null) editor.setTool(null)
     if (id !== null) {
       if (!editor.selectedObjects.some((object) => object.id === id)) editor.select({ kind: 'object', id })
     } else if (!editor.selection.some((item) => item.kind === 'section' && item.id === section)) {
       editor.select(null)
     }
-    setMenu({ screen: { x: e.clientX, y: e.clientY }, plan: pointRef.current })
+    setMenu({ screen, plan: pointRef.current })
+  }
+
+  // The pointer over the plan, 2D or 3D — where Paste lands, and what the tool previews (the Hand previews nothing).
+  function hover(point: PlanPoint | null, target: PlanTarget<string> | null) {
+    pointRef.current = point
+    if (!hand) onHover(point, target)
   }
 
   // Zooms to a level of the whole plan (1: all of it), about the middle of the view.
   function zoomToLevel(level: number) {
+    if (building) {
+      build.current?.setLevel(level)
+      return
+    }
     const home = planView.home(plan)
-    const view = map.view
-    const middle = { x: view.x + view.w / 2, y: view.y + view.h / 2 }
-    map.setView(planView.zoom(view, (level * view.w) / home.w, middle, home))
+    const current = map.view
+    const middle = { x: current.x + current.w / 2, y: current.y + current.h / 2 }
+    map.setView(planView.zoom(current, (level * current.w) / home.w, middle, home))
   }
 
   // Over the plan with a tool that can make nothing there — its places need a section to belong to.
@@ -399,15 +441,43 @@ export function Workspace({
       </aside>
 
       <main className={styles.canvas} data-tool={canvasTool}>
-        {mode === 'edit' ? (
+        {building ? (
+          <Build3D
+            plan={editor.displayPlan}
+            draft={editor.draft}
+            selected={editor.selectedObjects.map((object) => object.id)}
+            conflicts={editor.conflictIds}
+            status={bookedStatus}
+            overlay={{ ...editor.overlayProps, hoverFrame: layerFrame ?? editor.overlayProps.hoverFrame }}
+            grid={snapping ? GRID_CELL : null}
+            tool={canvasTool}
+            handlers={{
+              onTap: handleTap,
+              onHover: hover,
+              canDrag: viewportProps.canDrag,
+              onTargetDrag: viewportProps.onTargetDrag,
+              onMarquee: viewportProps.onMarquee,
+              onDraw: viewportProps.onDraw,
+            }}
+            onMenu={(at, target) =>
+              openMenuOn(
+                at,
+                target?.kind === 'place' || target?.kind === 'object' ? target.id : null,
+                target?.kind === 'section' ? target.id : null,
+              )
+            }
+            controlsRef={build}
+            cameraRef={buildCamera}
+            onViewChange={setBuildView}
+            sectionName={(id) => initial.sectionNames[id] ?? id}
+            fixtureName={fixtureLabel}
+          />
+        ) : mode === 'edit' ? (
           <SeatMap.Viewport
             {...(hand ? { plan: editor.displayPlan } : viewportProps)}
             {...map.viewProps}
             onTap={hand ? undefined : handleTap}
-            onHover={(point, target) => {
-              pointRef.current = point
-              if (!hand) onHover(point, target)
-            }}
+            onHover={hover}
             onContextMenu={openMenu}
             wheel="pan"
             className={styles.viewport}
@@ -492,28 +562,38 @@ export function Workspace({
             onKeep={toggleKeep}
           />
         )}
-        {mode === 'preview' && (
-          <div className={`${controls.segmented} ${styles.dimension}`} role="radiogroup" aria-label="Preview as">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={dimension === '2d'}
-              title="The plan as ichno draws it"
-              onClick={() => setDimension('2d')}
-            >
-              2D
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={dimension === '3d'}
-              title="The same document stood up in 3D by this playground (three.js) — not part of ichno"
-              onClick={() => setDimension('3d')}
-            >
-              3D
-            </button>
-          </div>
-        )}
+        <div
+          className={`${controls.segmented} ${styles.dimension}`}
+          role="radiogroup"
+          aria-label={mode === 'edit' ? 'Edit in' : 'Preview as'}
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={dimension === '2d'}
+            title={
+              mode === 'edit'
+                ? 'The plan as ichno draws it — with handles for exact edits'
+                : 'The plan as ichno draws it'
+            }
+            onClick={() => setDimension('2d')}
+          >
+            2D
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={dimension === '3d'}
+            title={
+              mode === 'edit'
+                ? 'Build in 3D, seen from a corner — the same ichno editor, drawn by this playground (three.js)'
+                : 'The same document stood up in 3D by this playground (three.js) — not part of ichno'
+            }
+            onClick={() => setDimension('3d')}
+          >
+            3D
+          </button>
+        </div>
         {panels.hidden && (
           <button
             type="button"
@@ -571,24 +651,24 @@ export function Workspace({
               align="end"
               button={
                 <>
-                  {Math.round(map.level * 100)}%
+                  {Math.round(view.level * 100)}%
                   <Icon name="chevronDown" size={12} />
                 </>
               }
             >
-              <MenuItem keys="+" disabled={!map.canZoomIn} onSelect={map.zoomIn}>
+              <MenuItem keys="+" disabled={!view.canZoomIn} onSelect={view.zoomIn}>
                 Zoom in
               </MenuItem>
-              <MenuItem keys="−" disabled={!map.canZoomOut} onSelect={map.zoomOut}>
+              <MenuItem keys="−" disabled={!view.canZoomOut} onSelect={view.zoomOut}>
                 Zoom out
               </MenuItem>
-              <MenuItem keys="⇧1" onSelect={map.fit}>
+              <MenuItem keys="⇧1" onSelect={view.fit}>
                 Zoom to fit
               </MenuItem>
               <MenuItem
                 keys="⇧2"
                 disabled={mode !== 'edit' || editor.selection.length === 0}
-                onSelect={() => map.zoomTo(editor.selectionBounds)}
+                onSelect={() => view.zoomTo(editor.selectionBounds)}
               >
                 Zoom to selection
               </MenuItem>
@@ -699,8 +779,8 @@ export function Workspace({
         onClose={() => setMenu(null)}
         onRemove={remove}
         onSaveAsset={startSaving}
-        onZoomToSelection={() => map.zoomTo(editor.selectionBounds)}
-        onFit={map.fit}
+        onZoomToSelection={() => view.zoomTo(editor.selectionBounds)}
+        onFit={view.fit}
         onHidePanels={() => panels.setHidden(true)}
       />
       <ImportDialog onLoad={(next) => onReplace({ name: 'Imported plan', plan: next, sectionNames: {}, booked: [] })} />

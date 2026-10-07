@@ -1,0 +1,92 @@
+/* The editor in 3D and what floats over it. */
+
+.build {
+  position: absolute;
+  inset: 0;
+  background: var(--theme-bg);
+  cursor: default;
+  touch-action: none;
+}
+
+.build[data-tool='draw'] {
+  cursor: crosshair;
+}
+
+.build[data-tool='select'][data-over] {
+  cursor: pointer;
+}
+
+/* The Hand, Space held, or a pan under way. */
+.build:is([data-tool='hand'], [data-pan='ready']) {
+  cursor: grab;
+}
+
+.build[data-pan='active'] {
+  cursor: grabbing;
+}
+
+.message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  color: var(--theme-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Turning the view a quarter — under the 2D / 3D switch. */
+.turn {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 12%, transparent);
+  cursor: default;
+}
+
+.compass {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+.compass circle {
+  fill: none;
+  stroke: var(--theme-border-strong);
+}
+
+.compass path {
+  fill: none;
+  stroke: var(--theme-fg);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+}
+
+/* North solid with a dot at its tip, south dashed. */
+.compass path[data-south] {
+  stroke: var(--theme-muted);
+  stroke-dasharray: 1.5 1.5;
+}
+
+.compass circle[data-tip] {
+  fill: var(--theme-fg);
+  stroke: none;
+}
+
+/* North swings round with the view's quarter turn. */
+@media (prefers-reduced-motion: no-preference) {
+  .compass g {
+    transition: transform 0.2s var(--ease-out);
+  }
+}
