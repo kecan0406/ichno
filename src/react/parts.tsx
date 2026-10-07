@@ -325,10 +325,10 @@ export function HandlesPart({
         const size = edge ? EDGE_HANDLE_PX : HANDLE_PX
         return (
           <g
-            key={`${handle.owner.kind}:${handle.owner.id}:${handle.name}`}
+            key={`${handle.owner.kind}:${'id' in handle.owner ? handle.owner.id : ''}:${handle.name}`}
             data-part="handle"
             data-ichno-handle={handle.name}
-            data-ichno-owner={handle.owner.id}
+            data-ichno-owner={'id' in handle.owner ? handle.owner.id : undefined}
             data-ichno-owner-kind={handle.owner.kind}
             style={{ cursor: cursorOf(handle) }}
           >

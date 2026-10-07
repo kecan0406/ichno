@@ -4,6 +4,7 @@ import { layout } from '../core/layout'
 import { rotatePoint } from '../core/math'
 import type { Fixture, Place, PlanObject, SeatPlan } from '../core/types'
 import { planHandles } from './handles'
+import { planEdits } from './operations'
 
 type S = 'A'
 
@@ -42,7 +43,7 @@ describe('planHandles.of', () => {
     expect(nw!.angle).toBeCloseTo(-45, 6)
   })
 
-  it('shows corners and a knob for an object, a knob for a group, vertices and edges for a section — for one only', () => {
+  it('shows corners and a knob for an object, a knob for a group, vertices and edges for a section, one knob for many', () => {
     const plan = planOf([desk, ...row], [{ id: 'row-1' }])
     expect(planHandles.of(plan, [owner('A1')]).map((h) => h.name)).toEqual(['nw', 'ne', 'se', 'sw', 'rotate'])
     expect(planHandles.of(plan, [{ kind: 'group', id: 'row-1' }]).map((h) => h.name)).toEqual(['rotate'])
@@ -50,7 +51,29 @@ describe('planHandles.of', () => {
       ...['vertex-0', 'vertex-1', 'vertex-2', 'vertex-3'],
       ...['edge-0', 'edge-1', 'edge-2', 'edge-3'],
     ])
-    expect(planHandles.of(plan, [owner('A1'), { kind: 'group', id: 'row-1' }])).toEqual([])
+    const many = planHandles.of(plan, [owner('A1'), { kind: 'group', id: 'row-1' }])
+    expect(many.map((h) => [h.owner, h.name])).toEqual([[{ kind: 'selection' }, 'rotate']])
+    expect(planHandles.of(plan, [owner('A1'), { kind: 'section', id: 'A' }])).toEqual([])
+  })
+
+  it('turns several items with the selection knob as rotateSelected does, its box and knob following', () => {
+    const plan = planOf([desk, ...row], [{ id: 'row-1' }])
+    const selection = [owner('A1'), { kind: 'group' as const, id: 'row-1' }]
+    const [knob] = planHandles.of(plan, selection)
+    // They turn about the middle of their centres: the desk's (138, 138) and the row's (204, 460).
+    const pivot = { x: 171, y: 299 }
+    const to = rotatePoint(knob!.point, pivot, 90)
+    const total = { x: to.x - knob!.point.x, y: to.y - knob!.point.y }
+    expect(planHandles.selectionTurn(plan, selection, total)).toBe(90)
+    const handle = { kind: 'handle' as const, owner: { kind: 'selection' as const }, name: 'rotate' }
+    const turned = planEdits.applyDrag(plan, { target: handle, phase: 'end', total }, ['A1', 'row-1'])
+    expect(turned).toEqual(planEdits.rotate(plan, ['A1', 'row-1'], 90))
+    const [corner] = planHandles.frame(plan, selection)!
+    const [dragged] = planHandles.frame(plan, selection, 90)!
+    expect(dragged).toEqual({
+      x: expect.closeTo(rotatePoint(corner!, pivot, 90).x, 6),
+      y: expect.closeTo(rotatePoint(corner!, pivot, 90).y, 6),
+    })
   })
 
   it('puts the corners of a turned object on its turned outline', () => {

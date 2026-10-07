@@ -146,6 +146,11 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   report `pixel`, the plan units a screen pixel spans, on `PlanDrag` and on strokes; `planHandles.drag` takes it).
 - `ichno/react`: `SeatMap.EditorOverlay` draws a polygon being drawn — its edges, a fainter one back to the first
   corner and that corner marked (`data-part="stroke-start"`). `SeatMap.Handles` draws edge handles smaller and round.
+- `ichno/editor`: several selected items show one rotation knob above the box around them (`frame`), turning them
+  together about the middle of their centres as `rotateSelected` does — Shift or snapping in 15° steps; the box and
+  the knob turn with the pointer. `HandleOwner` gains `{ kind: 'selection' }`; `planHandles.selectionTurn` is the
+  turn a drag of that knob makes, and `planHandles.of` and `frame` take it to draw the knob mid-turn. Taps on handles
+  leave the selection as it is.
 
 ## 0.2.1 — 2026-09-25
 

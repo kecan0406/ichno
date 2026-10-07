@@ -21,7 +21,16 @@ import {
   type ScreenPoint,
 } from '../../core/gesture'
 import { placeNavigation, type NavigationDirection } from '../../core/navigation'
-import type { Place, PlanDrag, PlanPoint, PlanRect, PlanStroke, PlanTarget, SeatPlan } from '../../core/types'
+import type {
+  HandleOwner,
+  Place,
+  PlanDrag,
+  PlanPoint,
+  PlanRect,
+  PlanStroke,
+  PlanTarget,
+  SeatPlan,
+} from '../../core/types'
 import { ZOOM_STEP, planView, type PlanView, type ViewportSize } from '../../core/view'
 import { FONT_VAR, cssVar } from '../../theme/vars'
 
@@ -706,12 +715,14 @@ function targetOf<S extends string>(element: EventTarget | null): PlanTarget<S> 
   if (!(element instanceof Element)) return null
   const handle = element.closest('[data-ichno-handle]')
   if (handle) {
-    const id = handle.getAttribute('data-ichno-owner')!
+    const id = handle.getAttribute('data-ichno-owner') ?? ''
     const kind = handle.getAttribute('data-ichno-owner-kind')
-    const owner =
-      kind === 'section'
-        ? { kind: 'section' as const, id: id as S }
-        : { kind: kind === 'group' ? ('group' as const) : ('object' as const), id }
+    const owner: HandleOwner<S> =
+      kind === 'selection'
+        ? { kind: 'selection' }
+        : kind === 'section'
+          ? { kind: 'section', id: id as S }
+          : { kind: kind === 'group' ? 'group' : 'object', id }
     return { kind: 'handle', owner, name: handle.getAttribute('data-ichno-handle')! }
   }
   const place = element.closest('[data-ichno-id]')

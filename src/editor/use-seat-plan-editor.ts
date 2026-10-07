@@ -176,9 +176,17 @@ export function useSeatPlanEditor<S extends string>({
   const conflictIds = [...new Set(seatPlan.conflictsOf(created ?? moved).flat())]
   // Handles for a single selected item, placed on the plan as drawn so they follow a drag. None while a tool is
   // active — every press draws then.
-  const handles: PlanHandle<S>[] = tool === null ? planHandles.of(displayPlan, selection) : []
-  // The outline those handles belong to — pass it to <SeatMap.Handles frame>.
-  const frame = tool === null ? planHandles.frame(displayPlan, selection) : null
+  // While the selection's knob turns several items, the box and the knob turn with the pointer rather than being
+  // drawn round what they turned.
+  const turning =
+    drag !== null && drag.target.kind === 'handle' && drag.target.owner.kind === 'selection'
+      ? planHandles.selectionTurn(shown, selection, drag.total, grid !== null || drag.constrain === true)
+      : null
+  const handles: PlanHandle<S>[] =
+    tool === null ? planHandles.of(turning === null ? displayPlan : shown, selection, turning ?? 0) : []
+  // The outline those handles belong to (the box around several items) — pass it to <SeatMap.Handles frame>.
+  const frame =
+    tool === null ? planHandles.frame(turning === null ? displayPlan : shown, selection, turning ?? 0) : null
   // The outline of every selected object and group — draw them (<SeatMap.Outline>) when more than one item is
   // selected, so fixtures and groups show they are in the selection too.
   const frames = planHandles.frames(displayPlan, selection)
@@ -223,7 +231,7 @@ export function useSeatPlanEditor<S extends string>({
   // What a tap or a drag on a target selects — a grouped object selects its group until the group is selected,
   // then the object itself; a group label always selects its group.
   function selectionOf(target: PlanTarget<S> | EditorSelection<S>, current: readonly EditorSelection<S>[]) {
-    if (target.kind === 'handle') return target.owner
+    if (target.kind === 'handle') return target.owner.kind === 'selection' ? null : target.owner
     if (target.kind === 'section' || target.kind === 'group') return target
     const object = seatPlan.objectById(historyRef.current.present, target.id)
     const group = object?.group
@@ -327,8 +335,9 @@ export function useSeatPlanEditor<S extends string>({
     return true
   }
 
-  // A tap on something frozen or hidden taps the floor.
+  // A tap on something frozen or hidden taps the floor; one on a handle leaves the selection as it is.
   function handleTap(target: PlanTarget<S> | null, info: { additive: boolean }) {
+    if (target?.kind === 'handle') return
     select(pickableTarget(target), info.additive)
   }
 
@@ -372,7 +381,7 @@ export function useSeatPlanEditor<S extends string>({
     if (next.phase === 'start' && next.target.kind !== 'handle') {
       const item = selectionOf(next.target, selection)
       // Dragging something outside the selection selects it alone; dragging a selected object moves the group.
-      if (!covers(historyRef.current.present, selection, item)) setChosen([item])
+      if (item && !covers(historyRef.current.present, selection, item)) setChosen([item])
     }
     if (next.phase !== 'end') {
       setDrag(next)

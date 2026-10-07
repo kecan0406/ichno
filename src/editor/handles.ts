@@ -1,6 +1,6 @@
 import { seatPlan } from '../core/geometry'
-import { normalizeRotation, outlineOf, rotatePoint } from '../core/math'
-import type { HandleOwner, PlanBox, PlanHandle, PlanObject, PlanPoint, SeatPlan } from '../core/types'
+import { normalizeRotation, outlineOf, rotatePoint, unionBounds } from '../core/math'
+import type { HandleOwner, PlanBox, PlanHandle, PlanObject, PlanPoint, PlanRect, SeatPlan } from '../core/types'
 import type { EditorSelection } from './selection'
 import type { Snap } from './operations'
 import { boxOf, turnObjects, withGroupRotation } from './turn'
@@ -12,13 +12,16 @@ import { boxOf, turnObjects, withGroupRotation } from './turn'
 // turns from the knob above its top edge. A group turns as one from the knob above its frame — the box around its
 // members in the direction it faces — so the knob, the frame and the centre turn with it. Sections move one
 // vertex at a time; dragging the middle of an edge adds a vertex there, and a vertex dropped on its neighbour merges
-// with it. Handles show for a single selected item only; `frames` outlines any number of them.
+// with it. Several selected items show one knob above the box around them, turning them together about the middle of
+// their centres (as `planEdits.rotate` does); otherwise handles show for a single selected item. `frames` outlines
+// any number of them.
 
 export const planHandles = {
   of: handlesOf,
   drag: dragHandle,
   frame: frameOf,
   frames: framesOf,
+  selectionTurn: selectionTurnOf,
 }
 
 const CORNERS = ['nw', 'ne', 'se', 'sw'] as const
@@ -31,7 +34,17 @@ const ROTATION_STEP = 15
 // How close (screen pixels) a dragged vertex comes to its neighbour to merge with it.
 const MERGE_PX = 8
 
-function handlesOf<S extends string>(plan: SeatPlan<S>, selection: readonly EditorSelection<S>[]): PlanHandle<S>[] {
+// The handles a selection shows. `turn` turns a selection's knob (and `frame` its box) while the knob is dragged —
+// pass `selectionTurn` with the plan as it was, so both follow the pointer.
+function handlesOf<S extends string>(
+  plan: SeatPlan<S>,
+  selection: readonly EditorSelection<S>[],
+  turn = 0,
+): PlanHandle<S>[] {
+  if (selection.length > 1) {
+    const together = selectionKnobOf(plan, selection, turn)
+    return together ? [{ owner: { kind: 'selection' }, name: 'rotate', point: together.knob }] : []
+  }
   if (selection.length !== 1) return []
   const [item] = selection as [EditorSelection<S>]
   if (item.kind === 'section') {
@@ -60,9 +73,15 @@ function handlesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edit
   ]
 }
 
-// The outline of the single selected object or group — its turned box, or the group's frame (nw, ne, se, sw).
-// Draw it with the handles so a turned group shows the box it turns about. null for anything else.
-function frameOf<S extends string>(plan: SeatPlan<S>, selection: readonly EditorSelection<S>[]): PlanPoint[] | null {
+// The outline of the single selected object or group — its turned box, or the group's frame (nw, ne, se, sw) — or
+// the box around several. Draw it with the handles so a turned group shows the box it turns about. null for a
+// section or nothing.
+function frameOf<S extends string>(
+  plan: SeatPlan<S>,
+  selection: readonly EditorSelection<S>[],
+  turn = 0,
+): PlanPoint[] | null {
+  if (selection.length > 1) return selectionKnobOf(plan, selection, turn)?.frame ?? null
   if (selection.length !== 1 || selection[0]!.kind === 'section') return null
   const box = boxOf(plan, selection[0]!.id)
   return box ? outlineOf(box, 'rect') : null
@@ -90,6 +109,59 @@ function framesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edito
   })
 }
 
+// The box around several selected objects and groups, the knob above it and what they turn about — the middle of
+// their centres, a group's being its frame's. `turn` turns the box and the knob about it. Sections take no part.
+// null for fewer than two objects and groups. One pass over the plan, so a selection of thousands stays cheap.
+function selectionKnobOf<S extends string>(
+  plan: SeatPlan<S>,
+  selection: readonly EditorSelection<S>[],
+  turn = 0,
+): { frame: PlanPoint[]; knob: PlanPoint; pivot: PlanPoint } | null {
+  const ids = new Set(selection.flatMap((item) => (item.kind === 'section' ? [] : [item.id])))
+  if (ids.size < 2) return null
+  const bounds: PlanRect[] = []
+  const centers: PlanPoint[] = []
+  const members = new Map<string, PlanObject<S>[]>()
+  for (const object of plan.objects) {
+    if (ids.has(object.id)) {
+      bounds.push(seatPlan.boundsOf(object))
+      centers.push(seatPlan.centerOf(object))
+    } else if (object.group !== undefined && ids.has(object.group)) {
+      bounds.push(seatPlan.boundsOf(object))
+      members.set(object.group, [...(members.get(object.group) ?? []), object])
+    }
+  }
+  for (const [id, list] of members) {
+    const box = seatPlan.frameOf(list, seatPlan.groupById(plan, id)?.rotation ?? 0)
+    if (box) centers.push(seatPlan.centerOf(box))
+  }
+  const extent = unionBounds(bounds)
+  if (!extent || centers.length === 0) return null
+  const pivot = {
+    x: centers.reduce((sum, c) => sum + c.x, 0) / centers.length,
+    y: centers.reduce((sum, c) => sum + c.y, 0) / centers.length,
+  }
+  const top = { x: extent.x + extent.w / 2, y: extent.y - KNOB_OFFSET }
+  return {
+    frame: outlineOf(extent, 'rect').map((p) => rotatePoint(p, pivot, turn)),
+    knob: rotatePoint(top, pivot, turn),
+    pivot,
+  }
+}
+
+// How far the selection's knob dragged by `total` turns it — in whole degrees, or 15° steps when snapping.
+function selectionTurnOf<S extends string>(
+  plan: SeatPlan<S>,
+  selection: readonly EditorSelection<S>[],
+  total: PlanPoint,
+  snapping = false,
+): number {
+  const together = selectionKnobOf(plan, selection)
+  if (!together) return 0
+  const { pivot, knob } = together
+  return stepped(shortest(angleOf(pivot, add(knob, total)) - angleOf(pivot, knob)), snapping)
+}
+
 // The plan with a handle dragged by `total` plan units. Unknown handles leave the plan as it is. `constrain`
 // (Shift) turns in 15° steps, keeps a resized object's proportions and moves a vertex straight along one axis.
 // `pixel` (plan units per screen pixel) sizes how close a vertex comes to its neighbour to merge with it — without
@@ -103,6 +175,8 @@ function dragHandle<S extends string>(
   constrain = false,
   pixel = 0,
 ): SeatPlan<S> {
+  // The selection's knob turns what is selected — `planEdits.applyDrag` knows what that is.
+  if (owner.kind === 'selection') return plan
   if (owner.kind === 'section') {
     return {
       ...plan,

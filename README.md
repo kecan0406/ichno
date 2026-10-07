@@ -297,8 +297,9 @@ selected item shows handles: an object resizes from its corners (in its own turn
 proportions) and turns from the knob above it (Shift: 15° steps), a group turns as one about the centre of its
 frame — the box around its members in the direction the group faces (`group.rotation`), which turns with it, so the
 centre stays put turn after turn — and a section's vertices reshape it: drag the middle of an edge to add a vertex,
-drop a vertex on its neighbour to take it away. `frame` outlines the selected object or
-group; corner handles carry their turned `angle` so `SeatMap.Handles` shows matching resize cursors. `frames`
+drop a vertex on its neighbour to take it away. Several selected items show one knob above the box around them that
+turns them together about the middle of their centres, as `rotateSelected` does (its owner is
+`{ kind: 'selection' }`). `frame` outlines the selected object or group, or the box around several; corner handles carry their turned `angle` so `SeatMap.Handles` shows matching resize cursors. `frames`
 outlines every selected item and `hoverFrame` what a tap would select, so fixtures and groups show they are
 selected too. `SeatMap.EditorOverlay` draws all of it in order — the selection's outlines, the hover outline, the
 handles, the marquee and a tool's stroke — from `overlayProps`; draw the pieces yourself with `SeatMap.Outline`,

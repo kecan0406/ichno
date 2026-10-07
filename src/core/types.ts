@@ -82,9 +82,10 @@ export type PlanTarget<S extends string = string> =
   | { kind: 'section'; id: S }
   | { kind: 'handle'; owner: HandleOwner<S>; name: string }
 
-// What an editing handle belongs to.
+// What an editing handle belongs to — one object, group or section, or the whole selection (the knob that turns
+// several items together).
 export type HandleOwner<S extends string = string> =
-  { kind: 'object'; id: string } | { kind: 'group'; id: string } | { kind: 'section'; id: S }
+  { kind: 'object'; id: string } | { kind: 'group'; id: string } | { kind: 'section'; id: S } | { kind: 'selection' }
 
 // An editing handle on the plan — a corner to resize, the knob to rotate, a section vertex, or the middle of a
 // section's edge (dragging it adds a vertex there). `name` is `nw` `ne` `se` `sw`, `rotate`, `vertex-<index>` or

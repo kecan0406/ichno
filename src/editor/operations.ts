@@ -714,7 +714,8 @@ function reshapeSection<S extends string>(
 // The plan with a drag applied — a handle reshapes or turns its owner, a section moves by whole cells, objects by
 // the drag total. When the dragged object is part of `selected` (object and group ids), the whole selection
 // moves; otherwise the object alone, or its group when it has one. A constrained move keeps to the axis it went
-// furthest along; a copying one (Alt) leaves them where they were and moves copies (see `duplicate`).
+// furthest along; a copying one (Alt) leaves them where they were and moves copies (see `duplicate`). The
+// selection's knob turns `selected` together.
 function applyDrag<S extends string>(
   plan: SeatPlan<S>,
   drag: PlanDrag<S>,
@@ -722,6 +723,13 @@ function applyDrag<S extends string>(
   snap: Snap | null = null,
 ): SeatPlan<S> {
   const { target, constrain = false } = drag
+  if (target.kind === 'handle' && target.owner.kind === 'selection') {
+    const items = selected.map((id) => ({
+      kind: seatPlan.groupById(plan, id) ? ('group' as const) : ('object' as const),
+      id,
+    }))
+    return rotate(plan, selected, planHandles.selectionTurn(plan, items, drag.total, snap !== null || constrain))
+  }
   if (target.kind === 'handle') {
     return planHandles.drag(plan, target.owner, target.name, drag.total, snap, constrain, drag.pixel)
   }
