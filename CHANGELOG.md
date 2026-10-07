@@ -113,6 +113,9 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
 - `ichno/react`: a press whose release never arrives — pointer capture lost, a menu that opened mid-drag — ends
   where it last was instead of dragging on with no button held, and the context menu stays shut while a press is
   under way.
+- `ichno/editor`: `markSaved(saved?)` makes the plan you stored the baseline `dirty` compares against and `reset`
+  goes back to, keeping history and selection — no remount after saving. Edits made while a save was under way stay
+  dirty.
 
 ## 0.2.1 — 2026-09-25
 

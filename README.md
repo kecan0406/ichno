@@ -267,7 +267,16 @@ const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, c
 </button>
 <button onClick={() => editor.label(seatIds, labeling.numbers({ reverse: true }))}>Number right to left</button>
 <button disabled={!editor.canUndo} onClick={editor.undo}>Undo</button>
-<button disabled={!editor.dirty} onClick={() => save(editor.plan)}>Save</button>
+<button
+  disabled={!editor.dirty}
+  onClick={async () => {
+    const saved = editor.plan
+    await save(saved)
+    editor.markSaved(saved) // edits made meanwhile stay dirty
+  }}
+>
+  Save
+</button>
 ```
 
 Tapping a grouped object selects its group; tapping it again selects the object alone (shift/⌘ adds to the
@@ -374,7 +383,8 @@ member is; list your layers that way and a step moves one row.
 
 - **Remove:** `removeObjects`, `removeSelected`, `cutSelected` — return the ids they refused. Groups left empty go
   too.
-- **History:** `undo`, `redo`, `canUndo`, `canRedo`, `reset`.
+- **History:** `undo`, `redo`, `canUndo`, `canRedo`, `reset` (back to the plan as opened or last saved),
+  `markSaved(saved?)`.
 
 `useSeatPlanEditorShortcuts` binds the arrow keys (move the selection one unit — with Shift ten, or half a cell and
 a cell when snapping; with nothing selected they move the viewport's focus ring), Delete, R / ⇧R, Escape (the
@@ -387,7 +397,9 @@ and keys a handler already took (`preventDefault`), so your own shortcuts can ru
 
 `lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or turned into a
 fixture, while labels stay free. Every operation is also available as a pure function in `planEdits` (plan in, plan
-out) for imports and scripts. To adopt a new baseline after saving, remount the editor (key it by the saved version).
+out) for imports and scripts. After saving, `markSaved(saved)` makes the plan you stored the baseline `dirty`
+compares against — history and selection stay, and edits made while the save was under way stay dirty. To open
+another document, remount the editor (key it by the document).
 
 ## Theme
 

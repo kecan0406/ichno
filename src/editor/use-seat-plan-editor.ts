@@ -60,17 +60,19 @@ const NO_FRAMES: PlanPoint[][] = []
 // operation; no UI. Spread `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select, drag-to-move,
 // marquee selection and drawing with a tool; draw `displayPlan` (the plan with the drag in progress), `draft` (what
 // the tool would make), `handles`, `frames` and `marquee` on top, and build panels, buttons and saving yourself.
-// Edits stay local until you save `plan`. To adopt a new baseline after saving, remount (e.g. key the component by
-// the saved version).
+// Edits stay local until you save `plan`; `markSaved` then makes what you saved the baseline `dirty` compares
+// against. To open another document, remount (e.g. key the component by its id).
 //
 // Tapping an object in a group selects the group; tapping it again (with the group selected) selects the object
 // alone. Operations that take ids accept object and group ids alike — a group acts as one.
 export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, snap }: Options<S>) {
   const [start] = useState(() => ({
-    saved: JSON.stringify(initialPlan),
+    saved: { plan: initialPlan, json: JSON.stringify(initialPlan) },
     history: { past: [], present: initialPlan, future: [], dirty: false } as History<S>,
   }))
   const [history, setHistory] = useState<History<S>>(start.history)
+  // What `dirty` compares against and `reset` goes back to — the plan as opened, or as last saved (`markSaved`).
+  const savedRef = useRef(start.saved)
   // The latest history, ahead of the render — so several calls in one handler build on each other (add a group,
   // then lay it out) instead of each starting from the rendered plan.
   const historyRef = useRef(start.history)
@@ -148,7 +150,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   const [marquee, setMarquee] = useState<PlanRect | null>(null)
 
   function commit(next: Omit<History<S>, 'dirty'>) {
-    const full = { ...next, dirty: JSON.stringify(next.present) !== start.saved }
+    const full = { ...next, dirty: JSON.stringify(next.present) !== savedRef.current.json }
     historyRef.current = full
     setHistory(full)
   }
@@ -485,9 +487,19 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     ])
   }
 
+  // Back to the plan as opened, or as last saved — without history.
   function reset() {
-    commit({ past: [], present: start.history.present, future: [] })
+    commit({ past: [], present: savedRef.current.plan, future: [] })
     setChosen([])
+  }
+
+  // Makes `saved` — the plan you stored, by default the one being edited — the baseline `dirty` compares against and
+  // `reset` goes back to. History and selection stay; edits made while a save was under way stay dirty.
+  function markSaved(saved?: SeatPlan<S>) {
+    const h = historyRef.current
+    const plan = saved ?? h.present
+    savedRef.current = { plan, json: JSON.stringify(plan) }
+    commit({ past: h.past, present: h.present, future: h.future })
   }
 
   return {
@@ -517,6 +529,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     undo,
     redo,
     reset,
+    markSaved,
 
     // Creation tools — pick one with `setTool`; presses on the plan then draw with it (see `EditorTool`).
     tool,
