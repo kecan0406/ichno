@@ -138,7 +138,7 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   every tap (Shift keeps the edge to 15° steps), closed by tapping the first corner or the last one again, or Enter
   (`closePolygon`); Backspace takes a corner back (`removePoint`), Escape drops it (`cancel`). `create` gets the
   corners in the new `PlanStroke.points`; `corners` are the ones placed so far. `planEdits.addSection` /
-  `editor.addSection` add one (selected, as a polygon tool's section is); `planEdits.removeSection` /
+  `editor.addSection` add one inside the plan (selected, as a polygon tool's section is); `planEdits.removeSection` /
   `editor.removeSection` and `removeSelected` remove one with its places, every group holding one (whole) and the
   loose fixtures inside it — or nothing, when any of that is locked.
 - `ichno/editor`: a selected section shows a handle in the middle of each edge (`edge-<index>`) that adds a vertex

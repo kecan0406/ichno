@@ -422,7 +422,7 @@ Operations take object and group ids alike — a group acts as one.
   `labeling.custom`, `assign(ids, props)` and `assignSelected(props)` (shape, capacity, role, category or tags on
   many objects in one step — a group through its members, `undefined` clears an optional one, values the schema
   would refuse are refused), `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
-  `ungroupSelected`, `addSection({ id, points })` (selects it), `moveSection`, `reshapeSection`,
+  `ungroupSelected`, `addSection({ id, points })` (inside the plan; selects it), `moveSection`, `reshapeSection`,
   `reorderSelected('front' | 'back' | 'forward' | 'backward')`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
   `preview(plan => plan)` shows one without committing it — while a slider is dragged — applied to the plan as it is,

@@ -156,6 +156,15 @@ describe('planEdits — groups, removing and renaming', () => {
     expect([locked.refused, locked.plan]).toEqual([['row-1'], plan])
     expect(planEdits.addSection(gone, { id: 'B', points: rect(0, 0, 10, 10) })).toBeNull()
     expect(planEdits.addSection(gone, { id: 'A', points: rect(0, 0, 10, 10).slice(0, 2) })).toBeNull()
+    // Held inside the plan (1012 × 828); corners that land together count once.
+    const clamped = planEdits.addSection(gone, { id: 'A', points: rect(900, 700, 300, 300) })!
+    expect(clamped.sections.at(-1)!.points).toEqual([
+      { x: 900, y: 700 },
+      { x: 1012, y: 700 },
+      { x: 1012, y: 828 },
+      { x: 900, y: 828 },
+    ])
+    expect(planEdits.addSection(gone, { id: 'A', points: rect(1100, 900, 50, 50) })).toBeNull()
   })
 
   it('renames a group and its members follow; refuses locked, taken and unsavable ids', () => {

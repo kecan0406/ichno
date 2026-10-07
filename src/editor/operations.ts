@@ -649,11 +649,21 @@ function move<S extends string>(
   }
 }
 
-// Adds a section — its outline in whole units. null when the id is taken or the outline has fewer than three corners.
-// Places keep the sections they hold; ones the new outline covers can be moved into it with `arrange` or a drag.
+// Adds a section — its outline in whole units, held inside the plan as its vertices are when dragged. null when the
+// id is taken or fewer than three distinct corners remain. Places keep the sections they hold; ones the new outline
+// covers can be moved into it with `arrange` or a drag.
 function addSection<S extends string>(plan: SeatPlan<S>, section: Section<S>): SeatPlan<S> | null {
-  if (section.points.length < 3 || seatPlan.sectionOf(plan, section.id)) return null
-  const points = section.points.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }))
+  if (seatPlan.sectionOf(plan, section.id)) return null
+  const points = section.points
+    .map((p) => ({
+      x: Math.min(plan.width, Math.max(0, Math.round(p.x))),
+      y: Math.min(plan.height, Math.max(0, Math.round(p.y))),
+    }))
+    .filter((p, i, all) => {
+      const previous = all[(i - 1 + all.length) % all.length]!
+      return all.length === 1 || p.x !== previous.x || p.y !== previous.y
+    })
+  if (points.length < 3) return null
   return { ...plan, sections: [...plan.sections, { id: section.id, points }] }
 }
 

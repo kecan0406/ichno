@@ -76,8 +76,9 @@ type Clip = { template: PlanTemplate; at: PlanPoint; pastes: number }
 // The press under way — a stroke, a drag or a marquee — and whether Escape dropped it before it was let go.
 type Press = { kind: 'stroke' | 'drag' | 'marquee'; cancelled: boolean }
 
-// How close (screen pixels) a tap comes to a polygon's first or last corner to close it.
-const CLOSE_PX = 8
+// How close (screen pixels) a tap comes to a polygon's first or last corner to close it — a little past the marker
+// on the first one.
+const CLOSE_PX = 10
 // Undo depth — plenty for an editing session, bounded so a long one does not hold every version.
 const HISTORY_LIMIT = 100
 // How far each paste lands from what was copied when the pointer is not over the plan — two cells, like duplicate.
@@ -539,7 +540,7 @@ export function useSeatPlanEditor<S extends string>({
     if (tool.draw === 'polygon') {
       const corner = cornerAt(raw.end, info.constrain)
       const at = info.constrain ? corner : guided(corner, info.pixel, info.free)
-      if (info.phase === 'end') addCorner(at, info.pixel ?? 0)
+      if (info.phase === 'end') addCorner(at, raw.end, info.pixel ?? 0)
       else setPointer(at)
       return
     }
@@ -580,12 +581,14 @@ export function useSeatPlanEditor<S extends string>({
     setCornersState(next)
   }
 
-  // A tap of a polygon tool — a corner, or the polygon closed when it lands on the first corner or the last one again
-  // (within CLOSE_PX on screen).
-  function addCorner(at: PlanPoint, pixel: number) {
+  // A tap of a polygon tool — a corner at `at`, or the polygon closed when it lands on the first corner or the last
+  // one again: the tap itself (`tapped`, before snapping moves it a cell away) within CLOSE_PX on screen, or snapped
+  // right onto it.
+  function addCorner(at: PlanPoint, tapped: PlanPoint, pixel: number) {
     const placed = cornersRef.current ?? []
     const near = (corner: PlanPoint | undefined) =>
-      corner !== undefined && Math.hypot(corner.x - at.x, corner.y - at.y) <= CLOSE_PX * pixel
+      corner !== undefined &&
+      (samePoint(corner, at) || Math.hypot(corner.x - tapped.x, corner.y - tapped.y) <= CLOSE_PX * pixel)
     if (placed.length >= 3 && (near(placed[0]) || near(placed.at(-1)))) {
       closePolygon()
       return
