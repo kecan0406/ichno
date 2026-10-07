@@ -116,6 +116,10 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
 - `ichno/editor`: `markSaved(saved?)` makes the plan you stored the baseline `dirty` compares against and `reset`
   goes back to, keeping history and selection — no remount after saving. Edits made while a save was under way stay
   dirty.
+- `ichno/editor`: `planEdits.assign(plan, ids, props)`, `editor.assign(ids, props)` and `assignSelected(props)` set
+  `shape`, `capacity`, `role`, `category` or `tags` on many objects in one step — a group through its members, each
+  on the objects that have it; `undefined` clears an optional one. Values the schema would refuse (a capacity below
+  one, a padded role, an unknown category, an empty tag) are refused. New type `ObjectProps`.
 
 ## 0.2.1 — 2026-09-25
 

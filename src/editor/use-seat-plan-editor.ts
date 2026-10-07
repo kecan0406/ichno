@@ -19,7 +19,7 @@ import type {
   Shape,
 } from '../core/types'
 import { planHandles } from './handles'
-import { planEdits, type AlignEdge, type GroupMembers, type Reorder, type Snap } from './operations'
+import { planEdits, type AlignEdge, type GroupMembers, type ObjectProps, type Reorder, type Snap } from './operations'
 import type { EditorSelection } from './selection'
 import { strokeOf, type EditorTool } from './tools'
 
@@ -581,6 +581,10 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     ungroupSelected,
     label: (ids: readonly string[], sequence: LabelSequence) =>
       apply((current) => planEdits.label(current, ids, sequence)),
+    // Sets shape, capacity, role, category or tags on objects and groups' members in one step (undefined clears an
+    // optional one). false when it changed nothing or a value would not save (see `planEdits.assign`).
+    assign: (ids: readonly string[], props: ObjectProps) => apply((current) => planEdits.assign(current, ids, props)),
+    assignSelected: (props: ObjectProps) => apply((current) => planEdits.assign(current, selectedIds, props)),
     alignSelected: (edge: AlignEdge) => apply((current) => planEdits.align(current, selectedIds, edge)),
     distributeSelected: (axis: 'x' | 'y') => apply((current) => planEdits.distribute(current, selectedIds, axis)),
     rotateSelected: (degrees: number) => apply((current) => planEdits.rotate(current, selectedIds, degrees)),

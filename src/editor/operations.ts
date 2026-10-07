@@ -38,6 +38,9 @@ export type Reorder = 'front' | 'back' | 'forward' | 'backward'
 export type Added<S extends string> = { plan: SeatPlan<S>; ids: string[] }
 // Which members of a group `layoutGroup` lays out — its places, or its fixtures of one role (a table's chairs).
 export type GroupMembers = { kind: 'place' } | { kind: 'fixture'; role?: string }
+// What `assign` sets — each on the objects that have it: `shape` and `role` on places and fixtures, `capacity`,
+// `category` and `tags` on places. A key given as undefined clears an optional one (role, category, tags).
+export type ObjectProps = { shape?: Shape; capacity?: number; role?: string; category?: string; tags?: string[] }
 
 export const planEdits = {
   addGroup,
@@ -50,6 +53,7 @@ export const planEdits = {
   group,
   ungroup,
   label,
+  assign,
   align,
   distribute,
   reorder,
@@ -264,6 +268,35 @@ function label<S extends string>(plan: SeatPlan<S>, ids: readonly string[], sequ
     objects: plan.objects.map((o) => (o.kind === 'place' ? labelled(o) : o)),
   }
 }
+
+// Sets properties on many objects in one go — a group id stands for its members; labels have none of them. null
+// when a value would not save: a capacity that is not a whole number above zero, a blank, padded or overlong role,
+// an empty tag, a category the plan does not list. Locked ids do not matter — none of these is what other records
+// reference.
+function assign<S extends string>(plan: SeatPlan<S>, ids: readonly string[], props: ObjectProps): SeatPlan<S> | null {
+  const { capacity, role, category, tags } = props
+  if (capacity !== undefined && !(Number.isInteger(capacity) && capacity > 0)) return null
+  if (role !== undefined && (role.length === 0 || role.trim() !== role || role.length > OBJECT_ID_MAX)) return null
+  if (category !== undefined && !plan.categories.some((c) => c.key === category)) return null
+  if (tags?.some((tag) => tag.length === 0)) return null
+  const wanted = new Set(ids.flatMap((id) => unitOf(plan, id).map((o) => o.id)))
+  return { ...plan, objects: plan.objects.map((o) => (wanted.has(o.id) ? assigned(o, props) : o)) }
+}
+
+function assigned<S extends string>(object: PlanObject<S>, props: ObjectProps): PlanObject<S> {
+  if (object.kind === 'label') return object
+  const next: Record<string, unknown> = { ...object }
+  for (const key of object.kind === 'place' ? PLACE_PROPS : FIXTURE_PROPS) {
+    if (!(key in props)) continue
+    const value = props[key]
+    if (value !== undefined) next[key] = value
+    else if (key !== 'shape' && key !== 'capacity') delete next[key]
+  }
+  return next as PlanObject<S>
+}
+
+const PLACE_PROPS = ['shape', 'capacity', 'role', 'category', 'tags'] as const
+const FIXTURE_PROPS = ['shape', 'role'] as const
 
 // Lines objects (or groups, as a whole) up on one edge or centre line of their combined extent.
 function align<S extends string>(plan: SeatPlan<S>, ids: readonly string[], edge: AlignEdge): SeatPlan<S> {

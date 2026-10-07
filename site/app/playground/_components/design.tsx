@@ -414,7 +414,7 @@ function SelectionDesign({
                 { value: 'rect' as Shape, label: <Icon name="rect" size={14} />, title: 'Rectangle' },
                 { value: 'ellipse' as Shape, label: <Icon name="ellipse" size={14} />, title: 'Ellipse' },
               ]}
-              onChange={(shape) => editor.edit((current) => withShape(current, ids(direct), shape))}
+              onChange={(shape) => editor.assign(ids(direct), { shape })}
             />
           </>
         ) : (
@@ -468,7 +468,7 @@ function SelectionDesign({
                 label="Role"
                 value={object.role ?? ''}
                 placeholder="None"
-                onCommit={(next) => editor.edit((current) => withRole(current, [object.id], next))}
+                onCommit={(next) => editor.assign([object.id], { role: next.trim() || undefined })}
               />
             </>
           )}
@@ -481,7 +481,7 @@ function SelectionDesign({
               value={shared(places.map((place) => place.capacity))}
               min={1}
               max={5000}
-              onCommit={(capacity) => editor.edit((current) => withCapacity(current, ids(places), capacity))}
+              onCommit={(capacity) => editor.assign(ids(places), { capacity })}
             />
           </div>
           {plan.categories.length > 0 && (
@@ -492,7 +492,7 @@ function SelectionDesign({
                 { value: '', label: 'None' },
                 ...plan.categories.map((category) => ({ value: category.key, label: category.key })),
               ]}
-              onChange={(category) => editor.edit((current) => withCategory(current, ids(places), category))}
+              onChange={(category) => editor.assign(ids(places), { category: category || undefined })}
             />
           )}
           {object?.kind === 'place' && (
@@ -512,7 +512,7 @@ function SelectionDesign({
             label="Role"
             value={shared(fixtures.map((fixture) => fixture.role ?? ''))}
             placeholder="None"
-            onCommit={(next) => editor.edit((current) => withRole(current, ids(fixtures), next))}
+            onCommit={(next) => editor.assign(ids(fixtures), { role: next.trim() || undefined })}
           />
           <p className={controls.hint}>Nothing to book — a fixture never counts towards capacity.</p>
         </Section>
@@ -793,46 +793,6 @@ function rotationOf(plan: SeatPlan<string>, item: Item): number {
 function labelTargets(editor: Editor, places: readonly { id: string }[]): string[] {
   const groups = editor.selection.flatMap((item) => (item.kind === 'group' ? [item.id] : []))
   return groups.length > 0 ? groups : ids(places)
-}
-
-function withCategory(plan: SeatPlan<string>, targets: readonly string[], category: string) {
-  const wanted = new Set(targets)
-  return {
-    ...plan,
-    objects: plan.objects.map((o) => {
-      if (o.kind !== 'place' || !wanted.has(o.id)) return o
-      const { category: _, ...rest } = o
-      return category ? { ...rest, category } : rest
-    }),
-  }
-}
-
-function withCapacity(plan: SeatPlan<string>, targets: readonly string[], capacity: number) {
-  const wanted = new Set(targets)
-  return {
-    ...plan,
-    objects: plan.objects.map((o) => (o.kind === 'place' && wanted.has(o.id) ? { ...o, capacity } : o)),
-  }
-}
-
-function withShape(plan: SeatPlan<string>, targets: readonly string[], shape: Shape) {
-  const wanted = new Set(targets)
-  return {
-    ...plan,
-    objects: plan.objects.map((o) => (o.kind !== 'label' && wanted.has(o.id) ? { ...o, shape } : o)),
-  }
-}
-
-function withRole(plan: SeatPlan<string>, targets: readonly string[], role: string): SeatPlan<string> {
-  const wanted = new Set(targets)
-  return {
-    ...plan,
-    objects: plan.objects.map((o) => {
-      if (o.kind === 'label' || !wanted.has(o.id)) return o
-      const { role: _, ...rest } = o
-      return (role ? { ...rest, role } : rest) as PlanObject<string>
-    }),
-  }
 }
 
 // Positions typed into the fields stay within reach of any plan.

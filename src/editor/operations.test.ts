@@ -180,6 +180,29 @@ describe('planEdits — groups, removing and renaming', () => {
     expect((seatPlan.objectById(named, 'A3') as Place<S>).label).toBe('B')
     expect(named.groups[0]!.label).toBe('C')
   })
+
+  it('assigns properties to what has them — a group through its members — and refuses values that would not save', () => {
+    const { plan: row } = withRow(planOf([], []))
+    const base = {
+      ...planEdits.addFixtures(row, [{ x: 600, y: 2, w: 88, h: 88 }], { role: 'stage' }).plan,
+      categories: [{ key: 'vip' }],
+    }
+    const stage = base.objects.find((o) => o.kind === 'fixture')!.id
+    const set = planEdits.assign(base, ['row-1', stage], { capacity: 2, category: 'vip', shape: 'ellipse' })!
+    const seat = seatPlan.objectById(set, 'A1') as Place<S>
+    expect([seat.capacity, seat.category, seat.shape]).toEqual([2, 'vip', 'ellipse'])
+    expect(seatPlan.objectById(set, stage)).toMatchObject({ shape: 'ellipse' })
+    expect(seatPlan.objectById(set, stage)).not.toHaveProperty('category')
+    // undefined clears an optional property.
+    const cleared = planEdits.assign(set, ['A1', stage], { category: undefined, role: undefined })!
+    expect(seatPlan.objectById(cleared, 'A1')).not.toHaveProperty('category')
+    expect(seatPlan.objectById(cleared, stage)).not.toHaveProperty('role')
+    expect(planEdits.assign(base, ['A1'], { capacity: 0 })).toBeNull()
+    expect(planEdits.assign(base, ['A1'], { capacity: 1.5 })).toBeNull()
+    expect(planEdits.assign(base, ['A1'], { role: ' seat' })).toBeNull()
+    expect(planEdits.assign(base, ['A1'], { category: 'gold' })).toBeNull()
+    expect(planEdits.assign(base, ['A1'], { tags: [''] })).toBeNull()
+  })
 })
 
 describe('planEdits — arranging', () => {

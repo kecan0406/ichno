@@ -370,7 +370,9 @@ Operations take object and group ids alike — a group acts as one.
   get new places, surplus ones go from the end), `arrange(ids, boxes)`, `convert(ids, 'place' | 'fixture')` (book a
   table whole), `rotateSelected(degrees)`, `moveSelected(delta)` (objects, groups and sections), `alignSelected`,
   `distributeSelected`, `label(ids, sequence)` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or
-  `labeling.custom`, `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
+  `labeling.custom`, `assign(ids, props)` and `assignSelected(props)` (shape, capacity, role, category or tags on
+  many objects in one step — a group through its members, `undefined` clears an optional one, values the schema
+  would refuse are refused), `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
   `ungroupSelected`, `moveSection`, `reshapeSection`, `reorderSelected('front' | 'back' | 'forward' | 'backward')`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
 - **Select:** `select(target, additive)` (what a tap selects), `selectAll()`, `setSelection(items)` (exactly these
