@@ -296,7 +296,8 @@ places that overlap (the same check the schema runs on save) so you can mark the
 selected item shows handles: an object resizes from its corners (in its own turned frame; Shift keeps its
 proportions) and turns from the knob above it (Shift: 15° steps), a group turns as one about the centre of its
 frame — the box around its members in the direction the group faces (`group.rotation`), which turns with it, so the
-centre stays put turn after turn — and a section's vertices reshape it. `frame` outlines the selected object or
+centre stays put turn after turn — and a section's vertices reshape it: drag the middle of an edge to add a vertex,
+drop a vertex on its neighbour to take it away. `frame` outlines the selected object or
 group; corner handles carry their turned `angle` so `SeatMap.Handles` shows matching resize cursors. `frames`
 outlines every selected item and `hoverFrame` what a tap would select, so fixtures and groups show they are
 selected too. `SeatMap.EditorOverlay` draws all of it in order — the selection's outlines, the hover outline, the
@@ -334,7 +335,10 @@ const row: EditorTool<'hall'> = {
 ```
 
 `draw` is `box` (a rectangle between the press and the pointer; Shift keeps it square), `line` (Shift keeps it to
-15° steps) or `point` (only where the pointer is — a stamp); Alt draws a box or a line from its centre. Strokes snap
+15° steps), `point` (only where the pointer is — a stamp) or `polygon` (a corner at every tap, Shift keeping the edge
+to 15° steps; tapping the first corner, or the last one again, or Enter closes it, Backspace takes a corner back,
+Escape drops it — `create` gets the corners in `stroke.points`, and `corners`, `closePolygon` and `removePoint` are
+on the editor); Alt draws a box or a line from its centre. Strokes snap
 like everything else. A tap is a stroke with no length, so one tool both draws at any size and drops something of a
 standard size. `create` runs for every preview — keep it pure. `stroke` is the stroke being drawn (draw it as a
 guide), `pointer` where a tap would draw — with `draft` null there, the tool can make nothing at that spot (say
@@ -382,7 +386,8 @@ Operations take object and group ids alike — a group acts as one.
   `labeling.custom`, `assign(ids, props)` and `assignSelected(props)` (shape, capacity, role, category or tags on
   many objects in one step — a group through its members, `undefined` clears an optional one, values the schema
   would refuse are refused), `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
-  `ungroupSelected`, `moveSection`, `reshapeSection`, `reorderSelected('front' | 'back' | 'forward' | 'backward')`.
+  `ungroupSelected`, `addSection({ id, points })` (selects it), `moveSection`, `reshapeSection`,
+  `reorderSelected('front' | 'back' | 'forward' | 'backward')`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
   `preview(plan => plan)` shows one without committing it — while a slider is dragged — applied to the plan as it is,
   until the next edit or `preview(null)`; `edit` the final value when the slider is let go.
@@ -395,8 +400,9 @@ past the next unit — a group as one, or an object outside one. Units stand in 
 a group whose members are drawn apart (a table top under everything, its seats on top) is listed where its highest
 member is; list your layers that way and a step moves one row.
 
-- **Remove:** `removeObjects`, `removeSelected`, `cutSelected` — return the ids they refused. Groups left empty go
-  too.
+- **Remove:** `removeObjects`, `removeSelected`, `removeSection(id)`, `cutSelected` — return the ids they refused.
+  Groups left empty go too. A section goes with what stands in it — its places, every group holding one (whole), and
+  the loose fixtures inside its outline — or, when any of that is locked, not at all.
 - **History:** `undo`, `redo`, `canUndo`, `canRedo`, `reset` (back to the plan as opened or last saved),
   `markSaved(saved?)`.
 

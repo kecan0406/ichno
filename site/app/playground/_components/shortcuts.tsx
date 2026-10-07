@@ -9,7 +9,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     keys: [
       ['V', 'Select'],
       ['H', 'Hand — drag to pan'],
-      ['P  F', 'Draw a place, a fixture — ichno’s primitives'],
+      ['P  F  S', 'Draw a place, a fixture, a section — ichno’s primitives'],
       ['1 – 6', 'Row, seat block, round table, desk, booth, standing area — the playground’s assets'],
       ['⇧I', 'Assets'],
       ['Q', 'Keep the tool after placing'],
@@ -23,6 +23,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['Tap', 'Drop at the standard size'],
       ['Shift', 'Square box, or a line in 15° steps'],
       ['Alt', 'Draw from the centre'],
+      ['↵  ⌫', 'Close a section, take back its last corner'],
     ],
   },
   {

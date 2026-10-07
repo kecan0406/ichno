@@ -367,7 +367,9 @@ export function Workspace({
   }
 
   // Over the plan with a tool that can make nothing there — its places need a section to belong to.
-  const nowhere = activeTool !== null && editor.pointer !== null && editor.draft === null
+  // Sections are not drafted — the polygon being drawn shows them.
+  const nowhere =
+    activeTool !== null && activeTool.tool.draw !== 'polygon' && editor.pointer !== null && editor.draft === null
   const threeD = mode === 'preview' && dimension === '3d'
   const hint =
     mode !== 'edit'

@@ -770,7 +770,12 @@ function Overlay({ overlay, palette }: { overlay: Editor['overlayProps']; palett
       ? [cornersOf(rectBetween(overlay.stroke.start, overlay.stroke.end))]
       : []),
   ]
-  const line = overlay.stroke && overlay.draw === 'line' ? [[overlay.stroke.start, overlay.stroke.end]] : []
+  const line =
+    overlay.stroke && overlay.draw === 'line'
+      ? [[overlay.stroke.start, overlay.stroke.end]]
+      : overlay.stroke && overlay.draw === 'polygon'
+        ? [overlay.stroke.points ?? []]
+        : []
   return (
     <>
       <FloorLines

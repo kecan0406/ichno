@@ -10,9 +10,11 @@ export type EditorTool<S extends string = string> = {
   // Your name for the tool, so a toolbar can tell which one is active (`editor.tool?.id`).
   id?: string
   // What a drag draws: `box` a rectangle between its corners (Shift keeps it square), `line` from start to end
-  // (Shift keeps it to 15° steps) — Alt draws either from its centre — and `point` only where the pointer is (a
-  // drag moves the preview; letting go places it).
-  draw: 'box' | 'line' | 'point'
+  // (Shift keeps it to 15° steps) — Alt draws either from its centre — `point` only where the pointer is (a drag
+  // moves the preview; letting go places it), and `polygon` a corner at every tap (Shift keeps the edge to 15°
+  // steps), closed by tapping its first corner or its last one again, or Enter (`closePolygon`); Backspace takes back
+  // a corner (`removePoint`) and Escape drops it. A polygon's stroke lists its corners in `points`.
+  draw: 'box' | 'line' | 'point' | 'polygon'
   // The plan with the new objects, or null when nothing can be made there. A tap passes a stroke with no length —
   // make something of a default size centred on it. Called for every preview, so it must be pure.
   create(plan: SeatPlan<S>, stroke: PlanStroke): SeatPlan<S> | null
@@ -37,7 +39,7 @@ export function strokeOf(
 ): PlanStroke {
   const step = snap ? snap.cell / 2 : 1
   const end = snapped(pointer, step)
-  if (draw === 'point') return { start: end, end }
+  if (draw === 'point' || draw === 'polygon') return { start: end, end }
   const start = snapped(anchor, step)
   let d = { x: end.x - start.x, y: end.y - start.y }
   if (keys.constrain && draw === 'box') {

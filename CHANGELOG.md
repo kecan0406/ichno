@@ -134,6 +134,18 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   objects and groups (and a frozen group's members) are drawn but cannot be tapped, dragged, hovered, marqueed or
   selected with ⌘A; a drag that starts on one draws a marquee. Hidden ones are also left out of `displayPlan` (and
   so the viewport's plan); `conflictIds` still counts them. `setSelection` and `selectIds` select both.
+- `ichno/editor`: sections are drawn and removed in the editor. `EditorTool.draw` takes `'polygon'`: a corner at
+  every tap (Shift keeps the edge to 15° steps), closed by tapping the first corner or the last one again, or Enter
+  (`closePolygon`); Backspace takes a corner back (`removePoint`), Escape drops it (`cancel`). `create` gets the
+  corners in the new `PlanStroke.points`; `corners` are the ones placed so far. `planEdits.addSection` /
+  `editor.addSection` add one (selected, as a polygon tool's section is); `planEdits.removeSection` /
+  `editor.removeSection` and `removeSelected` remove one with its places, every group holding one (whole) and the
+  loose fixtures inside it — or nothing, when any of that is locked.
+- `ichno/editor`: a selected section shows a handle in the middle of each edge (`edge-<index>`) that adds a vertex
+  there, and a vertex dropped on its neighbour merges with it while three remain (within 8 screen pixels — viewports
+  report `pixel`, the plan units a screen pixel spans, on `PlanDrag` and on strokes; `planHandles.drag` takes it).
+- `ichno/react`: `SeatMap.EditorOverlay` draws a polygon being drawn — its edges, a fainter one back to the first
+  corner and that corner marked (`data-part="stroke-start"`). `SeatMap.Handles` draws edge handles smaller and round.
 
 ## 0.2.1 — 2026-09-25
 

@@ -163,6 +163,15 @@ export function fixtureTool(role: string | undefined, size: { w: number; h: numb
   }
 }
 
+// A section drawn corner by corner — S1, S2… the first such id the plan does not use. Three corners at least.
+export function sectionTool(plan: Plan, stroke: PlanStroke): Plan | null {
+  const points = stroke.points ?? []
+  if (points.length < 3) return null
+  let n = 1
+  while (seatPlan.sectionOf(plan, `S${n}`)) n++
+  return planEdits.addSection(plan, { id: `S${n}`, points })
+}
+
 // ---------- Rows ----------
 
 // `size` is the first seat's — every seat of a relaid row takes it.

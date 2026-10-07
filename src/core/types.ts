@@ -86,8 +86,9 @@ export type PlanTarget<S extends string = string> =
 export type HandleOwner<S extends string = string> =
   { kind: 'object'; id: string } | { kind: 'group'; id: string } | { kind: 'section'; id: S }
 
-// An editing handle on the plan — a corner to resize, the knob to rotate, a section vertex. `name` is
-// `nw` `ne` `se` `sw`, `rotate`, or `vertex-<index>`. `angle` is the direction a corner points from its owner's
+// An editing handle on the plan — a corner to resize, the knob to rotate, a section vertex, or the middle of a
+// section's edge (dragging it adds a vertex there). `name` is `nw` `ne` `se` `sw`, `rotate`, `vertex-<index>` or
+// `edge-<index>` (the edge from that vertex to the next). `angle` is the direction a corner points from its owner's
 // centre (degrees clockwise from +x) — turned with the owner, so renderers can pick a matching resize cursor.
 export type PlanHandle<S extends string = string> = {
   owner: HandleOwner<S>
@@ -99,17 +100,21 @@ export type PlanHandle<S extends string = string> = {
 // A drag of a target, reported by viewports while it moves. `total` is the movement since the drag started, in
 // plan units. `constrain` is set while Shift is held: a move keeps to one axis, a turn steps by 15°, a corner keeps
 // the proportions. `copy` is set while Alt is held: a move leaves what it drags where it was and moves a copy.
+// `pixel` is how many plan units a screen pixel spans as the drag is reported — for tolerances that should feel the
+// same at any zoom (a vertex dropped on its neighbour merges with it).
 export type PlanDrag<S extends string = string> = {
   target: PlanTarget<S>
   phase: 'start' | 'move' | 'end'
   total: PlanPoint
   constrain?: boolean
   copy?: boolean
+  pixel?: number
 }
 
 // A stroke drawn with a creation tool — from where the press started to where the pointer is (or was let go), in
-// plan units. A tap is a stroke with no length.
-export type PlanStroke = { start: PlanPoint; end: PlanPoint }
+// plan units. A tap is a stroke with no length. A polygon's stroke also lists its corners in order, from `start` to
+// `end` — while it is drawn, the pointer is the last.
+export type PlanStroke = { start: PlanPoint; end: PlanPoint; points?: PlanPoint[] }
 
 // A reusable piece of a plan — some objects and the groups they form, placed around its own centre (0, 0). The
 // editor makes one from a selection and adds it to any plan with fresh ids: a clipboard, or a library of objects

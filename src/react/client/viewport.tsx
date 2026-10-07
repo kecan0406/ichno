@@ -71,10 +71,11 @@ type ViewportProps<S extends string> = Omit<
   // A creation tool is active: presses draw strokes instead of selecting, moving or panning (Space and the middle
   // button still pan). A tap is a stroke with no length, reported once at `end`. `constrain` (Shift) and
   // `fromCenter` (Alt) are the keys held, reported again when they change mid-stroke; `cancel` ends a stroke that
-  // must not create anything — a second finger landed, or the pointer was lost.
+  // must not create anything — a second finger landed, or the pointer was lost. `pixel` is how many plan units a
+  // screen pixel spans.
   onDraw?(
     stroke: PlanStroke,
-    info: { phase: 'start' | 'move' | 'end' | 'cancel'; constrain: boolean; fromCenter: boolean },
+    info: { phase: 'start' | 'move' | 'end' | 'cancel'; constrain: boolean; fromCenter: boolean; pixel?: number },
   ): void
 }
 
@@ -206,11 +207,18 @@ export function Viewport<S extends string>({
     const keys = keysRef.current
     if (press.mode === 'drag' && press.target) {
       const total = { x: to.x - press.anchor.x, y: to.y - press.anchor.y }
-      onTargetDrag?.({ target: press.target, phase, total, constrain: keys.constrain, copy: keys.fromCenter })
+      onTargetDrag?.({
+        target: press.target,
+        phase,
+        total,
+        constrain: keys.constrain,
+        copy: keys.fromCenter,
+        pixel: unitsPerPixel(),
+      })
     } else if (press.mode === 'marquee') {
       onMarquee?.(rectBetween(press.anchor, to), { phase, additive: press.additive })
     } else if (press.mode === 'draw') {
-      onDraw?.({ start: press.anchor, end: to }, { phase, ...keys })
+      onDraw?.({ start: press.anchor, end: to }, { phase, ...keys, pixel: unitsPerPixel() })
     }
   }
 
@@ -230,7 +238,8 @@ export function Viewport<S extends string>({
         case 'tap': {
           const point = toPlan(event.point)
           if (press.mode === 'draw') {
-            if (point) onDraw?.({ start: point, end: point }, { phase: 'end', ...keysRef.current })
+            if (point)
+              onDraw?.({ start: point, end: point }, { phase: 'end', ...keysRef.current, pixel: unitsPerPixel() })
             break
           }
           const target = press.target
@@ -259,11 +268,12 @@ export function Viewport<S extends string>({
               total: { x: 0, y: 0 },
               constrain: keysRef.current.constrain,
               copy: keysRef.current.fromCenter,
+              pixel: unitsPerPixel(),
             })
           } else if (press.mode === 'marquee') {
             onMarquee?.({ ...anchor, w: 0, h: 0 }, { phase: 'start', additive: press.additive })
           } else if (press.mode === 'draw') {
-            onDraw?.({ start: anchor, end: anchor }, { phase: 'start', ...keysRef.current })
+            onDraw?.({ start: anchor, end: anchor }, { phase: 'start', ...keysRef.current, pixel: unitsPerPixel() })
           }
           if (pannable) setEdging(true)
           break

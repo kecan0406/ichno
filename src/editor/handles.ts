@@ -11,7 +11,8 @@ import { boxOf, turnObjects, withGroupRotation } from './turn'
 // An object resizes from its corners (the opposite corner staying put, in the object's own turned frame) and
 // turns from the knob above its top edge. A group turns as one from the knob above its frame — the box around its
 // members in the direction it faces — so the knob, the frame and the centre turn with it. Sections move one
-// vertex at a time. Handles show for a single selected item only; `frames` outlines any number of them.
+// vertex at a time; dragging the middle of an edge adds a vertex there, and a vertex dropped on its neighbour merges
+// with it. Handles show for a single selected item only; `frames` outlines any number of them.
 
 export const planHandles = {
   of: handlesOf,
@@ -27,6 +28,8 @@ type Corner = (typeof CORNERS)[number]
 const KNOB_OFFSET = 28
 // The turn a snapping editor steps by (degrees).
 const ROTATION_STEP = 15
+// How close (screen pixels) a dragged vertex comes to its neighbour to merge with it.
+const MERGE_PX = 8
 
 function handlesOf<S extends string>(plan: SeatPlan<S>, selection: readonly EditorSelection<S>[]): PlanHandle<S>[] {
   if (selection.length !== 1) return []
@@ -34,7 +37,15 @@ function handlesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edit
   if (item.kind === 'section') {
     const section = seatPlan.sectionOf(plan, item.id)
     if (!section) return []
-    return section.points.map((point, i) => ({ owner: item, name: `vertex-${i}`, point }))
+    const { points } = section
+    return [
+      ...points.map((point, i) => ({ owner: item, name: `vertex-${i}`, point })),
+      ...points.map((point, i) => ({
+        owner: item,
+        name: `edge-${i}`,
+        point: middle(point, points[(i + 1) % points.length]!),
+      })),
+    ]
   }
   const box = boxOf(plan, item.id)
   if (!box) return []
@@ -81,6 +92,8 @@ function framesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edito
 
 // The plan with a handle dragged by `total` plan units. Unknown handles leave the plan as it is. `constrain`
 // (Shift) turns in 15° steps, keeps a resized object's proportions and moves a vertex straight along one axis.
+// `pixel` (plan units per screen pixel) sizes how close a vertex comes to its neighbour to merge with it — without
+// it, only one dropped right on it merges.
 function dragHandle<S extends string>(
   plan: SeatPlan<S>,
   owner: HandleOwner<S>,
@@ -88,25 +101,16 @@ function dragHandle<S extends string>(
   total: PlanPoint,
   snap: Snap | null = null,
   constrain = false,
+  pixel = 0,
 ): SeatPlan<S> {
   if (owner.kind === 'section') {
-    const index = Number(name.replace('vertex-', ''))
-    const step = snap ? snap.cell : 1
-    const by = constrain ? alongAxis(total) : total
     return {
       ...plan,
-      sections: plan.sections.map((section) => {
-        if (section.id !== owner.id || !section.points[index]) return section
-        const points = section.points.map((p, i) =>
-          i === index
-            ? {
-                x: clamp(roundTo(p.x + by.x, step), 0, Math.floor(plan.width / step) * step),
-                y: clamp(roundTo(p.y + by.y, step), 0, Math.floor(plan.height / step) * step),
-              }
-            : p,
-        )
-        return { ...section, points }
-      }),
+      sections: plan.sections.map((section) =>
+        section.id === owner.id
+          ? { ...section, points: reshapedOutline(plan, section.points, name, total, snap, constrain, pixel) }
+          : section,
+      ),
     }
   }
   if (name !== 'rotate' && !isCorner(name)) return plan
@@ -127,6 +131,43 @@ function dragHandle<S extends string>(
       object.id === owner.id ? reshaped(plan, object, name, total, snap, constrain) : object,
     ),
   }
+}
+
+// A section outline with a vertex moved — merged into its neighbour when dropped on it, as long as three remain — or
+// with a vertex added in the middle of an edge and moved.
+function reshapedOutline(
+  plan: Pick<SeatPlan, 'width' | 'height'>,
+  points: readonly PlanPoint[],
+  name: string,
+  total: PlanPoint,
+  snap: Snap | null,
+  constrain: boolean,
+  pixel: number,
+): PlanPoint[] {
+  const [kind, at] = name.split('-')
+  const index = Number(at)
+  const from = points[index]
+  if (!from || (kind !== 'vertex' && kind !== 'edge')) return [...points]
+  const step = snap ? snap.cell : 1
+  const by = constrain ? alongAxis(total) : total
+  const start = kind === 'edge' ? middle(from, points[(index + 1) % points.length]!) : from
+  const point = {
+    x: clamp(roundTo(start.x + by.x, step), 0, Math.floor(plan.width / step) * step),
+    y: clamp(roundTo(start.y + by.y, step), 0, Math.floor(plan.height / step) * step),
+  }
+  if (kind === 'edge') return [...points.slice(0, index + 1), point, ...points.slice(index + 1)]
+  const near = (other: PlanPoint | undefined) =>
+    other !== undefined && Math.hypot(other.x - point.x, other.y - point.y) <= MERGE_PX * pixel
+  const previous = points[(index - 1 + points.length) % points.length]
+  const next = points[(index + 1) % points.length]
+  if (points.length > 3 && (near(previous) || near(next))) {
+    return points.filter((_, i) => i !== index)
+  }
+  return points.map((p, i) => (i === index ? point : p))
+}
+
+function middle(a: PlanPoint, b: PlanPoint): PlanPoint {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
 }
 
 function reshaped<S extends string>(

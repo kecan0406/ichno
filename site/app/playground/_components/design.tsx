@@ -122,7 +122,7 @@ function Stat({ name, value }: { name: string; value: number }) {
 
 // ---------- A section ----------
 
-function SectionDesign({ editor, sectionNames, sectionId }: Props & { sectionId: string }) {
+function SectionDesign({ editor, sectionNames, sectionId, onRemove }: Props & { sectionId: string }) {
   const section = seatPlan.sectionOf(editor.plan, sectionId)
   if (!section) return null
   const bounds = seatPlan.sectionBoundsOf(section)
@@ -140,6 +140,7 @@ function SectionDesign({ editor, sectionNames, sectionId }: Props & { sectionId:
         name={sectionNames[section.id] ?? section.id}
         id={section.id}
         stored={`ichno stores its outline — ${section.points.length} corners. Places name it as their section.`}
+        actions={<Action icon="trash" label="Delete with what stands in it (⌫)" onClick={onRemove} />}
       />
       <Section title="Position">
         <div className={controls.pair}>
@@ -167,8 +168,8 @@ function SectionDesign({ editor, sectionNames, sectionId }: Props & { sectionId:
       <Section title="Section">
         <ReadOnly label="Places">{places.length}</ReadOnly>
         <p className={controls.hint}>
-          Drag its corners on the plan to reshape it. Your app fixes which sections there are — ichno never adds or
-          removes one.
+          Drag a corner to move it, the middle of an edge to add one, a corner onto its neighbour to take it away.
+          Deleting it takes its places with it — their groups whole — and the loose fixtures standing in it.
         </p>
       </Section>
     </>

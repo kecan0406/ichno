@@ -42,11 +42,14 @@ describe('planHandles.of', () => {
     expect(nw!.angle).toBeCloseTo(-45, 6)
   })
 
-  it('shows corners and a knob for an object, a knob for a group, vertices for a section — for one item only', () => {
+  it('shows corners and a knob for an object, a knob for a group, vertices and edges for a section — for one only', () => {
     const plan = planOf([desk, ...row], [{ id: 'row-1' }])
     expect(planHandles.of(plan, [owner('A1')]).map((h) => h.name)).toEqual(['nw', 'ne', 'se', 'sw', 'rotate'])
     expect(planHandles.of(plan, [{ kind: 'group', id: 'row-1' }]).map((h) => h.name)).toEqual(['rotate'])
-    expect(planHandles.of(plan, [{ kind: 'section', id: 'A' }])).toHaveLength(4)
+    expect(planHandles.of(plan, [{ kind: 'section', id: 'A' }]).map((h) => h.name)).toEqual([
+      ...['vertex-0', 'vertex-1', 'vertex-2', 'vertex-3'],
+      ...['edge-0', 'edge-1', 'edge-2', 'edge-3'],
+    ])
     expect(planHandles.of(plan, [owner('A1'), { kind: 'group', id: 'row-1' }])).toEqual([])
   })
 
@@ -155,6 +158,27 @@ describe('planHandles.drag', () => {
     const plan = planHandles.drag(planOf([]), { kind: 'section', id: 'A' }, 'vertex-2', { x: 40, y: 10 }, snap)
     expect(plan.sections[0]!.points[2]).toEqual({ x: 966, y: 690 })
     expect(plan.sections[0]!.points[1]).toEqual({ x: 920, y: 0 })
+  })
+
+  it('adds a vertex from the middle of an edge, and merges one dropped near its neighbour while three remain', () => {
+    const section = { kind: 'section' as const, id: 'A' as const }
+    const square = planOf([]).sections[0]!.points
+    // The top edge runs from (0, 0) to (920, 0); its middle pulled down 40 adds a vertex there.
+    const peaked = planHandles.drag(planOf([]), section, 'edge-0', { x: 0, y: 40 })
+    expect(peaked.sections[0]!.points).toEqual([square[0], { x: 460, y: 40 }, ...square.slice(1)])
+    // Dropped 5 units from (920, 0): at 2 units a pixel that is 2.5 px and it merges; at 0.5 a pixel it is 10 px.
+    const back = { x: 455, y: -40 }
+    expect(planHandles.drag(peaked, section, 'vertex-1', back, null, false, 2).sections[0]!.points).toEqual(square)
+    expect(planHandles.drag(peaked, section, 'vertex-1', back, null, false, 0.5).sections[0]!.points).toHaveLength(5)
+    // Dropped right on its neighbour it merges at any zoom — but a triangle keeps its three.
+    const onto = { x: -920, y: 0 }
+    const triangle = planHandles.drag(planOf([]), section, 'vertex-1', onto).sections[0]!.points
+    expect(triangle).toHaveLength(3)
+    const kept = planHandles.drag({ ...planOf([]), sections: [{ id: 'A', points: triangle }] }, section, 'vertex-1', {
+      x: square[0]!.x - triangle[1]!.x,
+      y: square[0]!.y - triangle[1]!.y,
+    })
+    expect(kept.sections[0]!.points).toHaveLength(3)
   })
 
   it('constrained (Shift), turns in 15° steps, resizes in proportion and moves a vertex along one axis', () => {

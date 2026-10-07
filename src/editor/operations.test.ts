@@ -133,6 +133,31 @@ describe('planEdits — groups, removing and renaming', () => {
     expect(planEdits.remove(labelled, ['row-1'], new Set(['A3'])).refused).toEqual(['row-1'])
   })
 
+  it('removes a section with its places, their groups whole and loose fixtures inside — or nothing when locked', () => {
+    // Section A is x 0–506: the row, a stage inside it and a chair grouped with a seat in B; a pillar in B.
+    const { plan: rowed } = withRow(planOf([desk('B1', 600, 2, { section: 'B' })]))
+    const plan = {
+      ...rowed,
+      groups: [...rowed.groups, { id: 'pair' }],
+      objects: [
+        ...rowed.objects,
+        { kind: 'fixture' as const, id: 'stage', shape: 'rect' as const, x: 100, y: 600, w: 200, h: 100 },
+        { kind: 'fixture' as const, id: 'pillar', shape: 'rect' as const, x: 800, y: 600, w: 40, h: 40 },
+        { ...desk('A9', 300, 100), group: 'pair' },
+        { kind: 'fixture' as const, id: 'chair', shape: 'rect' as const, x: 700, y: 300, w: 40, h: 40, group: 'pair' },
+      ],
+    }
+    const { plan: gone, refused } = planEdits.removeSection(plan, 'A')
+    expect(refused).toEqual([])
+    expect(gone.sections.map((s) => s.id)).toEqual(['B'])
+    expect(idsOf(gone)).toEqual(['B1', 'pillar'])
+    expect(gone.groups).toEqual([])
+    const locked = planEdits.removeSection(plan, 'A', new Set(['A2']))
+    expect([locked.refused, locked.plan]).toEqual([['row-1'], plan])
+    expect(planEdits.addSection(gone, { id: 'B', points: rect(0, 0, 10, 10) })).toBeNull()
+    expect(planEdits.addSection(gone, { id: 'A', points: rect(0, 0, 10, 10).slice(0, 2) })).toBeNull()
+  })
+
   it('renames a group and its members follow; refuses locked, taken and unsavable ids', () => {
     const { plan } = withRow(planOf([desk('D1', 600, 2)]))
     const renamed = planEdits.rename(plan, 'row-1', 'front')!

@@ -292,7 +292,8 @@ export function GridPart({
   )
 }
 
-// Editing handles — squares for corners and vertices, a dot for the rotation knob. They keep a fixed screen size at
+// Editing handles — squares for corners and vertices, a dot for the rotation knob, a smaller dot in the middle of a
+// section's edge (dragging it adds a vertex). They keep a fixed screen size at
 // any zoom (a zero-length stroke that does not scale), and carry the attributes the viewport reads to drag them.
 // `frame` (the editor's) outlines what the handles belong to — a turned object, or the frame a group turns about —
 // with a stem up to the knob. Corner cursors follow the corner's turned direction.
@@ -319,7 +320,9 @@ export function HandlesPart({
       )}
       {handles.map((handle) => {
         const d = `M${round(handle.point.x)} ${round(handle.point.y)}h0`
-        const cap = handle.name === 'rotate' ? 'round' : 'square'
+        const edge = handle.name.startsWith('edge-')
+        const cap = handle.name === 'rotate' || edge ? 'round' : 'square'
+        const size = edge ? EDGE_HANDLE_PX : HANDLE_PX
         return (
           <g
             key={`${handle.owner.kind}:${handle.owner.id}:${handle.name}`}
@@ -332,14 +335,14 @@ export function HandlesPart({
             <path
               d={d}
               stroke={cssVar('accent')}
-              strokeWidth={HANDLE_PX}
+              strokeWidth={size}
               strokeLinecap={cap}
               vectorEffect="non-scaling-stroke"
             />
             <path
               d={d}
               stroke={cssVar('surface')}
-              strokeWidth={HANDLE_PX - 4}
+              strokeWidth={size - 4}
               strokeLinecap={cap}
               vectorEffect="non-scaling-stroke"
             />
@@ -435,13 +438,15 @@ const SEAT_LABEL_FONT = 20
 const RECT_RADIUS = 4
 const LINE_WIDTH = 1.5
 const DIMMED_OPACITY = 0.35
-// Handle size in screen pixels.
+// Handle size in screen pixels — an edge's middle smaller, so the corners stand out.
 const HANDLE_PX = 12
+const EDGE_HANDLE_PX = 9
 // Resize cursors by the direction a corner points, in 45° sectors from +x.
 const RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'] as const
 
 function cursorOf(handle: PlanHandle): string {
   if (handle.name === 'rotate') return 'grab'
+  if (handle.name.startsWith('edge-')) return 'copy'
   if (handle.angle === undefined) return 'move'
   const sector = Math.round((((handle.angle % 180) + 180) % 180) / 45) % 4
   return RESIZE_CURSORS[sector]!

@@ -48,7 +48,7 @@ export function Toolbar({
         <Tool
           key={def.id}
           icon={PRIMITIVE_ICONS[def.id] ?? 'place'}
-          label={`${def.name} — ${def.id === 'place' ? 'something to book' : 'anything else'}`}
+          label={`${def.name} — ${PRIMITIVE_WHAT[def.id] ?? ''}`}
           keys={def.key}
           pressed={active === def.id}
           onClick={() => onTool(def)}
@@ -72,7 +72,12 @@ export function Toolbar({
   )
 }
 
-const PRIMITIVE_ICONS: Partial<Record<string, IconName>> = { place: 'place', fixture: 'fixture' }
+const PRIMITIVE_ICONS: Partial<Record<string, IconName>> = { place: 'place', fixture: 'fixture', section: 'section' }
+const PRIMITIVE_WHAT: Partial<Record<string, string>> = {
+  place: 'something to book',
+  fixture: 'anything else',
+  section: 'an area places belong to',
+}
 
 function Tool({
   icon,

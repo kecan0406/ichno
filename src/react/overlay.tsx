@@ -13,10 +13,10 @@ export type EditorOverlayProps = Omit<ComponentProps<'g'>, 'children' | 'stroke'
   handles?: readonly PlanHandle[]
   frame?: readonly PlanPoint[] | null
   marquee?: PlanRect | null
-  // The stroke a creation tool is drawing, and how the tool draws: a box is outlined, a line drawn along, a point
-  // left to the draft.
+  // The stroke a creation tool is drawing, and how the tool draws: a box is outlined, a line drawn along, a polygon
+  // drawn corner to corner (back to its first one, which is marked to close it on), a point left to the draft.
   stroke?: PlanStroke | null
-  draw?: 'box' | 'line' | 'point'
+  draw?: 'box' | 'line' | 'point' | 'polygon'
 }
 
 // Everything an editor draws over the plan, layered the way it reads: the selection's outlines, what a tap would
@@ -53,7 +53,9 @@ export function EditorOverlay({
       <MarqueePart rect={marquee} />
       {guide && (
         <g data-part="stroke" pointerEvents="none">
-          {draw === 'line' ? (
+          {draw === 'polygon' ? (
+            <PolygonGuide points={guide.points ?? [guide.start, guide.end]} />
+          ) : draw === 'line' ? (
             <line
               x1={round(guide.start.x)}
               y1={round(guide.start.y)}
@@ -76,6 +78,37 @@ export function EditorOverlay({
   )
 }
 
+// A polygon being drawn — its edges so far, a fainter one back to the first corner, and that corner marked: tapping
+// it closes the polygon.
+function PolygonGuide({ points }: { points: readonly PlanPoint[] }) {
+  const [first] = points
+  if (!first) return null
+  const last = points.at(-1)!
+  return (
+    <>
+      <polyline points={points.map((p) => `${round(p.x)},${round(p.y)}`).join(' ')} {...GUIDE} />
+      {points.length > 2 && (
+        <line
+          x1={round(last.x)}
+          y1={round(last.y)}
+          x2={round(first.x)}
+          y2={round(first.y)}
+          {...GUIDE}
+          opacity={HOVER_OPACITY}
+        />
+      )}
+      <path
+        data-part="stroke-start"
+        d={`M${round(first.x)} ${round(first.y)}h0`}
+        stroke={cssVar('accent')}
+        strokeWidth={CORNER_PX}
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </>
+  )
+}
+
 function round(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -83,6 +116,8 @@ function round(value: number): number {
 const NO_FRAMES: readonly (readonly PlanPoint[])[] = []
 const NO_HANDLES: readonly PlanHandle[] = []
 const HOVER_OPACITY = 0.6
+// The first corner of a polygon being drawn, in screen pixels.
+const CORNER_PX = 8
 // A stroke guide is a dashed accent line, 1px on screen at any zoom (vector-effect is not inherited — it goes on the
 // shape itself).
 const GUIDE = {

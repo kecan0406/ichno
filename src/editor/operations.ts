@@ -1,7 +1,7 @@
 import { OBJECT_ID_MAX, PLACE_ID_MAX, seatPlan } from '../core/geometry'
 import { GRID_CELL } from '../core/grid'
 import type { LabelSequence } from '../core/labeling'
-import { boundsOfBox, centerOfBox, normalizeRotation, unionBounds } from '../core/math'
+import { boundsOfBox, centerOfBox, normalizeRotation, polygonContains, unionBounds } from '../core/math'
 import type {
   Fixture,
   Group,
@@ -62,6 +62,8 @@ export const planEdits = {
   insertTemplate,
   remove,
   rename,
+  addSection,
+  removeSection,
   rotate,
   move,
   moveSection,
@@ -646,6 +648,36 @@ function move<S extends string>(
   }
 }
 
+// Adds a section — its outline in whole units. null when the id is taken or the outline has fewer than three corners.
+// Places keep the sections they hold; ones the new outline covers can be moved into it with `arrange` or a drag.
+function addSection<S extends string>(plan: SeatPlan<S>, section: Section<S>): SeatPlan<S> | null {
+  if (section.points.length < 3 || seatPlan.sectionOf(plan, section.id)) return null
+  const points = section.points.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }))
+  return { ...plan, sections: [...plan.sections, { id: section.id, points }] }
+}
+
+// Removes a section with what stands in it: its places, every group holding one (whole — a table's top and chairs go
+// with its seats) and the fixtures outside groups whose centre lies in its outline. Nothing goes when any of that
+// holds a locked id; `refused` lists what does.
+function removeSection<S extends string>(
+  plan: SeatPlan<S>,
+  id: S,
+  locked: ReadonlySet<string> = NONE,
+): { plan: SeatPlan<S>; refused: string[] } {
+  const section = seatPlan.sectionOf(plan, id)
+  if (!section) return { plan, refused: [] }
+  const units = new Set<string>()
+  for (const o of plan.objects) {
+    if (o.kind === 'place' && o.section === id) units.add(o.group ?? o.id)
+    else if (o.kind === 'fixture' && o.group === undefined && polygonContains(section.points, seatPlan.centerOf(o)))
+      units.add(o.id)
+  }
+  const refused = [...units].filter((unit) => isLocked(plan, unit, locked))
+  if (refused.length > 0) return { plan, refused }
+  const { plan: cleared } = remove(plan, [...units])
+  return { plan: { ...cleared, sections: cleared.sections.filter((s) => s.id !== id) }, refused: [] }
+}
+
 // Moves a section outline by whole cells (whole units without snapping).
 function moveSection<S extends string>(
   plan: SeatPlan<S>,
@@ -690,7 +722,9 @@ function applyDrag<S extends string>(
   snap: Snap | null = null,
 ): SeatPlan<S> {
   const { target, constrain = false } = drag
-  if (target.kind === 'handle') return planHandles.drag(plan, target.owner, target.name, drag.total, snap, constrain)
+  if (target.kind === 'handle') {
+    return planHandles.drag(plan, target.owner, target.name, drag.total, snap, constrain, drag.pixel)
+  }
   const total = constrain ? alongAxis(drag.total) : drag.total
   if (target.kind === 'section') return moveSection(plan, target.id, total, snap)
   const object = seatPlan.objectById(plan, target.id)

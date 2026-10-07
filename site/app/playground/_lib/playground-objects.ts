@@ -1,6 +1,6 @@
 import type { Group, PlanObject, PlanTemplate, SeatPlan } from 'ichno'
 import { planEdits, type EditorTool } from 'ichno/editor'
-import { blockTool, boxPlaceTool, deskTool, fixtureTool, placeTool, rowTool, tableTool } from './build'
+import { blockTool, boxPlaceTool, deskTool, fixtureTool, placeTool, rowTool, sectionTool, tableTool } from './build'
 import type { SavedObject } from './library'
 
 // The playground's own objects — made in advance for this demo out of ichno's places, fixtures and groups
@@ -161,6 +161,14 @@ export const PRIMITIVE_TOOLS: ToolDef[] = [
     code: 'KeyF',
     hint: `Drag to draw a fixture — nothing to book. ${BOX_KEYS}`,
     tool: { id: 'fixture', draw: 'box', create: fixtureTool(undefined, { w: 92, h: 92 }, false) },
+  },
+  {
+    id: 'section',
+    name: 'Section',
+    key: 'S',
+    code: 'KeyS',
+    hint: 'Tap corner by corner; tap the first (or press Enter) to close. ⌫ takes a corner back. Shift: 15° edges.',
+    tool: { id: 'section', draw: 'polygon', create: sectionTool },
   },
 ]
 
