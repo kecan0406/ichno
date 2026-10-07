@@ -410,7 +410,10 @@ selection. It ignores keys typed into a field, Enter on a control that answers i
 and keys a handler already took (`preventDefault`), so your own shortcuts can run first.
 
 `lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or turned into a
-fixture, while labels stay free. Every operation is also available as a pure function in `planEdits` (plan in, plan
+fixture, while labels stay free. `frozenIds` and `hiddenIds` are a layers panel's lock and eye — editor state, never
+in the document: frozen objects and groups are drawn but cannot be tapped, dragged, hovered, marqueed or caught by
+⌘A (a drag starting on one draws a marquee); hidden ones are left out of `displayPlan` as well. `setSelection` and
+`selectIds` still select both, for the panel. Every operation is also available as a pure function in `planEdits` (plan in, plan
 out) for imports and scripts. After saving, `markSaved(saved)` makes the plan you stored the baseline `dirty`
 compares against — history and selection stay, and edits made while the save was under way stay dirty. To open
 another document, remount the editor (key it by the document).

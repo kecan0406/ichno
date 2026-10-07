@@ -15,6 +15,9 @@ type Props = {
   // Deleting says what it could not delete, so the workspace does it.
   onRemove(): void
   onSaveAsset(): void
+  // Lock or hide the selection — the layers panel's toggles, for the selection at once.
+  onFreeze(): void
+  onHide(): void
   onZoomToSelection(): void
   onFit(): void
   onHidePanels(): void
@@ -26,6 +29,8 @@ export function CanvasMenu({
   onClose,
   onRemove,
   onSaveAsset,
+  onFreeze,
+  onHide,
   onZoomToSelection,
   onFit,
   onHidePanels,
@@ -92,6 +97,8 @@ export function CanvasMenu({
           <MenuItem keys="R" onSelect={() => editor.rotateSelected(90)}>
             Turn 90°
           </MenuItem>
+          <MenuItem onSelect={onFreeze}>Lock</MenuItem>
+          <MenuItem onSelect={onHide}>Hide</MenuItem>
           <MenuItem onSelect={onSaveAsset}>Save as asset…</MenuItem>
           <MenuItem keys="⇧2" onSelect={onZoomToSelection}>
             Zoom to selection

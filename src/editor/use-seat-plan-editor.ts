@@ -34,6 +34,14 @@ type Options<S extends string> = {
   // Snap to a grid while editing — sections to cell corners, objects and strokes to half cells, turns to 15°. Off
   // by default: edits land on whole plan units.
   snap?: Snap
+  // Objects and groups that stay put while the rest is edited (a stage, the walls) — a layers panel's lock. They
+  // are drawn but cannot be tapped, dragged, hovered, marqueed or selected with ⌘A; a drag that starts on one draws
+  // a marquee. `setSelection` and `selectIds` still pick them, for a panel. Editor state, never in the document.
+  frozenIds?: Iterable<string>
+  // Objects and groups left out of what the editor draws (`displayPlan`, and the viewport's plan) — a layers
+  // panel's eye. Like frozen ones they cannot be picked on the plan; the saved `plan` keeps them, and `conflictIds`
+  // still counts them.
+  hiddenIds?: Iterable<string>
 }
 
 type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; future: SeatPlan<S>[]; dirty: boolean }
@@ -69,7 +77,13 @@ const NO_FRAMES: PlanPoint[][] = []
 //
 // Tapping an object in a group selects the group; tapping it again (with the group selected) selects the object
 // alone. Operations that take ids accept object and group ids alike — a group acts as one.
-export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, snap }: Options<S>) {
+export function useSeatPlanEditor<S extends string>({
+  initialPlan,
+  lockedIds,
+  snap,
+  frozenIds,
+  hiddenIds,
+}: Options<S>) {
   const [start] = useState(() => ({
     saved: { plan: initialPlan, json: JSON.stringify(initialPlan) },
     history: { past: [], present: initialPlan, future: [], dirty: false } as History<S>,
@@ -100,6 +114,9 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   // show through it.
   const [previewing, setPreviewing] = useState<Edit<S> | null>(null)
   const locked = new Set(lockedIds)
+  const hidden = new Set(hiddenIds)
+  // What cannot be picked on the plan — frozen or hidden, itself or as part of its group.
+  const unpickable = new Set([...(frozenIds ?? []), ...hidden])
   const grid = snap ?? null
 
   const plan = history.present
@@ -131,9 +148,11 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
       return section ? [seatPlan.sectionBoundsOf(section)] : []
     }),
   ]
-  // The plan as drawn — the edit being previewed, and the drag in progress with the snapping it will commit with.
+  // The plan as drawn — the edit being previewed, the drag in progress with the snapping it will commit with, and
+  // without what is hidden.
   const shown = previewing === null ? plan : (previewing(plan) ?? plan)
-  const displayPlan = drag === null ? shown : planEdits.applyDrag(shown, drag, selectedIds, grid)
+  const moved = drag === null ? shown : planEdits.applyDrag(shown, drag, selectedIds, grid)
+  const displayPlan = hidden.size === 0 ? moved : withoutHidden(moved, hidden)
   // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it.
   const toolStroke = tool === null ? null : (stroke ?? (pointer === null ? null : { start: pointer, end: pointer }))
   const created = tool === null || toolStroke === null ? null : tool.create(plan, toolStroke)
@@ -142,7 +161,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   const draft = created === null ? null : addedPart(plan, created)
   // Places that overlap on the plan as drawn, the draft included. The schema refuses to save them; pass them to
   // <SeatMap.Content invalid> to mark them while arranging.
-  const conflictIds = [...new Set(seatPlan.conflictsOf(created ?? displayPlan).flat())]
+  const conflictIds = [...new Set(seatPlan.conflictsOf(created ?? moved).flat())]
   // Handles for a single selected item, placed on the plan as drawn so they follow a drag. None while a tool is
   // active — every press draws then.
   const handles: PlanHandle<S>[] = tool === null ? planHandles.of(displayPlan, selection) : []
@@ -219,9 +238,21 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     )
   }
 
-  // Selects every object — grouped ones as their group.
+  // Selects every object — grouped ones as their group — but what is frozen or hidden.
   function selectAll() {
-    setChosen(unitsOf(historyRef.current.present.objects))
+    setChosen(unitsOf(historyRef.current.present.objects.filter(pickable)))
+  }
+
+  // Whether an object can be picked on the plan — neither it nor its group frozen or hidden.
+  function pickable(object: PlanObject<S>): boolean {
+    return !unpickable.has(object.id) && (object.group === undefined || !unpickable.has(object.group))
+  }
+
+  // A target on the plan, or null when it points at something that cannot be picked there.
+  function pickableTarget<T extends PlanTarget<S>>(target: T | null): T | null {
+    if (target === null || (target.kind !== 'place' && target.kind !== 'object')) return target
+    const object = seatPlan.objectById(historyRef.current.present, target.id)
+    return object && !pickable(object) ? null : target
   }
 
   // Selects exactly these items — what a layers panel or a list of problems points at, where a tap would pick a
@@ -284,13 +315,15 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     return true
   }
 
+  // A tap on something frozen or hidden taps the floor.
   function handleTap(target: PlanTarget<S> | null, info: { additive: boolean }) {
-    select(target, info.additive)
+    select(pickableTarget(target), info.additive)
   }
 
-  // A section moves only once it is selected; before that a drag on its floor draws a marquee.
+  // A section moves only once it is selected; before that a drag on its floor draws a marquee — as a drag on
+  // something frozen does.
   function canDrag(target: PlanTarget<S>): boolean {
-    if (target.kind !== 'section') return true
+    if (target.kind !== 'section') return pickableTarget(target) !== null
     return selection.some((item) => item.kind === 'section' && item.id === target.id)
   }
 
@@ -314,7 +347,7 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     setMarquee(null)
     const current = historyRef.current.present
     const inside = new Set(seatPlan.objectsInRect(current, rect))
-    const picked = unitsOf(current.objects.filter((object) => inside.has(object.id)))
+    const picked = unitsOf(current.objects.filter((object) => inside.has(object.id) && pickable(object)))
     setChosen((existing) => {
       if (!info.additive) return picked
       const held = new Set(existing.map(keyOf))
@@ -350,8 +383,8 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
       setPointer((current) => (samePoint(current, at) ? current : at))
       return
     }
-    const item =
-      target === null || target.kind === 'handle' || target.kind === 'section' ? null : selectionOf(target, selection)
+    const at = pickableTarget(target)
+    const item = at === null || at.kind === 'handle' || at.kind === 'section' ? null : selectionOf(at, selection)
     setHovered((current) => (current === item || (current && item && sameSelection(current, item)) ? current : item))
   }
 
@@ -911,6 +944,14 @@ function centerOfIds(plan: SeatPlan<string>, ids: readonly string[]): PlanPoint 
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id) => b.includes(id))
+}
+
+// The plan without hidden objects — an object hidden itself or through its group (a hidden group's labels too).
+function withoutHidden<S extends string>(plan: SeatPlan<S>, hidden: ReadonlySet<string>): SeatPlan<S> {
+  return {
+    ...plan,
+    objects: plan.objects.filter((o) => !hidden.has(o.id) && (o.group === undefined || !hidden.has(o.group))),
+  }
 }
 
 function addedSelection<S extends string>(before: SeatPlan<S>, after: SeatPlan<S>): EditorSelection<S>[] {

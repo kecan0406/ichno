@@ -73,6 +73,15 @@ const Build3D = dynamic(() => import('./build-3d'), {
 })
 
 const NOWHERE = 'Every place belongs to a section — move inside one to place it.'
+const NO_IDS: ReadonlySet<string> = new Set()
+
+// A set of ids with one put in or taken out.
+function toggled(ids: ReadonlySet<string>, id: string, on: boolean): ReadonlySet<string> {
+  const next = new Set(ids)
+  if (on) next.add(id)
+  else next.delete(id)
+  return next
+}
 
 export function Workspace({
   initial,
@@ -85,7 +94,16 @@ export function Workspace({
 }) {
   const [booked, setBooked] = useState<string[]>(initial.booked)
   const [snapping, setSnapping] = useState(true)
-  const editor = useSeatPlanEditor({ initialPlan: initial.plan, lockedIds: booked, snap: snapping ? SNAP : undefined })
+  // Layers locked and hidden in the layers panel — editor state, never saved with the document.
+  const [frozen, setFrozen] = useState<ReadonlySet<string>>(NO_IDS)
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(NO_IDS)
+  const editor = useSeatPlanEditor({
+    initialPlan: initial.plan,
+    lockedIds: booked,
+    snap: snapping ? SNAP : undefined,
+    frozenIds: frozen,
+    hiddenIds: hidden,
+  })
   // One view for both modes — switching keeps where you were looking.
   const map = useSeatMapView(editor.plan)
   const { onTap, onHover, ...viewportProps } = editor.viewportProps
@@ -412,6 +430,10 @@ export function Workspace({
               }}
               onHover={setLayerHover}
               onRename={relabel}
+              frozen={frozen}
+              hidden={hidden}
+              onFreeze={(id, on) => setFrozen((current) => toggled(current, id, on))}
+              onHide={(id, on) => setHidden((current) => toggled(current, id, on))}
             />
           ) : (
             <AssetsPanel
@@ -776,6 +798,8 @@ export function Workspace({
         onClose={() => setMenu(null)}
         onRemove={remove}
         onSaveAsset={startSaving}
+        onFreeze={() => setFrozen((current) => new Set([...current, ...editor.selectedIds]))}
+        onHide={() => setHidden((current) => new Set([...current, ...editor.selectedIds]))}
         onZoomToSelection={() => view.zoomTo(editor.selectionBounds)}
         onFit={view.fit}
         onHidePanels={() => panels.setHidden(true)}

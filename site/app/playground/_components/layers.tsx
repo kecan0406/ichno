@@ -13,6 +13,7 @@ import styles from './layers.module.css'
 // of the drawing first. A row picks exactly what it shows (a seat of a row, not the row), shift or ⌘ adds to the
 // selection, hovering outlines it on the plan, and a double-click (or F2) renames what people read. Tab brings the
 // keyboard in: arrows move between rows and open groups, Enter or Space selects, Enter again steps into a group.
+// The lock and the eye beside a row freeze and hide it on the plan — ichno's `frozenIds` and `hiddenIds`.
 
 type Item = EditorSelection<string>
 
@@ -43,9 +44,25 @@ type Props = {
   onHover(item: Item | null): void
   // A group's or a place's new label — empty clears it.
   onRename(item: Item, label: string): void
+  frozen: ReadonlySet<string>
+  hidden: ReadonlySet<string>
+  onFreeze(id: string, on: boolean): void
+  onHide(id: string, on: boolean): void
 }
 
-export function LayersPanel({ plan, selection, sectionNames, isLocked, onSelect, onHover, onRename }: Props) {
+// What the lock and the eye show and change — objects and groups only.
+type Toggles = Pick<Props, 'frozen' | 'hidden' | 'onFreeze' | 'onHide'>
+
+export function LayersPanel({
+  plan,
+  selection,
+  sectionNames,
+  isLocked,
+  onSelect,
+  onHover,
+  onRename,
+  ...toggles
+}: Props) {
   const selected = new Set(selection.map(keyOf))
   // Groups opened or closed by hand; the rest are open while they hold the selection.
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
@@ -117,6 +134,7 @@ export function LayersPanel({ plan, selection, sectionNames, isLocked, onSelect,
           selected={selected}
           selection={selection}
           isLocked={isLocked}
+          toggles={toggles}
           onSelect={onSelect}
           onHover={onHover}
           onToggle={toggle}
@@ -133,6 +151,7 @@ function Tree({
   selected,
   selection,
   isLocked,
+  toggles,
   onSelect,
   onHover,
   onToggle,
@@ -143,6 +162,7 @@ function Tree({
   selected: ReadonlySet<string>
   selection: readonly Item[]
   isLocked(id: string): boolean
+  toggles?: Toggles
   onSelect(items: Item[]): void
   onHover(item: Item | null): void
   onToggle(row: Row, open?: boolean): void
@@ -202,77 +222,144 @@ function Tree({
 
   return (
     <div ref={ref} role="tree" aria-label={label} aria-multiselectable className={styles.tree} onKeyDown={onKeyDown}>
-      {rows.map((row) => (
-        <div
-          key={row.key}
-          role="treeitem"
-          aria-level={row.level}
-          aria-selected={selected.has(row.key)}
-          aria-expanded={row.open}
-          tabIndex={row === active ? 0 : -1}
-          data-key={row.key}
-          data-holds={row.holds || undefined}
-          data-level={row.level}
-          className={styles.row}
-          onMouseDown={pressKeepingFocus}
-          onClick={(e) => pick(row, e)}
-          onDoubleClick={() => row.label !== null && setEditing(row.key)}
-          onPointerEnter={() => onHover(row.item)}
-          onFocus={(e) => {
-            if (e.target === e.currentTarget) setFocused(row.key)
-          }}
-        >
-          <span
-            className={styles.caret}
-            aria-hidden
-            onClick={(e) => {
-              if (row.open === undefined) return
-              e.stopPropagation()
-              onToggle(row)
+      {rows.map((row) => {
+        const id = row.item.id
+        // A member of a frozen or hidden group is too — its own toggle shows it, greyed.
+        const parent = row.parent === undefined ? undefined : rows.find((other) => other.key === row.parent)?.item.id
+        const frozen = toggles?.frozen.has(id) ?? false
+        const hidden = toggles?.hidden.has(id) ?? false
+        const byGroup = {
+          frozen: parent !== undefined && (toggles?.frozen.has(parent) ?? false),
+          hidden: parent !== undefined && (toggles?.hidden.has(parent) ?? false),
+        }
+        return (
+          <div
+            key={row.key}
+            role="treeitem"
+            aria-level={row.level}
+            aria-selected={selected.has(row.key)}
+            aria-expanded={row.open}
+            tabIndex={row === active ? 0 : -1}
+            data-key={row.key}
+            data-holds={row.holds || undefined}
+            data-hidden={hidden || byGroup.hidden || undefined}
+            data-level={row.level}
+            className={styles.row}
+            onMouseDown={pressKeepingFocus}
+            onClick={(e) => pick(row, e)}
+            onDoubleClick={() => row.label !== null && setEditing(row.key)}
+            onPointerEnter={() => onHover(row.item)}
+            onFocus={(e) => {
+              if (e.target === e.currentTarget) setFocused(row.key)
             }}
           >
-            {row.open !== undefined && <Icon name={row.open ? 'chevronDown' : 'chevronRight'} size={12} />}
-          </span>
-          <span className={styles.icon} aria-hidden>
-            <Icon name={row.icon} size={14} />
-          </span>
-          {editing === row.key && row.label !== null ? (
-            <input
-              className={styles.rename}
-              aria-label="Label"
-              defaultValue={row.label}
-              autoFocus
-              onFocus={(e) => e.currentTarget.select()}
-              onClick={(e) => e.stopPropagation()}
-              onBlur={(e) => {
-                if (editing !== row.key) return
-                setEditing(null)
-                if (e.currentTarget.value.trim() !== row.label) onRename(row.item, e.currentTarget.value.trim())
+            <span
+              className={styles.caret}
+              aria-hidden
+              onClick={(e) => {
+                if (row.open === undefined) return
+                e.stopPropagation()
+                onToggle(row)
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur()
-                if (e.key === 'Escape') {
-                  e.currentTarget.value = row.label ?? ''
-                  e.currentTarget.blur()
-                }
-              }}
-            />
-          ) : (
-            <span className={styles.name}>{row.name}</span>
-          )}
-          {row.meta && (
-            <span className={styles.meta} data-mono={row.meta.mono || undefined}>
-              {row.meta.text}
+            >
+              {row.open !== undefined && <Icon name={row.open ? 'chevronDown' : 'chevronRight'} size={12} />}
             </span>
-          )}
-          {row.item.kind !== 'section' && isLocked(row.item.id) && (
-            <span className={styles.lock} title="Holds a booked place">
-              <Icon name="lock" size={12} />
+            <span className={styles.icon} aria-hidden>
+              <Icon name={row.icon} size={14} />
             </span>
-          )}
-        </div>
-      ))}
+            {editing === row.key && row.label !== null ? (
+              <input
+                className={styles.rename}
+                aria-label="Label"
+                defaultValue={row.label}
+                autoFocus
+                onFocus={(e) => e.currentTarget.select()}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => {
+                  if (editing !== row.key) return
+                  setEditing(null)
+                  if (e.currentTarget.value.trim() !== row.label) onRename(row.item, e.currentTarget.value.trim())
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur()
+                  if (e.key === 'Escape') {
+                    e.currentTarget.value = row.label ?? ''
+                    e.currentTarget.blur()
+                  }
+                }}
+              />
+            ) : (
+              <span className={styles.name}>{row.name}</span>
+            )}
+            {row.meta && (
+              <span className={styles.meta} data-mono={row.meta.mono || undefined}>
+                {row.meta.text}
+              </span>
+            )}
+            {row.item.kind !== 'section' && isLocked(row.item.id) && (
+              <span className={styles.lock} title="Holds a booked place">
+                <Icon name="booked" size={12} />
+              </span>
+            )}
+            {toggles && (
+              <>
+                <ToggleButton
+                  icon="lock"
+                  label={frozen ? 'Unlock' : 'Lock'}
+                  on={frozen}
+                  inherited={byGroup.frozen}
+                  onClick={() => toggles.onFreeze(id, !frozen)}
+                />
+                <ToggleButton
+                  icon={hidden ? 'eyeOff' : 'eye'}
+                  label={hidden ? 'Show' : 'Hide'}
+                  on={hidden}
+                  inherited={byGroup.hidden}
+                  onClick={() => toggles.onHide(id, !hidden)}
+                />
+              </>
+            )}
+          </div>
+        )
+      })}
     </div>
+  )
+}
+
+// The lock or the eye of a row — shown while the row is hovered, and always once it is on. Left out of the tab order:
+// the tree keeps the keyboard, and the plan's menu is the way there without a pointer.
+function ToggleButton({
+  icon,
+  label,
+  on,
+  inherited,
+  onClick,
+}: {
+  icon: IconName
+  label: string
+  on: boolean
+  inherited: boolean
+  onClick(): void
+}) {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      className={styles.toggle}
+      aria-label={label}
+      aria-pressed={on}
+      title={inherited && !on ? `${label} — its group already is` : label}
+      data-on={on || undefined}
+      data-inherited={(inherited && !on) || undefined}
+      onMouseDown={pressKeepingFocus}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <Icon name={icon} size={12} />
+    </button>
   )
 }
 

@@ -68,6 +68,17 @@ const GLYPHS = {
       <path d="M5.5 7V5.5a2.5 2.5 0 015 0V7" />
     </>
   ),
+  // A booked place — a bookmark, not the lock that freezes a layer.
+  booked: <path d="M4.5 2.5h7v11L8 11l-3.5 2.5z" />,
+  eye: (
+    <>
+      <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" />
+      <circle cx={8} cy={8} r={2} />
+    </>
+  ),
+  eyeOff: (
+    <path d="M2.5 2.5l11 11M6.6 4C7 3.7 7.5 3.5 8 3.5c4 0 6.5 4.5 6.5 4.5a12 12 0 01-1.9 2.4M10.5 11.9A5 5 0 018 12.5C4 12.5 1.5 8 1.5 8a12 12 0 012.7-3.1" />
+  ),
   // Actions
   undo: <path d="M6 3.5L3 6.5l3 3M3 6.5h6.5a3.5 3.5 0 010 7H7" />,
   redo: <path d="M10 3.5l3 3-3 3M13 6.5H6.5a3.5 3.5 0 000 7H9" />,

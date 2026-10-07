@@ -130,6 +130,46 @@
   color: var(--theme-muted);
 }
 
+.toggle {
+  display: none;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--theme-muted);
+  cursor: pointer;
+}
+
+.row:hover .toggle,
+.toggle[data-on],
+.toggle[data-inherited] {
+  display: grid;
+}
+
+.toggle:hover {
+  background: var(--theme-hover);
+  color: var(--theme-fg);
+}
+
+.toggle[data-on] {
+  color: var(--theme-fg);
+}
+
+.toggle[data-inherited] {
+  opacity: 0.45;
+}
+
+/* Hidden on the plan — the row stays, faded. */
+.row[data-hidden] .name,
+.row[data-hidden] .icon,
+.row[data-hidden] .meta {
+  opacity: 0.45;
+}
+
 .rename {
   flex: 1;
   min-width: 0;

@@ -551,7 +551,7 @@ function SelectionDesign({
 
       {holdsBooked && (
         <p className={styles.tip}>
-          <Icon name="lock" size={12} /> Holds a booked place — it can be moved and relabelled, but not deleted, and
+          <Icon name="booked" size={12} /> Holds a booked place — it can be moved and relabelled, but not deleted, and
           booked places keep their ids.
         </p>
       )}
@@ -715,7 +715,7 @@ function Head({
         {id !== undefined && id !== name && <code className={styles.code}>{id}</code>}
         {locked && (
           <span className={styles.locked} title="Holds a booked place">
-            <Icon name="lock" size={12} />
+            <Icon name="booked" size={12} />
           </span>
         )}
       </div>

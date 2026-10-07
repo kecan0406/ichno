@@ -130,6 +130,10 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
 - `ichno/editor`: an Alt-drag moves a copy and leaves the original (`PlanDrag.copy`, reported by the viewport while
   Alt is held), selecting the copies — a group as a new group. Duplicating the copies again repeats how far they were
   moved: duplicate, move the copy, ⌘D, and the next one lands as far on.
+- `ichno/editor`: `frozenIds` and `hiddenIds` — a layers panel's lock and eye, kept outside the document. Frozen
+  objects and groups (and a frozen group's members) are drawn but cannot be tapped, dragged, hovered, marqueed or
+  selected with ⌘A; a drag that starts on one draws a marquee. Hidden ones are also left out of `displayPlan` (and
+  so the viewport's plan); `conflictIds` still counts them. `setSelection` and `selectIds` select both.
 
 ## 0.2.1 — 2026-09-25
 
