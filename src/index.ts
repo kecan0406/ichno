@@ -39,6 +39,7 @@ export {
 export { TABLE_SEAT_GAP, layout } from './core/layout'
 export {
   DEFAULT_LINT_SEVERITY,
+  issueIdsOf,
   lintSeatPlan,
   type LintCode,
   type LintIssue,

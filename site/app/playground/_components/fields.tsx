@@ -218,6 +218,7 @@ export function SliderField({
   min,
   max,
   step,
+  onPreview,
   onCommit,
 }: {
   label: string
@@ -225,12 +226,19 @@ export function SliderField({
   min: number
   max: number
   step: number
+  // The value while the slider is dragged — null once it is let go.
+  onPreview?(next: number | null): void
   onCommit(next: number): void
 }) {
   const [draft, setDraft] = useState<number | null>(null)
   const shown = draft ?? value
+  function change(next: number) {
+    setDraft(next)
+    onPreview?.(next)
+  }
   function commit() {
     if (draft !== null && draft !== value) onCommit(draft)
+    else if (draft !== null) onPreview?.(null)
     setDraft(null)
   }
   return (
@@ -245,7 +253,7 @@ export function SliderField({
         max={max}
         step={step}
         value={shown}
-        onChange={(e) => setDraft(Number(e.currentTarget.value))}
+        onChange={(e) => change(Number(e.currentTarget.value))}
         onPointerUp={commit}
         onKeyUp={commit}
         onBlur={commit}

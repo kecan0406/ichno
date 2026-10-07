@@ -28,6 +28,14 @@ export const DEFAULT_LINT_SEVERITY: Record<LintCode, LintSeverity> = {
   empty_section: 'off',
 }
 
+// The objects an issue is about — what to select and zoom to. Schema issues (ichno/schema) and lint results name
+// them the same way, in `ids` or `id`; issues about a section or a category name none.
+export function issueIdsOf(issue: { code: string }): string[] {
+  if ('ids' in issue && Array.isArray(issue.ids)) return issue.ids.filter((id) => typeof id === 'string')
+  if ('id' in issue && typeof issue.id === 'string') return [issue.id]
+  return []
+}
+
 // Every enabled rule's findings, in rule order. `severity` overrides the defaults per code.
 export function lintSeatPlan(
   plan: SeatPlan<string>,

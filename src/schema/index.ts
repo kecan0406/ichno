@@ -7,6 +7,7 @@ import { SHAPES, type PlanRect } from '../core/types'
 // It refuses what would corrupt a stored document (broken references, ids that collide, geometry that cannot be
 // drawn). Softer problems — duplicate labels, places outside their section — are `lintSeatPlan` warnings.
 
+// Issues name the objects they are about in `ids` or `id` (`issueIdsOf` reads either) — keep it that way.
 export type SeatPlanIssue =
   | { code: 'duplicate_section'; sectionId: string }
   | { code: 'duplicate_category'; key: string }

@@ -74,8 +74,10 @@ export const seatPlan = {
   centerOf,
   outlineOf: outlineOfObject,
   boundsOf,
+  boundsOfIds,
   extentOf,
   frameOf,
+  orderAlong,
   contains,
   overlaps,
   conflictsOf,
@@ -253,6 +255,34 @@ function outlineOfObject(object: PlanObject): PlanPoint[] {
 // The axis-aligned rectangle around what an object draws — turned shapes included.
 function boundsOf(object: PlanObject): PlanRect {
   return boundsOfBox(object, shapeOf(object))
+}
+
+// What ids cover — each object's bounds, a group's members' — for zooming to what a list of problems or a search
+// points at. Unknown ids cover nothing.
+function boundsOfIds(plan: Pick<SeatPlan, 'objects' | 'groups'>, ids: readonly string[]): PlanRect[] {
+  return ids.flatMap((id) => {
+    const object = objectById(plan, id)
+    return (object ? [object] : groupById(plan, id) ? membersOf(plan, id) : []).map(boundsOf)
+  })
+}
+
+// Ids in the order their centres come along a direction (degrees clockwise from +x: 0 left to right, 90 top to
+// bottom) — a group by the centre of its frame. Label seats or rows in the order people read them, whatever order
+// the document holds them in. Ties keep the order given; unknown ids are left out.
+function orderAlong(plan: Pick<SeatPlan, 'objects' | 'groups'>, ids: readonly string[], degrees = 0): string[] {
+  const a = (degrees * Math.PI) / 180
+  const along = { x: Math.cos(a), y: Math.sin(a) }
+  return ids
+    .flatMap((id) => {
+      const group = objectById(plan, id) ? undefined : groupById(plan, id)
+      const box = group ? frameOf(membersOf(plan, id), group.rotation ?? 0) : (objectById(plan, id) ?? null)
+      if (!box) return []
+      const c = centerOf(box)
+      // Rounded, so centres level in that direction tie instead of being ordered by a trigonometric crumb.
+      return [{ id, at: Math.round((c.x * along.x + c.y * along.y) * 1000) / 1000 }]
+    })
+    .sort((p, q) => p.at - q.at)
+    .map((item) => item.id)
 }
 
 // The rectangle around several objects, or null when there are none.

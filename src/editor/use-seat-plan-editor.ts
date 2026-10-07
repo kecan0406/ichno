@@ -40,6 +40,9 @@ type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; fu
 // A new group made while adding — its props, or the id of one that exists.
 type GroupChoice = string | Omit<Group, 'id'>
 
+// A plan → plan change (null: nothing to change) — what `edit` commits and `preview` shows.
+type Edit<S extends string> = (current: SeatPlan<S>) => SeatPlan<S> | null
+
 // What the viewport reports about a stroke besides where it runs.
 type DrawInfo = { phase: 'start' | 'move' | 'end' | 'cancel'; constrain: boolean; fromCenter: boolean }
 
@@ -90,6 +93,9 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   // What a tap would select under the pointer.
   const [hovered, setHovered] = useState<EditorSelection<S> | null>(null)
   const [clipboard, setClipboard] = useState<Clip | null>(null)
+  // An edit shown but not committed (`preview`) — applied to the plan as it is, so undo and edits made meanwhile
+  // show through it.
+  const [previewing, setPreviewing] = useState<Edit<S> | null>(null)
   const locked = new Set(lockedIds)
   const grid = snap ?? null
 
@@ -122,8 +128,9 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
       return section ? [seatPlan.sectionBoundsOf(section)] : []
     }),
   ]
-  // The plan as drawn — the drag in progress applied with the snapping it will commit with.
-  const displayPlan = drag === null ? plan : planEdits.applyDrag(plan, drag, selectedIds, grid)
+  // The plan as drawn — the edit being previewed, and the drag in progress with the snapping it will commit with.
+  const shown = previewing === null ? plan : (previewing(plan) ?? plan)
+  const displayPlan = drag === null ? shown : planEdits.applyDrag(shown, drag, selectedIds, grid)
   // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it.
   const toolStroke = tool === null ? null : (stroke ?? (pointer === null ? null : { start: pointer, end: pointer }))
   const created = tool === null || toolStroke === null ? null : tool.create(plan, toolStroke)
@@ -158,7 +165,8 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
   // Every change goes through here: one undo step each, and the redo branch is dropped. An edit that changes
   // nothing (removing an empty selection, a drag that snaps back) leaves history — and the redo branch — alone.
   // Returns whether anything changed.
-  function apply(update: (current: SeatPlan<S>) => SeatPlan<S> | null): boolean {
+  function apply(update: Edit<S>): boolean {
+    setPreviewing(null)
     const h = historyRef.current
     const next = update(h.present)
     if (next === null || next === h.present || JSON.stringify(next) === JSON.stringify(h.present)) return false
@@ -227,6 +235,50 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
         return group === undefined || !groups.has(group)
       }),
     )
+  }
+
+  // Selects exactly these object and group ids — what a list of problems or a search points at.
+  function selectIds(ids: readonly string[]) {
+    const current = historyRef.current.present
+    setSelection(
+      ids.flatMap((id): EditorSelection<S>[] =>
+        seatPlan.groupById(current, id)
+          ? [{ kind: 'group', id }]
+          : seatPlan.objectById(current, id)
+            ? [{ kind: 'object', id }]
+            : [],
+      ),
+    )
+  }
+
+  // Selects the members of the selected groups, the rest staying selected (Enter). false when no group is selected.
+  function selectMembers(): boolean {
+    if (!selection.some((item) => item.kind === 'group')) return false
+    const current = historyRef.current.present
+    setSelection(
+      selection.flatMap((item) =>
+        item.kind === 'group'
+          ? seatPlan.membersOf(current, item.id).map((o) => ({ kind: 'object' as const, id: o.id }))
+          : [item],
+      ),
+    )
+    return true
+  }
+
+  // Selects the groups of the selected objects, the rest staying selected (⇧Enter). false when no selected object
+  // is in a group.
+  function selectGroups(): boolean {
+    const current = historyRef.current.present
+    const groupOf = (item: EditorSelection<S>) =>
+      item.kind === 'object' ? seatPlan.objectById(current, item.id)?.group : undefined
+    if (!selection.some((item) => groupOf(item) !== undefined)) return false
+    setSelection(
+      selection.map((item) => {
+        const group = groupOf(item)
+        return group === undefined ? item : { kind: 'group' as const, id: group }
+      }),
+    )
+    return true
   }
 
   function handleTap(target: PlanTarget<S> | null, info: { additive: boolean }) {
@@ -523,6 +575,9 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     select,
     selectAll,
     setSelection,
+    selectIds,
+    selectMembers,
+    selectGroups,
     isLocked: (id: string) => planEdits.isLocked(plan, id, locked),
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
@@ -561,7 +616,11 @@ export function useSeatPlanEditor<S extends string>({ initialPlan, lockedIds, sn
     // Changing.
     // Any plan → plan change as one undo step — compose `planEdits` and `layout` into a single edit (a row with
     // its labels, a table with its chairs). false when it changed nothing or returned null.
-    edit: (update: (current: SeatPlan<S>) => SeatPlan<S> | null) => apply(update),
+    edit: (update: Edit<S>) => apply(update),
+    // Shows an edit without committing it — while a slider is dragged or a value typed. It is applied to the plan as
+    // it is (undo and edits made meanwhile show through) and ends with the next edit, or `preview(null)`; `edit` the
+    // final value when the slider is let go. `displayPlan`, `conflictIds` and the outlines show it.
+    preview: (update: Edit<S> | null) => setPreviewing(() => update),
     updateObject: (id: string, update: (object: PlanObject<S>) => PlanObject<S>) =>
       apply((current) => ({ ...current, objects: current.objects.map((o) => (o.id === id ? update(o) : o)) })),
     updateGroup: (id: string, update: (group: Group) => Group) =>
@@ -728,10 +787,7 @@ export function useSeatPlanEditorShortcuts<S extends string>(
       return
     }
     if (e.key === 'Enter' && !answersEnter(e.target)) {
-      const next = e.shiftKey ? groupsOf(editor) : membersOf(editor)
-      if (next === null) return
-      e.preventDefault()
-      editor.setSelection(next)
+      if (e.shiftKey ? editor.selectGroups() : editor.selectMembers()) e.preventDefault()
       return
     }
     const arrow = ARROWS[e.key]
@@ -784,27 +840,6 @@ const ENTER_CONTROLS =
 
 function answersEnter(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(ENTER_CONTROLS) !== null
-}
-
-// The selection with each selected group swapped for its members — null when no group is selected.
-function membersOf<S extends string>(editor: SeatPlanEditor<S>): EditorSelection<S>[] | null {
-  if (!editor.selection.some((item) => item.kind === 'group')) return null
-  return editor.selection.flatMap((item) =>
-    item.kind === 'group'
-      ? seatPlan.membersOf(editor.plan, item.id).map((o) => ({ kind: 'object' as const, id: o.id }))
-      : [item],
-  )
-}
-
-// The selection with each grouped object swapped for its group — null when no selected object is in one.
-function groupsOf<S extends string>(editor: SeatPlanEditor<S>): EditorSelection<S>[] | null {
-  const groupOf = (item: EditorSelection<S>) =>
-    item.kind === 'object' ? seatPlan.objectById(editor.plan, item.id)?.group : undefined
-  if (!editor.selection.some((item) => groupOf(item) !== undefined)) return null
-  return editor.selection.map((item) => {
-    const group = groupOf(item)
-    return group === undefined ? item : { kind: 'group' as const, id: group }
-  })
 }
 
 // Whether a selection already holds an item — itself, or the group of a grouped object.

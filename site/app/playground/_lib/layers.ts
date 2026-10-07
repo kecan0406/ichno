@@ -35,20 +35,3 @@ export function layersOf(plan: SeatPlan<string>): Layer[] {
 export function keyOf(item: EditorSelection<string>): string {
   return `${item.kind}:${item.id}`
 }
-
-// The selection with each group swapped for its members — what Enter selects (ichno's shortcuts), for the menu.
-export function membersOf(plan: SeatPlan<string>, selection: readonly EditorSelection<string>[]) {
-  return selection.flatMap((item): EditorSelection<string>[] =>
-    item.kind === 'group'
-      ? plan.objects.flatMap((o) => (o.group === item.id ? [{ kind: 'object', id: o.id }] : []))
-      : [item],
-  )
-}
-
-// The selection with each grouped object swapped for its group — what ⇧Enter selects.
-export function groupsOf(plan: SeatPlan<string>, selection: readonly EditorSelection<string>[]) {
-  return selection.map((item): EditorSelection<string> => {
-    const group = item.kind === 'object' ? plan.objects.find((o) => o.id === item.id)?.group : undefined
-    return group === undefined ? item : { kind: 'group', id: group }
-  })
-}

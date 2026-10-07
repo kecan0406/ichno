@@ -1,15 +1,14 @@
 import {
+  issueIdsOf,
   lintSeatPlan,
-  seatPlan,
   upgradeSeatPlan,
   type LintCode,
   type LintSeverity,
-  type PlanRect,
   type SeatPlan,
   type SeatPlanV1,
   type SeatPlanV2,
 } from 'ichno'
-import { createSeatPlanSchema, seatPlanIssueOf, type SeatPlanIssue } from 'ichno/schema'
+import { createSeatPlanSchema, seatPlanIssueOf } from 'ichno/schema'
 import { blankPlan, roomPlan, venuePlan, venueSectionNames } from '../../_demo/plans'
 import { lintIssueText, planIssueText } from '../../_demo/messages'
 
@@ -65,7 +64,7 @@ export function checksOf(plan: SeatPlan<string>, lint: Record<LintCode, LintSeve
       const planIssue = seatPlanIssueOf(issue)
       checks.push(
         planIssue
-          ? { key: `schema-${i}`, severity: 'error', text: planIssueText(plan, planIssue), ids: idsOf(planIssue) }
+          ? { key: `schema-${i}`, severity: 'error', text: planIssueText(plan, planIssue), ids: issueIdsOf(planIssue) }
           : { key: `schema-${i}`, severity: 'error', text: `${issue.path.join('.')}: ${issue.message}`, ids: [] },
       )
     })
@@ -75,31 +74,10 @@ export function checksOf(plan: SeatPlan<string>, lint: Record<LintCode, LintSeve
       key: `lint-${i}`,
       severity: issue.severity,
       text: lintIssueText(plan, issue),
-      ids: 'ids' in issue ? issue.ids : 'id' in issue ? [issue.id] : [],
+      ids: issueIdsOf(issue),
     })
   })
   return checks
-}
-
-// The selection a set of ids stands for — a grouped object is picked by its group, the way a tap picks it.
-export function selectionOf(plan: SeatPlan<string>, ids: readonly string[]): string[] {
-  return [
-    ...new Set(
-      ids.flatMap((id) => {
-        if (seatPlan.groupById(plan, id)) return [id]
-        const object = seatPlan.objectById(plan, id)
-        return object ? [object.group ?? object.id] : []
-      }),
-    ),
-  ]
-}
-
-export function boundsOfIds(plan: SeatPlan<string>, ids: readonly string[]): PlanRect[] {
-  return ids.flatMap((id) => {
-    const members = seatPlan.groupById(plan, id) ? seatPlan.membersOf(plan, id) : []
-    const object = seatPlan.objectById(plan, id)
-    return (object ? [object] : members).map(seatPlan.boundsOf)
-  })
 }
 
 // Parses pasted or stored JSON with a schema built from the document's own section ids (the playground has no
@@ -209,18 +187,4 @@ function sectionIdsIn(input: unknown): string[] {
       ),
     ),
   ]
-}
-
-function idsOf(issue: SeatPlanIssue): string[] {
-  switch (issue.code) {
-    case 'overlap':
-      return [...issue.ids]
-    case 'duplicate_id':
-    case 'unknown_category':
-    case 'unknown_group':
-    case 'out_of_bounds':
-      return [issue.id]
-    default:
-      return []
-  }
 }

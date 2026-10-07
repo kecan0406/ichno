@@ -30,7 +30,6 @@ import { fixtureNames } from '../../_demo/plans'
 import {
   DEFAULT_LINT,
   PRESETS,
-  boundsOfIds,
   checksOf,
   copyDocument,
   downloadDocument,
@@ -248,11 +247,9 @@ export function Workspace({
 
   // Selects exactly what a check points at and brings it into view.
   function focus(ids: string[]) {
-    editor.setSelection(
-      ids.map((id): EditorSelection<string> => ({ kind: seatPlan.groupById(plan, id) ? 'group' : 'object', id })),
-    )
-    if (building) build.current?.zoomTo(boundsOfIds(plan, ids))
-    else map.zoomTo(boundsOfIds(plan, ids), 160)
+    editor.selectIds(ids)
+    if (building) build.current?.zoomTo(seatPlan.boundsOfIds(plan, ids))
+    else map.zoomTo(seatPlan.boundsOfIds(plan, ids), 160)
   }
 
   // A layers row renamed — the label people read, on a group or a place.

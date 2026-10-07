@@ -120,6 +120,13 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   `shape`, `capacity`, `role`, `category` or `tags` on many objects in one step — a group through its members, each
   on the objects that have it; `undefined` clears an optional one. Values the schema would refuse (a capacity below
   one, a padded role, an unknown category, an empty tag) are refused. New type `ObjectProps`.
+- `ichno`: `seatPlan.boundsOfIds(plan, ids)` — what objects and groups cover, to zoom to — and
+  `seatPlan.orderAlong(plan, ids, degrees)`, ids in the order they come along a direction (a group by its frame), to
+  label seats and rows the way people read them. `issueIdsOf(issue)` reads the objects a schema issue or a lint
+  result is about.
+- `ichno/editor`: `selectIds(ids)` selects exactly these object and group ids; `selectMembers()` and
+  `selectGroups()` are what Enter and ⇧Enter do, for menus. `preview(update)` shows an edit without committing it —
+  while a slider is dragged — applied to the plan as it is, until the next edit or `preview(null)`.
 
 ## 0.2.1 — 2026-09-25
 

@@ -2,7 +2,6 @@
 
 import type { PlanPoint } from 'ichno'
 import type { SeatPlanEditor } from 'ichno/editor'
-import { groupsOf, membersOf } from '../_lib/layers'
 import { Menu, MenuItem, MenuSeparator, type MenuPoint } from './menu'
 
 // The plan's right-click menu — what the keys do, found where the pointer is. Pasting lands where it opened.
@@ -64,10 +63,10 @@ export function CanvasMenu({
             Delete
           </MenuItem>
           <MenuSeparator />
-          <MenuItem keys="↵" disabled={!hasGroups} onSelect={() => editor.setSelection(membersOf(plan, selection))}>
+          <MenuItem keys="↵" disabled={!hasGroups} onSelect={editor.selectMembers}>
             Select members
           </MenuItem>
-          <MenuItem keys="⇧↵" disabled={!hasGrouped} onSelect={() => editor.setSelection(groupsOf(plan, selection))}>
+          <MenuItem keys="⇧↵" disabled={!hasGrouped} onSelect={editor.selectGroups}>
             Select group
           </MenuItem>
           <MenuItem keys="⌘G" onSelect={() => editor.groupSelected()}>

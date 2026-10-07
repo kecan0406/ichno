@@ -73,7 +73,10 @@ type PlanObject<S> =
 - **No grid in the document.** Coordinates are whole plan units; the editor snaps to a cell grid only when asked.
 
 `seatPlan.placesOf(plan)` lists the places; `seatPlan.membersOf(plan, groupId)` a group's objects;
-`seatPlan.boundsOf(object)`, `contains` and `overlaps` work on the turned shape.
+`seatPlan.boundsOf(object)`, `contains` and `overlaps` work on the turned shape. `seatPlan.boundsOfIds(plan, ids)` is
+what objects and groups cover (to zoom to), and `seatPlan.orderAlong(plan, ids, degrees)` puts them in the order they
+come along a direction — 0 left to right, 90 top to bottom — so seats and rows are labelled the way people read them,
+whatever order the document holds them in.
 
 ## Layouts
 
@@ -126,6 +129,10 @@ lintSeatPlan(plan, { empty_section: 'warning', missing_category: 'off' })
 
 Lint codes: `duplicate_label`, `outside_section`, `missing_category` (only in plans with categories) and
 `empty_section` (off by default).
+
+Schema issues and lint results name the objects they are about the same way, in `ids` or `id`; `issueIdsOf(issue)`
+reads them for either (none for an issue about a section or a category) — select them with the editor's `selectIds`
+and zoom to `seatPlan.boundsOfIds`.
 
 ## Selection rules
 
@@ -375,8 +382,11 @@ Operations take object and group ids alike — a group acts as one.
   would refuse are refused), `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
   `ungroupSelected`, `moveSection`, `reshapeSection`, `reorderSelected('front' | 'back' | 'forward' | 'backward')`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
+  `preview(plan => plan)` shows one without committing it — while a slider is dragged — applied to the plan as it is,
+  until the next edit or `preview(null)`; `edit` the final value when the slider is let go.
 - **Select:** `select(target, additive)` (what a tap selects), `selectAll()`, `setSelection(items)` (exactly these
-  objects, groups and sections — for a layers panel or a list of problems).
+  objects, groups and sections — for a layers panel), `selectIds(ids)` (exactly these object and group ids — for a
+  list of problems or a search), `selectMembers()` and `selectGroups()` (Enter and ⇧Enter).
 
 `objects` is the drawing order, later on top. `reorderSelected` moves the selection to the front or back, or a step
 past the next unit — a group as one, or an object outside one. Units stand in the order of their highest member, so

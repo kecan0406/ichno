@@ -594,6 +594,9 @@ function RowSection({ editor, group, locked, refused }: GroupSectionProps) {
         min={-1}
         max={1}
         step={0.05}
+        onPreview={(curve) =>
+          editor.preview(curve === null ? null : (current) => relayRow(current, group.id, { curve }, locked))
+        }
         onCommit={(curve) => editor.edit((current) => relayRow(current, group.id, { curve }, locked))}
       />
       <div className={controls.row}>
@@ -789,10 +792,16 @@ function rotationOf(plan: SeatPlan<string>, item: Item): number {
   return Math.round(object && object.kind !== 'label' ? (object.rotation ?? 0) : 0)
 }
 
-// What the label buttons of a selection number — its groups when it holds any, else its places.
+// What the label buttons of a selection number, in the order people read them — its groups when it holds any, from
+// the front row back, else its places from left to right, both the way their groups face.
 function labelTargets(editor: Editor, places: readonly { id: string }[]): string[] {
+  const plan = editor.plan
   const groups = editor.selection.flatMap((item) => (item.kind === 'group' ? [item.id] : []))
-  return groups.length > 0 ? groups : ids(places)
+  const targets = groups.length > 0 ? groups : ids(places)
+  const facing =
+    shared(targets.map((id) => seatPlan.groupById(plan, seatPlan.objectById(plan, id)?.group ?? id)?.rotation ?? 0)) ??
+    0
+  return seatPlan.orderAlong(plan, targets, groups.length > 0 ? facing + 90 : facing)
 }
 
 // Positions typed into the fields stay within reach of any plan.

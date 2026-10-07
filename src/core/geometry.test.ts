@@ -234,6 +234,23 @@ describe('turned shapes', () => {
     ])
     expect(seatPlan.conflictsOf(plan)).toEqual([['A1', 'A2']])
   })
+
+  it('orders ids along a direction — groups by their frame, level ties in the order given', () => {
+    const plan = planOf(
+      [
+        place('A3', 'A', 200, 0, { group: 'r1' }),
+        place('A1', 'A', 0, 0, { group: 'r1' }),
+        place('A2', 'A', 100, 0),
+        place('B1', 'A', 0, 300, { group: 'r2' }),
+      ],
+      [{ id: 'r1' }, { id: 'r2' }],
+    )
+    expect(seatPlan.orderAlong(plan, ['A3', 'A1', 'A2'])).toEqual(['A1', 'A2', 'A3'])
+    expect(seatPlan.orderAlong(plan, ['A3', 'A1', 'A2'], 180)).toEqual(['A3', 'A2', 'A1'])
+    // Top to bottom: the seats share a level, so they keep the order given.
+    expect(seatPlan.orderAlong(plan, ['A3', 'A1', 'A2'], 90)).toEqual(['A3', 'A1', 'A2'])
+    expect(seatPlan.orderAlong(plan, ['r2', 'missing', 'r1'], 90)).toEqual(['r1', 'r2'])
+  })
 })
 
 describe('sections', () => {
