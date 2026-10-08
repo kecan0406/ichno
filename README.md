@@ -384,9 +384,9 @@ standard size. `create` runs for every preview — keep it pure. `stroke` is the
 guide), `pointer` where a tap would draw — with `draft` null there, the tool can make nothing at that spot (say
 why). While a tool is active the handles hide; Escape drops the stroke, then the tool.
 
-The playground builds a full set this way — rows (a seat every step, lettered, with labels at both ends), blocks of
-rows, round and oval tables, desks with chairs, booths, standing areas sized by their floor, walls along a line — and
-grows a row or a table while keeping its numbering: [`site/app/playground/_lib/build.ts`](https://github.com/kecan0406/ichno/blob/main/site/app/playground/_lib/build.ts).
+The playground builds its own this way — one place or fixture each (seats, desks, booths, standing areas sized by
+their floor, tables, walls along a line) — and lays out a group it reads as a row or a table again while keeping its
+numbering: [`site/app/playground/_lib/build.ts`](https://github.com/kecan0406/ichno/blob/main/site/app/playground/_lib/build.ts).
 Copy what fits; it is yours to change, not part of ichno.
 
 ### Handles of your own

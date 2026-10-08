@@ -322,11 +322,13 @@ export const hallPlan: SeatPlan<HallSection> = assemble<HallSection>(
   ],
 )
 
-export const blankPlan: SeatPlan<'A'> = {
+// The playground's empty document: no section and nothing in it — sections are drawn first, then what goes in them.
+// The categories are listed because the playground has no way to add one.
+export const emptyPlan: SeatPlan<string> = {
   version: 3,
   width: 1380,
   height: 828,
-  sections: [{ id: 'A', points: rect(0, 0, 1380, 828) }],
+  sections: [],
   categories: [{ key: 'premium' }, { key: 'standard' }, { key: 'access', accessible: true }],
   groups: [],
   objects: [],

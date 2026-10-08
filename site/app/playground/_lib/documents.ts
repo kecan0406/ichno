@@ -9,7 +9,7 @@ import {
   type SeatPlanV2,
 } from 'ichno'
 import { createSeatPlanSchema, seatPlanIssueOf } from 'ichno/schema'
-import { blankPlan, hallPlan, roomPlan } from '../../_demo/plans'
+import { emptyPlan, hallPlan } from '../../_demo/plans'
 import { lintIssueText, planIssueText } from '../../_demo/messages'
 
 // What the playground edits: a document with a name to show for it, the names it shows for its sections, and the
@@ -28,14 +28,9 @@ export const PRESETS: { id: string; name: string; workbench: Workbench }[] = [
     workbench: { name: 'Hall', plan: hallPlan, sectionNames: { H: 'Hall' }, booked: ['A5', 'A6'] },
   },
   {
-    id: 'room',
-    name: 'Room',
-    workbench: { name: 'Room', plan: roomPlan, sectionNames: { R: 'Room' }, booked: ['R5'] },
-  },
-  {
-    id: 'blank',
-    name: 'Blank floor',
-    workbench: { name: 'Blank floor', plan: blankPlan, sectionNames: { A: 'Floor' }, booked: [] },
+    id: 'empty',
+    name: 'Empty',
+    workbench: { name: 'Empty', plan: emptyPlan, sectionNames: {}, booked: [] },
   },
 ]
 

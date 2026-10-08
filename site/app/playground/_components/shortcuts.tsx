@@ -10,7 +10,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['V', 'Select'],
       ['H', 'Hand — drag to pan'],
       ['P  F  S', 'Draw a place, a fixture, a section — ichno’s primitives'],
-      ['1 – 6', 'Row, seat block, round table, desk, booth, standing area — the playground’s assets'],
+      ['1 – 5', 'Seat, desk, sofa, booth, standing area — the playground’s assets'],
       ['⇧I', 'Assets'],
       ['Q', 'Keep the tool after placing'],
       ['Esc', 'Drop the drawing, drag or marquee under way, put the tool down, then clear the selection'],

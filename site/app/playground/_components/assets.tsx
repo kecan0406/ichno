@@ -10,9 +10,9 @@ import controls from './controls.module.css'
 import { Icon } from './icons'
 import styles from './assets.module.css'
 
-// The assets panel — what this playground made in advance and what you saved, side by side and drawn the same way,
-// because they are the same thing: ichno places, fixtures and groups someone put together (like components in a
-// design tool). Picking one places it on the plan.
+// The assets panel — this playground's own objects (one place or fixture each) and what you saved, drawn the same
+// way, because they are the same thing: ichno objects someone put together (like components in a design tool).
+// Picking one places it on the plan.
 
 type Props = {
   objects: readonly PlaygroundObject[]
@@ -43,7 +43,7 @@ export function AssetsPanel({
   const matches = (name: string) => name.toLowerCase().includes(query.trim().toLowerCase())
   const shelf = (name: PlaygroundObject['shelf']) =>
     objects.filter((object) => object.shelf === name && matches(object.name))
-  const seating = shelf('seating')
+  const places = shelf('places')
   const fixtures = shelf('fixtures')
   const yours = saved.filter((object) => matches(object.name))
 
@@ -65,14 +65,14 @@ export function AssetsPanel({
           Playground objects
         </h2>
         <p className={styles.note}>
-          Made in advance for this playground out of ichno’s places, fixtures and groups — an app makes its own the same
-          way.
+          One ichno place or fixture each, with a role this playground gave it — an app makes its own the same way.
+          Group them into rows and tables yourself (⌘G).
         </p>
-        {seating.length > 0 && (
+        {places.length > 0 && (
           <>
-            <h3 className={styles.subheading}>Seating</h3>
+            <h3 className={styles.subheading}>Places</h3>
             <ul className={styles.cards}>
-              {seating.map((object) => (
+              {places.map((object) => (
                 <li key={object.id}>
                   <AssetCard
                     name={object.name}
@@ -104,7 +104,7 @@ export function AssetsPanel({
             </ul>
           </>
         )}
-        {seating.length + fixtures.length === 0 && <p className={styles.note}>No playground object matches.</p>}
+        {places.length + fixtures.length === 0 && <p className={styles.note}>No playground object matches.</p>}
       </section>
       <section className={styles.shelf} aria-labelledby="your-objects">
         <h2 id="your-objects" className={styles.heading}>
@@ -189,7 +189,7 @@ function AssetCard({
 const THUMB = { w: 44, h: 32 }
 const SMALL = { w: 30, h: 22 }
 
-// An asset drawn small — the same parts as the plan, with labels too small to read left out.
+// An asset drawn small — the same parts as the plan, without text.
 export function Thumbnail({ template, size }: { template: PlanTemplate; size: { w: number; h: number } }) {
   const { plan, view } = previewOf(template)
   return (
@@ -204,15 +204,11 @@ export function Thumbnail({ template, size }: { template: PlanTemplate; size: { 
       <SeatMap.Content
         plan={plan}
         scale={Math.min(size.w / view.w, size.h / view.h)}
-        fixtureLabel={noLabel}
+        minLabelPx={Infinity}
         fixtureVariant={thumbVariant}
       />
     </SeatMap.Root>
   )
-}
-
-function noLabel(): null {
-  return null
 }
 
 function thumbVariant(fixture: Fixture): 'box' | 'wall' {

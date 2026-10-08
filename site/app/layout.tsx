@@ -18,7 +18,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // Browser extensions (e.g. an HWP viewer) stamp attributes on <html> before hydration.
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link
           rel="stylesheet"

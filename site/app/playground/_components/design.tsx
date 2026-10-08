@@ -441,7 +441,20 @@ function SelectionDesign({
               })
             }
           />
-          <ReadOnly label="Role">{group.role ?? '—'}</ReadOnly>
+          <TextField
+            label="Role"
+            value={group.role ?? ''}
+            placeholder="None"
+            onCommit={(next) =>
+              editor.updateGroup(group.id, (current) => {
+                const { role: _, ...rest } = current
+                return next ? { ...rest, role: next } : rest
+              })
+            }
+          />
+          <p className={controls.hint}>
+            The playground lays out a <code>row</code> again from its seats and a <code>table</code> round its top.
+          </p>
         </Section>
       )}
 
