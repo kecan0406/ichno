@@ -100,10 +100,10 @@ export type PlanHandle<S extends string = string> = {
 
 // A drag of a target, reported by viewports while it moves. `total` is the movement since the drag started, in
 // plan units. `constrain` is set while Shift is held: a move keeps to one axis, a turn steps by 15°, a corner keeps
-// the proportions. `copy` is set while Alt is held: a move leaves what it drags where it was and moves a copy.
-// `pixel` is how many plan units a screen pixel spans as the drag is reported — for tolerances that should feel the
-// same at any zoom (a vertex dropped on its neighbour merges with it). `free` is set while ⌘ or Ctrl is held: smart
-// guides let go.
+// the proportions. `copy` is set while Alt is held: a move leaves what it drags where it was and moves a copy, and
+// the middle of a section's edge adds a vertex rather than pushing the edge. `pixel` is how many plan units a screen
+// pixel spans as the drag is reported — for tolerances that should feel the same at any zoom (a vertex dropped on its
+// neighbour merges with it). `free` is set while ⌘ or Ctrl is held: smart guides let go.
 export type PlanDrag<S extends string = string> = {
   target: PlanTarget<S>
   phase: 'start' | 'move' | 'end'

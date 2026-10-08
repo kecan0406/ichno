@@ -183,11 +183,44 @@ describe('planHandles.drag', () => {
     expect(plan.sections[0]!.points[1]).toEqual({ x: 920, y: 0 })
   })
 
-  it('adds a vertex from the middle of an edge, and merges one dropped near its neighbour while three remain', () => {
+  it('pushes an edge straight out or in with both its corners, a step short of the far side and inside the plan', () => {
+    const section = { kind: 'section' as const, id: 'A' as const }
+    const right = (plan: SeatPlan<S>) => plan.sections[0]!.points.slice(1, 3)
+    // The right edge runs down x = 920; dragged 40 right (and a little down) it lands on the next cell line.
+    expect(right(planHandles.drag(planOf([]), section, 'edge-1', { x: 40, y: 13 }, snap))).toEqual([
+      { x: 966, y: 0 },
+      { x: 966, y: 690 },
+    ])
+    // It stops at the plan's edge (1012), and a cell short of the left edge (x = 0).
+    expect(right(planHandles.drag(planOf([]), section, 'edge-1', { x: 500, y: 0 }, snap))[0]).toEqual({ x: 1012, y: 0 })
+    expect(right(planHandles.drag(planOf([]), section, 'edge-1', { x: -2000, y: 0 }, snap))[0]).toEqual({ x: 46, y: 0 })
+    // A slanted edge goes by whole units, off the grid.
+    const triangle = [
+      { x: 0, y: 0 },
+      { x: 400, y: 0 },
+      { x: 0, y: 400 },
+    ]
+    const slanted = planHandles.drag({ ...planOf([]), sections: [{ id: 'A', points: triangle }] }, section, 'edge-1', {
+      x: 30,
+      y: 30,
+    })
+    expect(slanted.sections[0]!.points).toEqual([triangle[0], { x: 430, y: 30 }, { x: 30, y: 430 }])
+  })
+
+  it('takes the loose fixtures standing against a pushed edge along — a door in its wall, not furniture in the room', () => {
+    const section = { kind: 'section' as const, id: 'A' as const }
+    const door: Fixture = { kind: 'fixture', id: 'door-1', shape: 'rect', role: 'door', x: 897, y: 300, w: 23, h: 92 }
+    const pillar: Fixture = { ...door, id: 'pillar-1', role: 'pillar', x: 800 }
+    const chair: Fixture = { ...door, id: 'chair-1', role: 'chair', y: 500, group: 'g' }
+    const pushed = planHandles.drag(planOf([door, pillar, chair], [{ id: 'g' }]), section, 'edge-1', { x: 46, y: 0 })
+    expect(pushed.objects.map((o) => o.x)).toEqual([943, 800, 897])
+  })
+
+  it('adds a vertex from the middle of an edge with Alt, and merges one dropped near its neighbour while three remain', () => {
     const section = { kind: 'section' as const, id: 'A' as const }
     const square = planOf([]).sections[0]!.points
-    // The top edge runs from (0, 0) to (920, 0); its middle pulled down 40 adds a vertex there.
-    const peaked = planHandles.drag(planOf([]), section, 'edge-0', { x: 0, y: 40 })
+    // The top edge runs from (0, 0) to (920, 0); its middle pulled down 40 with Alt adds a vertex there.
+    const peaked = planHandles.drag(planOf([]), section, 'edge-0', { x: 0, y: 40 }, null, false, 0, true)
     expect(peaked.sections[0]!.points).toEqual([square[0], { x: 460, y: 40 }, ...square.slice(1)])
     // Dropped 5 units from (920, 0): at 2 units a pixel that is 2.5 px and it merges; at 0.5 a pixel it is 10 px.
     const back = { x: 455, y: -40 }

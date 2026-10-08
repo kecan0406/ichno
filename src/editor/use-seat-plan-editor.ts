@@ -23,7 +23,16 @@ import type {
 } from '../core/types'
 import { planGuides } from './guides'
 import { alongAxis, planHandles, type EditorHandles } from './handles'
-import { planEdits, type AlignEdge, type GroupMembers, type ObjectProps, type Reorder, type Snap } from './operations'
+import {
+  moveSections,
+  planEdits,
+  sectionContents,
+  type AlignEdge,
+  type GroupMembers,
+  type ObjectProps,
+  type Reorder,
+  type Snap,
+} from './operations'
 import type { EditorSelection } from './selection'
 import { KEY_SEPARATOR, changedKey, idsKey, onlyIds, overlapsOf, overlapsWith, withoutIds } from './moving'
 import { strokeOf, type EditorTool } from './tools'
@@ -197,13 +206,23 @@ export function useSeatPlanEditor<S extends string>({
   const stillPlan = useShownPlan(still.part ?? moved, hiddenIds)
   const movingPart = movingKey ? onlyIds(moved, movingKey) : null
   const movingPlan = movingPart === null || hidden.size === 0 ? movingPart : withoutHidden(movingPart, hidden)
-  // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it.
+  // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it. A
+  // polygon tool's stroke is a rectangle while one is dragged out (see `handleDraw`).
   const toolStroke =
     tool === null
       ? null
       : tool.draw === 'polygon'
-        ? polygonStroke(corners, pointer)
+        ? stroke === null
+          ? polygonStroke(corners, pointer)
+          : rectangleOf(stroke)
         : (stroke ?? (pointer === null ? null : { start: pointer, end: pointer }))
+  // The stroke as drawn over the plan — a dragged rectangle closed.
+  const drawnStroke =
+    tool?.draw === 'polygon'
+      ? toolStroke && stroke !== null
+        ? { ...toolStroke, points: [...(toolStroke.points ?? []), toolStroke.start] }
+        : toolStroke
+      : stroke
   const created = tool === null || toolStroke === null ? null : tool.create(plan, toolStroke)
   // Only the new objects (and the groups they belong to), as a plan without sections — draw it over the plan,
   // e.g. half transparent. null when the tool would make nothing there.
@@ -538,47 +557,6 @@ export function useSeatPlanEditor<S extends string>({
     setHovered((current) => (current === item || (current && item && sameSelection(current, item)) ? current : item))
   }
 
-  // A stroke drawn with the tool — previewed while it moves, made when it is let go (a tap makes one too). With a
-  // polygon tool every stroke places a corner where it is let go.
-  function handleDraw(raw: PlanStroke, info: DrawInfo) {
-    if (tool === null) return
-    if (info.phase === 'cancel') {
-      pressRef.current = null
-      setStroke(null)
-      return
-    }
-    // A tap is a stroke with no `start` — only its end is reported.
-    if (!pressing('stroke', info.phase)) return
-    if (tool.draw === 'polygon') {
-      const corner = cornerAt(raw.end, info.constrain)
-      const at = info.constrain ? corner : guided(corner, info.pixel, info.free)
-      if (info.phase === 'end') addCorner(at, raw.end, info.pixel ?? 0)
-      else setPointer(at)
-      return
-    }
-    // Unconstrained ends line up with the guides; a box or line drawn from its centre keeps its start where it is.
-    const drawn = strokeOf(tool.draw, raw.start, raw.end, info, grid)
-    const shaped =
-      info.constrain || guideTargets === null || info.free
-        ? drawn
-        : {
-            start: info.fromCenter ? drawn.start : guided(drawn.start, info.pixel),
-            end: guided(drawn.end, info.pixel),
-          }
-    if (info.phase !== 'end') {
-      setStroke(shaped)
-      return
-    }
-    setStroke(null)
-    // The pointer is still where the tap was — no preview of the next one on top of what was just made.
-    setPointer(null)
-    const before = historyRef.current.present
-    const next = tool.create(before, shaped)
-    if (next === null || !apply(() => next)) return
-    setChosen(addedSelection(before, next))
-    if (!tool.keep) setToolState(null)
-  }
-
   // Where a polygon's next corner goes for the pointer at `point` — snapped, and with Shift held on a 15° step from
   // the last corner.
   function cornerAt(point: PlanPoint, constrain: boolean): PlanPoint {
@@ -631,6 +609,65 @@ export function useSeatPlanEditor<S extends string>({
     if (placed === null || placed.length === 0) return false
     setCorners(placed.length > 1 ? placed.slice(0, -1) : null)
     return true
+  }
+
+  // Places the next corner of the polygon being drawn exactly at `point` — one typed in rather than tapped — closing
+  // the polygon when that is its first corner (or the last one again). false when no polygon tool is active.
+  function addPoint(point: PlanPoint): boolean {
+    if (tool === null || tool.draw !== 'polygon') return false
+    addCorner(point, point, 0)
+    return true
+  }
+
+  // A stroke drawn with the tool — previewed while it moves, made when it is let go (a tap makes one too). With a
+  // polygon tool every stroke places a corner where it is let go, except a drag before the first corner: that draws
+  // a rectangle (Shift: a square), made with its four corners.
+  function handleDraw(raw: PlanStroke, info: DrawInfo) {
+    if (tool === null) return
+    if (info.phase === 'cancel') {
+      pressRef.current = null
+      setStroke(null)
+      return
+    }
+    // A tap is a stroke with no `start` — only its end is reported — so a press that started is a drag.
+    const rectangle =
+      tool.draw === 'polygon' &&
+      cornersRef.current === null &&
+      (info.phase === 'start' || pressRef.current?.kind === 'stroke')
+    if (!pressing('stroke', info.phase)) return
+    if (tool.draw === 'polygon' && !rectangle) {
+      const corner = cornerAt(raw.end, info.constrain)
+      const at = info.constrain ? corner : guided(corner, info.pixel, info.free)
+      if (info.phase === 'end') addCorner(at, raw.end, info.pixel ?? 0)
+      else setPointer(at)
+      return
+    }
+    // Unconstrained ends line up with the guides; a box or line drawn from its centre keeps its start where it is.
+    const drawn = strokeOf(rectangle ? 'box' : tool.draw, raw.start, raw.end, info, grid)
+    const shaped =
+      info.constrain || guideTargets === null || info.free
+        ? drawn
+        : {
+            start: info.fromCenter ? drawn.start : guided(drawn.start, info.pixel),
+            end: guided(drawn.end, info.pixel),
+          }
+    if (info.phase !== 'end') {
+      setStroke(shaped)
+      return
+    }
+    setStroke(null)
+    // The pointer is still where the tap was — no preview of the next one on top of what was just made.
+    setPointer(null)
+    // A rectangle with no width or height is a corner where it was let go, as a tap places one.
+    if (rectangle && (shaped.start.x === shaped.end.x || shaped.start.y === shaped.end.y)) {
+      addCorner(info.constrain ? shaped.end : guided(shaped.end, info.pixel, info.free), raw.end, info.pixel ?? 0)
+      return
+    }
+    const before = historyRef.current.present
+    const next = tool.create(before, rectangle ? rectangleOf(shaped) : shaped)
+    if (next === null || !apply(() => next)) return
+    setChosen(addedSelection(before, next))
+    if (!tool.keep) setToolState(null)
   }
 
   // Picks a creation tool, or goes back to selecting with null. A stroke or a polygon being drawn is dropped — with
@@ -877,18 +914,20 @@ export function useSeatPlanEditor<S extends string>({
     tool,
     setTool,
     // The stroke being drawn, snapped and constrained — draw it as a guide if you like; a polygon's corners with the
-    // pointer. null between strokes.
-    stroke: tool?.draw === 'polygon' ? toolStroke : stroke,
+    // pointer, or the rectangle being dragged out (closed). null between strokes.
+    stroke: drawnStroke,
     draft,
     // Where a tap would draw while a tool is active, or null when the pointer is off the plan. With `draft` null
     // it says the tool can make nothing there — tell people why.
     pointer,
     // Drops the stroke, drag or marquee under way, and the polygon being drawn (Escape); false when there is none.
     cancel,
-    // A polygon tool's corners so far — Enter closes it (`closePolygon`), Backspace takes one back (`removePoint`).
+    // A polygon tool's corners so far — Enter closes it (`closePolygon`), Backspace takes one back (`removePoint`),
+    // `addPoint` places one exactly where you say.
     corners,
     closePolygon,
     removePoint,
+    addPoint,
 
     // Creating — each returns the new ids and selects what it made (an empty list when nothing could be added).
     addPlaces,
@@ -941,14 +980,16 @@ export function useSeatPlanEditor<S extends string>({
     rotateSelected: (degrees: number) => apply((current) => planEdits.rotate(current, selectedIds, degrees)),
     // Moves the selection in the drawing order — to the front or back, or a step forward or backward.
     reorderSelected: (to: Reorder) => apply((current) => planEdits.reorder(current, selectedIds, to)),
-    // Moves the selection — objects, groups and sections — by `delta`, snapped like a drag.
+    // Moves the selection — objects, groups and sections with what stands in them — by `delta`, snapped like a drag.
+    // What a selected section carries moves once, with it.
     moveSelected: (delta: PlanPoint) =>
-      apply((current) =>
-        selectedSectionIds.reduce(
-          (next, id) => planEdits.moveSection(next, id, delta, grid),
-          planEdits.move(current, selectedIds, delta, grid),
-        ),
-      ),
+      apply((current) => {
+        const carried = new Set(selectedSectionIds.flatMap((id) => sectionContents(current, id)))
+        const own = selectedIds.filter(
+          (id) => !carried.has(id) && !carried.has(seatPlan.objectById(current, id)?.group ?? ''),
+        )
+        return planEdits.move(moveSections(current, selectedSectionIds, delta, grid), own, delta, grid)
+      }),
     moveSection: (id: S, delta: PlanPoint) => apply((current) => planEdits.moveSection(current, id, delta, grid)),
     // Adds a section and selects it. false when its id is taken or it has fewer than three corners.
     addSection: (section: Section<S>) => {
@@ -991,7 +1032,7 @@ export function useSeatPlanEditor<S extends string>({
       handles,
       frame,
       marquee,
-      stroke: tool?.draw === 'polygon' ? toolStroke : stroke,
+      stroke: drawnStroke,
       draw: tool?.draw,
       guides: dragResult?.guides ?? strokeGuides,
     },
@@ -1247,6 +1288,11 @@ function polygonStroke(corners: readonly PlanPoint[] | null, pointer: PlanPoint 
   const points = [...(corners ?? []), ...(pointer === null ? [] : [pointer])]
   const [start] = points
   return start === undefined ? null : { start, end: points.at(-1)!, points }
+}
+
+// A rectangle's four corners, from the start of the stroke that drew it, as a polygon tool's stroke.
+function rectangleOf({ start, end }: PlanStroke): PlanStroke {
+  return { start, end, points: [start, { x: end.x, y: start.y }, end, { x: start.x, y: end.y }] }
 }
 
 function samePoint(a: PlanPoint | null, b: PlanPoint | null): boolean {

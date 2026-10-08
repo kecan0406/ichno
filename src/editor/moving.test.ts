@@ -55,7 +55,12 @@ describe('the moving part of a drag', () => {
       objects: [{ id: 'R1', y: 146 }, { id: 'R2' }, { id: 'R3' }],
     })
     expect(changedKey(plan, plan)).toBe('')
-    expect(changedKey(plan, planEdits.moveSection(plan, 'A', { x: 10, y: 0 }))).toBeNull()
+    const reshaped = planEdits.reshapeSection(plan, 'A', [
+      { x: 0, y: 0 },
+      { x: 900, y: 0 },
+      { x: 1000, y: 1000 },
+    ])
+    expect(changedKey(plan, reshaped)).toBeNull()
     // Gone objects count as changed.
     expect(changedKey(plan, planEdits.remove(plan, ['L1']).plan)).toBe('L1')
   })

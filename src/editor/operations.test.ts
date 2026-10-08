@@ -167,6 +167,32 @@ describe('planEdits — groups, removing and renaming', () => {
     expect(planEdits.addSection(gone, { id: 'A', points: rect(1100, 900, 50, 50) })).toBeNull()
   })
 
+  it('moves a section with what stands in it, its outline whole and held inside the plan with what it carries', () => {
+    // Section A is x 0–506: the row, a stage inside it and a chair grouped with a seat of A but standing in B.
+    const { plan: rowed } = withRow(planOf([desk('B1', 600, 2, { section: 'B' })]))
+    const plan = {
+      ...rowed,
+      groups: [...rowed.groups, { id: 'pair' }],
+      objects: [
+        ...rowed.objects,
+        { kind: 'fixture' as const, id: 'stage', shape: 'rect' as const, x: 100, y: 600, w: 200, h: 100 },
+        { kind: 'fixture' as const, id: 'pillar', shape: 'rect' as const, x: 800, y: 600, w: 40, h: 40 },
+        { ...desk('A9', 300, 100), group: 'pair' },
+        { kind: 'fixture' as const, id: 'chair', shape: 'rect' as const, x: 700, y: 300, w: 40, h: 40, group: 'pair' },
+      ],
+    }
+    const moved = planEdits.moveSection(plan, 'A', { x: 30, y: 0 }, { cell: 46 })
+    expect(moved.sections[0]!.points).toEqual(rect(46, 0, 506, 828))
+    // B1 stays; the row, the stage, A9 and its chair go a cell right; the pillar in B stays.
+    expect(xs(moved)).toEqual([600, 72, 210, 348, 486, 146, 800, 346, 746])
+    expect(seatPlan.objectById(moved, 'A9')).toMatchObject({ section: 'A' })
+    // Against the plan's edge it stops, shape and all: what it carries reaches 740, so it goes 272 at most.
+    const far = planEdits.moveSection(plan, 'A', { x: 600, y: 0 })
+    expect(far.sections[0]!.points).toEqual(rect(272, 0, 506, 828))
+    expect(seatPlan.objectById(far, 'chair')).toMatchObject({ x: 972 })
+    expect(planEdits.moveSection(plan, 'A', { x: -100, y: 0 })).toBe(plan)
+  })
+
   it('renames a group and its members follow; refuses locked, taken and unsavable ids', () => {
     const { plan } = withRow(planOf([desk('D1', 600, 2)]))
     const renamed = planEdits.rename(plan, 'row-1', 'front')!

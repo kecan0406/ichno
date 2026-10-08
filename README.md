@@ -289,17 +289,22 @@ const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, c
 Tapping a grouped object selects its group; tapping it again selects the object alone (shift/⌘ adds to the
 selection). Dragging moves the selection with the snapping the commit will use — with Shift along one axis, with
 Alt a copy, leaving the original (`PlanDrag.copy`).
-Dragging empty floor draws a marquee that selects everything it touches; a selected section moves instead. Space
+Dragging empty floor draws a marquee that selects everything it touches; a selected section moves instead, with what
+stands in it — its places, every group holding one (whole) and the loose fixtures inside its outline — keeping its
+shape against the plan's edge. Space
 and the middle mouse button pan. `cancel()` (Escape) drops the drag, marquee or stroke under way — what was
 dragged goes back and letting go changes nothing. Nothing stops you from dragging one place onto another; `conflictIds` lists the
 places that overlap (the same check the schema runs on save) so you can mark them while arranging. A single
 selected item shows handles: an object resizes from its corners (in its own turned frame; Shift keeps its
 proportions) and turns from the knob above it (Shift: 15° steps), a group turns as one about the centre of its
 frame — the box around its members in the direction the group faces (`group.rotation`), which turns with it, so the
-centre stays put turn after turn — and a section's vertices reshape it: drag the middle of an edge to add a vertex,
-drop a vertex on its neighbour to take it away. Several selected items show one knob above the box around them that
+centre stays put turn after turn — and a section's handles reshape it: drag a vertex to move it (drop it on its
+neighbour to take it away), the middle of an edge to push that wall straight out or in — the loose fixtures standing
+against it, a door in its wall, go along — or the middle with Alt to add a vertex there. Several selected items show
+one knob above the box around them that
 turns them together about the middle of their centres, as `rotateSelected` does (its owner is
-`{ kind: 'selection' }`). `frame` outlines the selected object or group, or the box around several; corner handles carry their turned `angle` so `SeatMap.Handles` shows matching resize cursors. `frames`
+`{ kind: 'selection' }`). `frame` outlines the selected object or group, or the box around several; corner and edge
+handles carry the `angle` they resize along, so `SeatMap.Handles` shows matching resize cursors. `frames`
 outlines every selected item and `hoverFrame` what a tap would select, so fixtures and groups show they are
 selected too. `SeatMap.EditorOverlay` draws all of it in order — the selection's outlines, the hover outline, the
 handles, the marquee and a tool's stroke — from `overlayProps`; draw the pieces yourself with `SeatMap.Outline`,
@@ -377,8 +382,9 @@ const row: EditorTool<'hall'> = {
 `draw` is `box` (a rectangle between the press and the pointer; Shift keeps it square), `line` (Shift keeps it to
 15° steps), `point` (only where the pointer is — a stamp) or `polygon` (a corner at every tap, Shift keeping the edge
 to 15° steps; tapping the first corner, or the last one again, or Enter closes it, Backspace takes a corner back,
-Escape drops it — `create` gets the corners in `stroke.points`, and `corners`, `closePolygon` and `removePoint` are
-on the editor); Alt draws a box or a line from its centre. Strokes snap
+Escape drops it; a drag before the first corner draws a rectangle instead, Shift a square — `create` gets the corners
+in `stroke.points`, and `corners`, `closePolygon`, `removePoint` and `addPoint` (a corner exactly where you say, for
+a typed length) are on the editor); Alt draws a box or a line from its centre. Strokes snap
 like everything else. A tap is a stroke with no length, so one tool both draws at any size and drops something of a
 standard size. `create` runs for every preview — keep it pure. `stroke` is the stroke being drawn (draw it as a
 guide), `pointer` where a tap would draw — with `draft` null there, the tool can make nothing at that spot (say
@@ -458,7 +464,8 @@ Operations take object and group ids alike — a group acts as one.
   `labeling.custom`, `assign(ids, props)` and `assignSelected(props)` (shape, capacity, role, category or tags on
   many objects in one step — a group through its members, `undefined` clears an optional one, values the schema
   would refuse are refused), `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
-  `ungroupSelected`, `addSection({ id, points })` (inside the plan; selects it), `moveSection`, `reshapeSection`,
+  `ungroupSelected`, `addSection({ id, points })` (inside the plan; selects it), `moveSection` (with what stands in
+  it), `reshapeSection`,
   `reorderSelected('front' | 'back' | 'forward' | 'backward')`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
   `preview(plan => plan)` shows one without committing it — while a slider is dragged — applied to the plan as it is,

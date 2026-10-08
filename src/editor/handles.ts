@@ -1,6 +1,15 @@
 import { seatPlan } from '../core/geometry'
 import { normalizeRotation, outlineOf, rotatePoint, unionBounds } from '../core/math'
-import type { HandleOwner, PlanBox, PlanHandle, PlanObject, PlanPoint, PlanRect, SeatPlan } from '../core/types'
+import type {
+  HandleOwner,
+  PlanBox,
+  PlanHandle,
+  PlanObject,
+  PlanPoint,
+  PlanRect,
+  SeatPlan,
+  Section,
+} from '../core/types'
 import type { EditorSelection } from './selection'
 import type { Snap } from './operations'
 import { boxOf, turnObjects, withGroupRotation } from './turn'
@@ -10,11 +19,11 @@ import { boxOf, turnObjects, withGroupRotation } from './turn'
 //
 // An object resizes from its corners (the opposite corner staying put, in the object's own turned frame) and
 // turns from the knob above its top edge. A group turns as one from the knob above its frame — the box around its
-// members in the direction it faces — so the knob, the frame and the centre turn with it. Sections move one
-// vertex at a time; dragging the middle of an edge adds a vertex there, and a vertex dropped on its neighbour merges
-// with it. Several selected items show one knob above the box around them, turning them together about the middle of
-// their centres (as `planEdits.rotate` does); otherwise handles show for a single selected item. `frames` outlines
-// any number of them.
+// members in the direction it faces — so the knob, the frame and the centre turn with it. A section's vertices move
+// one at a time, and a vertex dropped on its neighbour merges with it; the middle of an edge pushes that wall straight
+// out or in, or with Alt adds a vertex there. Several selected items show one knob above the box around them, turning
+// them together about the middle of their centres (as `planEdits.rotate` does); otherwise handles show for a single
+// selected item. `frames` outlines any number of them.
 
 // Handles of your own on a selected item — a row's end to drag it longer, the middle of its arc to bend it, a table's
 // edge to seat more. Like a creation tool, the set says what they are, and ichno draws them with its own
@@ -54,6 +63,9 @@ const KNOB_OFFSET = 28
 const ROTATION_STEP = 15
 // How close (screen pixels) a dragged vertex comes to its neighbour to merge with it.
 const MERGE_PX = 8
+// How close (plan units) a fixture comes to an edge's line to stand against it — a side snapped onto it.
+const TOUCH = 1
+const EPSILON = 1e-9
 
 // The handles a selection shows. `turn` turns a selection's knob (and `frame` its box) while the knob is dragged —
 // pass `selectionTurn` with the plan as it was, so both follow the pointer.
@@ -74,11 +86,11 @@ function handlesOf<S extends string>(
     const { points } = section
     return [
       ...points.map((point, i) => ({ owner: item, name: `vertex-${i}`, point })),
-      ...points.map((point, i) => ({
-        owner: item,
-        name: `edge-${i}`,
-        point: middle(point, points[(i + 1) % points.length]!),
-      })),
+      ...points.map((point, i) => {
+        const next = points[(i + 1) % points.length]!
+        // It pushes across the edge — the resize cursor points that way.
+        return { owner: item, name: `edge-${i}`, point: middle(point, next), angle: angleOf(point, next) + 90 }
+      }),
     ]
   }
   const box = boxOf(plan, item.id)
@@ -186,7 +198,8 @@ function selectionTurnOf<S extends string>(
 // The plan with a handle dragged by `total` plan units. Unknown handles leave the plan as it is. `constrain`
 // (Shift) turns in 15° steps, keeps a resized object's proportions and moves a vertex straight along one axis.
 // `pixel` (plan units per screen pixel) sizes how close a vertex comes to its neighbour to merge with it — without
-// it, only one dropped right on it merges.
+// it, only one dropped right on it merges. `alt` (Alt held) adds a vertex at the middle of a section's edge instead
+// of pushing the edge.
 function dragHandle<S extends string>(
   plan: SeatPlan<S>,
   owner: HandleOwner<S>,
@@ -195,16 +208,19 @@ function dragHandle<S extends string>(
   snap: Snap | null = null,
   constrain = false,
   pixel = 0,
+  alt = false,
 ): SeatPlan<S> {
   // The selection's knob turns what is selected — `planEdits.applyDrag` knows what that is.
   if (owner.kind === 'selection') return plan
   if (owner.kind === 'section') {
+    const section = seatPlan.sectionOf(plan, owner.id)
+    if (!section) return plan
+    const [kind, at] = name.split('-')
+    if (kind === 'edge' && !alt) return pushedEdge(plan, section, Number(at), total, snap)
     return {
       ...plan,
-      sections: plan.sections.map((section) =>
-        section.id === owner.id
-          ? { ...section, points: reshapedOutline(plan, section.points, name, total, snap, constrain, pixel) }
-          : section,
+      sections: plan.sections.map((s) =>
+        s.id === owner.id ? { ...s, points: reshapedOutline(plan, s.points, name, total, snap, constrain, pixel) } : s,
       ),
     }
   }
@@ -259,6 +275,106 @@ function reshapedOutline(
     return points.filter((_, i) => i !== index)
   }
   return points.map((p, i) => (i === index ? point : p))
+}
+
+// A section with one edge pushed straight out or in by as much of `total` as runs across it — both its corners
+// together, onto a cell line when snapping a level or upright edge, by whole units otherwise. It stops a step short of
+// any corner it would pass over, and at the plan's edge. Fixtures outside groups standing against the edge or across
+// it go with it, the way a door goes with its wall.
+function pushedEdge<S extends string>(
+  plan: SeatPlan<S>,
+  section: Section<S>,
+  index: number,
+  total: PlanPoint,
+  snap: Snap | null,
+): SeatPlan<S> {
+  const { points } = section
+  const next = (index + 1) % points.length
+  const a = points[index]
+  const b = points[next]
+  const length = a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0
+  if (!a || !b || length === 0) return plan
+  const edge = { a, along: { x: (b.x - a.x) / length, y: (b.y - a.y) / length }, length }
+  const across = { x: -edge.along.y, y: edge.along.x }
+  const step = snap ? snap.cell : 1
+  const [low, high] = pushRange(plan, points, index, edge, across, step)
+  const wanted = clamp(total.x * across.x + total.y * across.y, low, high)
+  const level = across.x === 0 || across.y === 0
+  // On a level or upright edge the push lands on a cell line — stepped back inside the range if rounding passed it.
+  let push = level ? onLine(a, across, wanted, step) : wanted
+  if (push > high) push -= step
+  if (push < low) push += step
+  const d = { x: Math.round(across.x * push), y: Math.round(across.y * push) }
+  if (d.x === 0 && d.y === 0) return plan
+  const carried = new Set<PlanObject<S>>(
+    plan.objects.flatMap((o) => (o.kind === 'fixture' && o.group === undefined && against(o, edge, across) ? [o] : [])),
+  )
+  return {
+    ...plan,
+    sections: plan.sections.map((s) =>
+      s.id === section.id
+        ? { ...s, points: points.map((p, i) => (i === index || i === next ? { x: p.x + d.x, y: p.y + d.y } : p)) }
+        : s,
+    ),
+    objects:
+      carried.size === 0
+        ? plan.objects
+        : plan.objects.map((o) => (carried.has(o) ? seatPlan.translate(o, d.x, d.y) : o)),
+  }
+}
+
+type Edge = { a: PlanPoint; along: PlanPoint; length: number }
+
+// How far an edge can be pushed across itself (negative: the other way) — a step short of every corner it would pass
+// over, and no further than the plan's edge. Staying put is always in range.
+function pushRange(
+  plan: Pick<SeatPlan, 'width' | 'height'>,
+  points: readonly PlanPoint[],
+  index: number,
+  { a, along, length }: Edge,
+  across: PlanPoint,
+  step: number,
+): [number, number] {
+  let low = -Infinity
+  let high = Infinity
+  points.forEach((p, i) => {
+    if (i === index || i === (index + 1) % points.length) return
+    const u = (p.x - a.x) * along.x + (p.y - a.y) * along.y
+    const v = (p.x - a.x) * across.x + (p.y - a.y) * across.y
+    if (u < -EPSILON || u > length + EPSILON) return
+    if (v > EPSILON) high = Math.min(high, v - step)
+    else if (v < -EPSILON) low = Math.max(low, v + step)
+  })
+  const ends = [a, { x: a.x + along.x * length, y: a.y + along.y * length }]
+  for (const p of ends) {
+    for (const [n, start, extent] of [
+      [across.x, p.x, plan.width],
+      [across.y, p.y, plan.height],
+    ] as const) {
+      if (Math.abs(n) < EPSILON) continue
+      const [t1, t2] = [-start / n, (extent - start) / n]
+      low = Math.max(low, Math.min(t1, t2))
+      high = Math.min(high, Math.max(t1, t2))
+    }
+  }
+  return [Math.min(low, 0), Math.max(high, 0)]
+}
+
+// The push `wanted` from `a` across a level or upright edge, landing the edge on the nearest cell line.
+function onLine(a: PlanPoint, across: PlanPoint, wanted: number, step: number): number {
+  const axis = across.x === 0 ? 'y' : 'x'
+  const sign = across[axis]
+  return (roundTo(a[axis] + wanted * sign, step) - a[axis]) * sign
+}
+
+// Whether a fixture stands against an edge or across it — its outline touches the edge's line, its centre beside the
+// edge rather than past one end.
+function against(object: PlanObject, { a, along, length }: Edge, across: PlanPoint): boolean {
+  const center = seatPlan.centerOf(object)
+  const u = (center.x - a.x) * along.x + (center.y - a.y) * along.y
+  if (u < 0 || u > length) return false
+  const offsets = outlineOf(object, 'rect').map((p) => (p.x - a.x) * across.x + (p.y - a.y) * across.y)
+  return Math.min(...offsets) <= TOUCH && Math.max(...offsets) >= -TOUCH
 }
 
 function middle(a: PlanPoint, b: PlanPoint): PlanPoint {

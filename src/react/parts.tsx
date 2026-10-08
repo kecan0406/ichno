@@ -293,10 +293,10 @@ export function GridPart({
 }
 
 // Editing handles — squares for corners and vertices, a dot for the rotation knob, a smaller dot in the middle of a
-// section's edge (dragging it adds a vertex). They keep a fixed screen size at
-// any zoom (a zero-length stroke that does not scale), and carry the attributes the viewport reads to drag them.
-// `frame` (the editor's) outlines what the handles belong to — a turned object, or the frame a group turns about —
-// with a stem up to the knob. Corner cursors follow the corner's turned direction.
+// section's edge (dragging it pushes the edge; with Alt it adds a vertex). They keep a fixed screen size at any zoom
+// (a zero-length stroke that does not scale), and carry the attributes the viewport reads to drag them. `frame` (the
+// editor's) outlines what the handles belong to — a turned object, or the frame a group turns about — with a stem up
+// to the knob. Resize cursors follow a corner's turned direction and point across an edge.
 export function HandlesPart({
   handles,
   frame,
@@ -439,9 +439,9 @@ const EDGE_HANDLE_PX = 9
 // Resize cursors by the direction a corner points, in 45° sectors from +x.
 const RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'] as const
 
+// A resize cursor the way a handle points (a corner outward, an edge's middle across it), `move` for one that does not.
 function cursorOf(handle: PlanHandle): string {
   if (handle.name === 'rotate') return 'grab'
-  if (handle.name.startsWith('edge-')) return 'copy'
   if (handle.angle === undefined) return 'move'
   const sector = Math.round((((handle.angle % 180) + 180) % 180) / 45) % 4
   return RESIZE_CURSORS[sector]!

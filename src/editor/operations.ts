@@ -667,43 +667,85 @@ function addSection<S extends string>(plan: SeatPlan<S>, section: Section<S>): S
   return { ...plan, sections: [...plan.sections, { id: section.id, points }] }
 }
 
-// Removes a section with what stands in it: its places, every group holding one (whole — a table's top and chairs go
-// with its seats) and the fixtures outside groups whose centre lies in its outline. Nothing goes when any of that
-// holds a locked id; `refused` lists what does.
-function removeSection<S extends string>(
-  plan: SeatPlan<S>,
-  id: S,
-  locked: ReadonlySet<string> = NONE,
-): { plan: SeatPlan<S>; refused: string[] } {
+// What stands in a section — its places, every group holding one (whole: a table's top and chairs go with its seats)
+// and the fixtures outside groups whose centre lies in its outline — as unit ids, a group by its own. What
+// `removeSection` takes away and `moveSection` carries.
+export function sectionContents<S extends string>(plan: SeatPlan<S>, id: S): string[] {
   const section = seatPlan.sectionOf(plan, id)
-  if (!section) return { plan, refused: [] }
+  if (!section) return []
   const units = new Set<string>()
   for (const o of plan.objects) {
     if (o.kind === 'place' && o.section === id) units.add(o.group ?? o.id)
     else if (o.kind === 'fixture' && o.group === undefined && polygonContains(section.points, seatPlan.centerOf(o)))
       units.add(o.id)
   }
-  const refused = [...units].filter((unit) => isLocked(plan, unit, locked))
+  return [...units]
+}
+
+// Removes a section with what stands in it (`sectionContents`). Nothing goes when any of that holds a locked id;
+// `refused` lists what does.
+function removeSection<S extends string>(
+  plan: SeatPlan<S>,
+  id: S,
+  locked: ReadonlySet<string> = NONE,
+): { plan: SeatPlan<S>; refused: string[] } {
+  if (!seatPlan.sectionOf(plan, id)) return { plan, refused: [] }
+  const units = sectionContents(plan, id)
+  const refused = units.filter((unit) => isLocked(plan, unit, locked))
   if (refused.length > 0) return { plan, refused }
-  const { plan: cleared } = remove(plan, [...units])
+  const { plan: cleared } = remove(plan, units)
   return { plan: { ...cleared, sections: cleared.sections.filter((s) => s.id !== id) }, refused: [] }
 }
 
-// Moves a section outline by whole cells (whole units without snapping).
+// Moves a section by whole cells (whole units without snapping) with what stands in it (`sectionContents`), the way
+// a room moves with its furniture. The outline keeps its shape: it is held inside the plan as a whole, with what it
+// carries. Its places stay its own; a place it carries for a group (one standing in another section) lands in the
+// section under it, as a move does.
 function moveSection<S extends string>(
   plan: SeatPlan<S>,
   id: S,
   delta: PlanPoint,
   snap: Snap | null = null,
 ): SeatPlan<S> {
+  return moveSections(plan, [id], delta, snap)
+}
+
+// Several sections moved together, as `moveSection` moves one — what two of them hold moves once.
+export function moveSections<S extends string>(
+  plan: SeatPlan<S>,
+  ids: readonly S[],
+  delta: PlanPoint,
+  snap: Snap | null = null,
+): SeatPlan<S> {
+  const moving = new Set<string>(ids)
+  const outlines = plan.sections.filter((s) => moving.has(s.id))
+  if (outlines.length === 0) return plan
+  const carried = new Set(ids.flatMap((id) => sectionContents(plan, id)).flatMap((unit) => unitOf(plan, unit)))
   const step = snap ? snap.cell : 1
-  const dx = roundTo(delta.x, step)
-  const dy = roundTo(delta.y, step)
-  return {
+  let d = { x: roundTo(delta.x, step), y: roundTo(delta.y, step) }
+  // Labels may sit in the margin; the outlines and everything else stay on the plan.
+  const extent = unionBounds([
+    ...outlines.map(seatPlan.sectionBoundsOf),
+    ...[...carried].flatMap((o) => (o.kind === 'label' ? [] : [seatPlan.boundsOf(o)])),
+  ])!
+  d = {
+    x: d.x + inward(extent.x + d.x, extent.w, plan.width, step),
+    y: d.y + inward(extent.y + d.y, extent.h, plan.height, step),
+  }
+  if (d.x === 0 && d.y === 0) return plan
+  const moved = {
     ...plan,
     sections: plan.sections.map((s) =>
-      s.id === id ? { ...s, points: s.points.map((p) => snapPoint(plan, { x: p.x + dx, y: p.y + dy }, snap)) } : s,
+      moving.has(s.id) ? { ...s, points: s.points.map((p) => ({ x: p.x + d.x, y: p.y + d.y })) } : s,
     ),
+  }
+  return {
+    ...moved,
+    objects: plan.objects.map((o) => {
+      if (!carried.has(o)) return o
+      const shifted = seatPlan.translate(o, d.x, d.y)
+      return shifted.kind === 'place' && moving.has(shifted.section) ? shifted : rehomed(moved, shifted)
+    }),
   }
 }
 
@@ -722,8 +764,8 @@ function reshapeSection<S extends string>(
   }
 }
 
-// The plan with a drag applied — a handle reshapes or turns its owner, a section moves by whole cells, objects by
-// the drag total. When the dragged object is part of `selected` (object and group ids), the whole selection
+// The plan with a drag applied — a handle reshapes or turns its owner, a section moves by whole cells with what
+// stands in it, objects by the drag total. When the dragged object is part of `selected` (object and group ids), the whole selection
 // moves; otherwise the object alone, or its group when it has one. A constrained move keeps to the axis it went
 // furthest along; a copying one (Alt) leaves them where they were and moves copies (see `duplicate`). The
 // selection's knob turns `selected` together. Axes in `exact` (what a guide lined up) stay off the grid.
@@ -743,7 +785,7 @@ function applyDrag<S extends string>(
     return rotate(plan, selected, planHandles.selectionTurn(plan, items, drag.total, snap !== null || constrain))
   }
   if (target.kind === 'handle') {
-    return planHandles.drag(plan, target.owner, target.name, drag.total, snap, constrain, drag.pixel)
+    return planHandles.drag(plan, target.owner, target.name, drag.total, snap, constrain, drag.pixel, drag.copy)
   }
   const total = constrain ? alongAxis(drag.total) : drag.total
   if (target.kind === 'section') return moveSection(plan, target.id, total, snap)

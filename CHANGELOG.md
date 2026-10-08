@@ -139,16 +139,28 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   so the viewport's plan); `conflictIds` still counts them. `setSelection` and `selectIds` select both.
 - `ichno/editor`: sections are drawn and removed in the editor. `EditorTool.draw` takes `'polygon'`: a corner at
   every tap (Shift keeps the edge to 15° steps), closed by tapping the first corner or the last one again, or Enter
-  (`closePolygon`); Backspace takes a corner back (`removePoint`), Escape drops it (`cancel`). `create` gets the
-  corners in the new `PlanStroke.points`; `corners` are the ones placed so far. `planEdits.addSection` /
+  (`closePolygon`); Backspace takes a corner back (`removePoint`), Escape drops it (`cancel`). A drag before the
+  first corner draws a rectangle instead (Shift: a square), made with its four corners when let go. `addPoint(point)`
+  places the next corner exactly where you say — a length typed in. `create` gets the corners in the new
+  `PlanStroke.points`; `corners` are the ones placed so far. `planEdits.addSection` /
   `editor.addSection` add one inside the plan (selected, as a polygon tool's section is); `planEdits.removeSection` /
   `editor.removeSection` and `removeSelected` remove one with its places, every group holding one (whole) and the
   loose fixtures inside it — or nothing, when any of that is locked.
-- `ichno/editor`: a selected section shows a handle in the middle of each edge (`edge-<index>`) that adds a vertex
-  there, and a vertex dropped on its neighbour merges with it while three remain (within 8 screen pixels — viewports
+- `ichno/editor`: a selected section shows a handle in the middle of each edge (`edge-<index>`) that pushes that wall
+  straight out or in — both its corners, onto a cell line when snapping a level or upright edge, stopping a step short
+  of the far side and at the plan's edge — and takes the loose fixtures standing against it or across it (a door in
+  its wall) along. With Alt (`PlanDrag.copy`) it adds a vertex there instead; `planHandles.drag` takes `alt` after
+  `pixel`. A vertex dropped on its neighbour merges with it while three remain (within 8 screen pixels — viewports
   report `pixel`, the plan units a screen pixel spans, on `PlanDrag` and on strokes; `planHandles.drag` takes it).
 - `ichno/react`: `SeatMap.EditorOverlay` draws a polygon being drawn — its edges, a fainter one back to the first
-  corner and that corner marked (`data-part="stroke-start"`). `SeatMap.Handles` draws edge handles smaller and round.
+  corner and that corner marked (`data-part="stroke-start"`). `SeatMap.Handles` draws edge handles smaller and round,
+  with a resize cursor across the edge (edge handles carry that `angle`).
+- `ichno/editor`: moving a section takes what stands in it, the way a room moves with its furniture —
+  `planEdits.moveSection`, a drag of a selected section and `moveSelected` move its places, every group holding one
+  (whole) and the loose fixtures inside its outline (what `removeSection` takes) by the same whole cells. Its places
+  keep it; a place it carries for a group lands in the section under it, as a move does. The outline keeps its shape:
+  it is held inside the plan as a whole, with what it carries. Before, only the outline moved, each vertex held
+  inside the plan on its own.
 - `ichno/editor`: several selected items show one rotation knob above the box around them (`frame`), turning them
   together about the middle of their centres as `rotateSelected` does — Shift or snapping in 15° steps; the box and
   the knob turn with the pointer. `HandleOwner` gains `{ kind: 'selection' }`; `planHandles.selectionTurn` is the
