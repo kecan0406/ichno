@@ -9,6 +9,8 @@ import {
   type SeatPlan,
   type Shape,
 } from 'ichno'
+import { METRE } from './units'
+import { openingsOf, wallLinesOf, type WallLine } from './walls'
 
 // The playground's 3D reading of a document, for its 3D preview (../_components/preview-3d.tsx). ichno stores
 // footprints — a box on the floor, a turn, a role word — and nothing upward: how tall a stage is, which way a chair
@@ -17,9 +19,6 @@ import {
 
 type Plan = SeatPlan<string>
 type Thing = Place<string> | Fixture
-
-// Plan units have no size. This site draws a seat 36 units wide — 45 cm — so a metre is 80.
-export const METRE = 80
 
 // What stands on a footprint, by the role this site gave it. A role it does not know stands as a plain block.
 export type Model =
@@ -174,34 +173,60 @@ export function piecesOf(plan: Plan): Piece[] {
   })
 }
 
-// Every section's outer wall, a box per side on the outline the 2D view strokes, and the band a wall fixture paints.
+// Every section's outer wall, a box per side on the outline the 2D view strokes, and the band a wall fixture paints —
+// each left open where a door stands in it (./walls.ts).
 export function wallsOf(plan: Plan): Wall[] {
+  const openings = openingsOf(plan)
+  const gapsOf = (kind: WallLine['kind'], id: string, edge: number) =>
+    openings.filter((o) => o.wall.kind === kind && o.wall.id === id && o.wall.edge === edge)
   const outer = plan.sections.flatMap((section) => {
     const points = seatPlan.sectionWallOf(section)
-    return points.map((a, i): Wall => {
+    return points.flatMap((a, i) => {
       const b = points[(i + 1) % points.length]!
+      const length = Math.hypot(b.x - a.x, b.y - a.y)
+      const along = { x: (b.x - a.x) / length, y: (b.y - a.y) / length }
+      // Doors are measured from the section's own corner, half a wall in from this side's.
+      const corner = section.points[i]!
+      const shift = (corner.x - a.x) * along.x + (corner.y - a.y) * along.y
+      const gaps = gapsOf('room', section.id, i).map((o): [number, number] => [o.from + shift, o.to + shift])
       // Each side runs half a wall past its corners, so neighbouring sides close them.
-      return {
-        x: (a.x + b.x) / 2,
-        z: (a.y + b.y) / 2,
-        w: Math.hypot(b.x - a.x, b.y - a.y) + WALL_THICKNESS,
+      return stretchesOf(-WALL_THICKNESS / 2, length + WALL_THICKNESS / 2, gaps).map(([from, to]): Wall => ({
+        x: a.x + (along.x * (from + to)) / 2,
+        z: a.y + (along.y * (from + to)) / 2,
+        w: to - from,
         d: WALL_THICKNESS,
-        yaw: -Math.atan2(b.y - a.y, b.x - a.x),
-      }
+        yaw: -Math.atan2(along.y, along.x),
+      }))
     })
   })
   const inner = plan.objects.flatMap((object): Wall[] => {
     if (object.kind !== 'fixture' || object.role !== 'wall') return []
     const band = seatPlan.innerWallOf(object)
-    const center = seatPlan.centerOf(object)
-    const at = turned(
-      { x: object.x + band.x + band.w / 2, y: object.y + band.y + band.h / 2 },
-      center,
-      object.rotation ?? 0,
-    )
-    return [{ x: at.x, z: at.y, w: band.w, d: band.h, yaw: -radians(object.rotation ?? 0), id: object.id }]
+    const [line] = wallLinesOf({ ...plan, sections: [], objects: [object] })
+    if (!line) return []
+    const gaps = gapsOf('wall', object.id, 0).map((o): [number, number] => [o.from, o.to])
+    return stretchesOf(0, line.length, gaps).map(([from, to]): Wall => ({
+      x: line.a.x + (line.along.x * (from + to)) / 2,
+      z: line.a.y + (line.along.y * (from + to)) / 2,
+      w: to - from,
+      d: Math.min(band.w, band.h),
+      yaw: -Math.atan2(line.along.y, line.along.x),
+      id: object.id,
+    }))
   })
   return [...outer, ...inner]
+}
+
+// What is left of a stretch from `start` to `end` once the gaps are taken out.
+function stretchesOf(start: number, end: number, gaps: readonly [number, number][]): [number, number][] {
+  const pieces: [number, number][] = []
+  let from = start
+  for (const [gapFrom, gapTo] of [...gaps].sort((x, y) => x[0] - y[0])) {
+    if (gapFrom > from) pieces.push([from, Math.min(gapFrom, end)])
+    from = Math.max(from, gapTo)
+  }
+  if (end > from) pieces.push([from, end])
+  return pieces.filter(([a, b]) => b - a > 0.5)
 }
 
 // What the 2D view writes, placed in the room: section names on the top-left corner of their walls (the site names
@@ -407,14 +432,6 @@ function yawToward(from: PlanPoint, to: PlanPoint): number | null {
 // The turn from `a` to `b`, between −π and π.
 function angleBetween(a: number, b: number): number {
   return Math.atan2(Math.sin(b - a), Math.cos(b - a))
-}
-
-// `point` turned clockwise (y down) by `degrees` about `center` — the way the plan turns boxes.
-function turned(point: PlanPoint, center: PlanPoint, degrees: number): PlanPoint {
-  const a = radians(degrees)
-  const dx = point.x - center.x
-  const dy = point.y - center.y
-  return { x: center.x + dx * Math.cos(a) - dy * Math.sin(a), y: center.y + dx * Math.sin(a) + dy * Math.cos(a) }
 }
 
 function radians(degrees: number): number {

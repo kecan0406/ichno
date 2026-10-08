@@ -23,7 +23,17 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['Tap', 'Drop at the standard size'],
       ['Shift', 'Square box, or a line in 15° steps'],
       ['Alt', 'Draw from the centre'],
+    ],
+  },
+  {
+    title: 'Sections',
+    keys: [
+      ['Drag', 'A rectangle — tap instead to place corners one by one'],
       ['↵  ⌫', 'Close a section, take back its last corner'],
+      ['3.5 ↵', 'Type a length (m): the next corner goes that far toward the pointer'],
+      ['Drag an edge', 'Push that wall, with what stands against it'],
+      ['Alt-drag an edge', 'Add a corner there'],
+      ['Drag a selected section', 'Move it with everything standing in it'],
     ],
   },
   {

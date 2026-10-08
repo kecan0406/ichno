@@ -1,6 +1,7 @@
 import { BoxGeometry, CylinderGeometry, EdgesGeometry, type BufferGeometry } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { HEIGHT, SCREEN_BOTTOM, METRE, type Model } from './scene'
+import { HEIGHT, SCREEN_BOTTOM, type Model } from './scene'
+import { METRE } from './units'
 
 // What each of the playground's 3D models is made of — boxes and upright cylinders on a 1 × 1 footprint about the
 // origin (facing −z), standing on y = 0 with their real heights. Instances stretch them over their footprints. The

@@ -228,6 +228,23 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
    parsed the whole plan on every frame), draws the two layers, culls to the view and leaves out numbers under 6
    screen pixels.
 
+9. ✅ **Housing-style editing** — benchmarked against game housing (The Sims 4's room as the unit; colour for what
+   cannot be placed from Valheim; basic and precise modes from WoW; Tiny Glade's automatic dimensions) and, for
+   precision, design and CAD tools (SketchUp's typed lengths and live dimensions). The scope and the wall handle were
+   decided with the maintainer on 2026-10-09; the rest are calls made building it:
+
+   | Topic     | Decision                                                                                                                                                                                                    | Rejected                                                                   |
+   | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+   | Rooms     | a section is the room: a `polygon` tool's drag before the first corner draws a rectangle; moving a section moves what stands in it (what removing it takes), the outline held whole inside the plan         | a room primitive; moving the outline alone, each vertex clamped on its own |
+   | Walls     | the middle of an edge pushes that wall straight out or in (both corners, onto cell lines when snapping, a step short of the far side) and carries the loose fixtures standing against it; Alt adds a vertex | phase 8's edge handle adding a vertex; pushing behind Alt                  |
+   | Precision | `addPoint(point)` places a polygon corner exactly — the consumer turns a typed length into a point, as units are its own                                                                                    | typed lengths and units in ichno                                           |
+
+   The playground builds the rest on that, as an app would: a door snaps into the nearest wall (a section's edge or a
+   wall fixture) and the wall is left open there in 2D and 3D; a tool shows what it cannot make where the pointer is
+   in the colour of what cannot be had, with the reason; places a drag takes outside their section are marked like
+   overlaps; lengths are written in metres while drawing and on what is selected (2D), a section's edges take typed
+   lengths, and Design shows a section's floor area and how many it holds. 3D stays the basic mode — no handles.
+
 ## Out of scope
 
 Booking flow (holds, sessions, channels, seasons, best available), prices and ticket types, finished UI chrome

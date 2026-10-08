@@ -15,6 +15,7 @@ import { planEdits, type EditorSelection, type SeatPlanEditor } from 'ichno/edit
 import type { ReactNode } from 'react'
 import { describe, makeupOf } from '../../_demo/messages'
 import { relayRow, relayTable, rowOf, setWholeTable, tableOf } from '../_lib/build'
+import { areaOf, squareMetres } from '../_lib/units'
 import controls from './controls.module.css'
 import styles from './design.module.css'
 import { pressKeepingFocus } from './focus'
@@ -127,6 +128,7 @@ function SectionDesign({ editor, sectionNames, sectionId, onRemove }: Props & { 
   if (!section) return null
   const bounds = seatPlan.sectionBoundsOf(section)
   const places = seatPlan.placesOf(editor.plan).filter((place) => place.section === section.id)
+  const capacity = places.reduce((sum, place) => sum + place.capacity, 0)
 
   // Exactly where it is typed — not to the grid.
   function moveBy(delta: { x: number; y: number }) {
@@ -166,10 +168,15 @@ function SectionDesign({ editor, sectionNames, sectionId, onRemove }: Props & { 
         </ReadOnly>
       </Section>
       <Section title="Section">
+        <ReadOnly label="Floor">{squareMetres(areaOf(section.points))}</ReadOnly>
         <ReadOnly label="Places">{places.length}</ReadOnly>
+        <ReadOnly label="Holds">
+          {capacity} {capacity === 1 ? 'person' : 'people'}
+        </ReadOnly>
         <p className={controls.hint}>
-          Drag a corner to move it, the middle of an edge to add one, a corner onto its neighbour to take it away.
-          Deleting it takes its places with it — their groups whole — and the loose fixtures standing in it.
+          Drag a corner to move it, the middle of an edge to push that wall (⌥: add a corner there), a corner onto its
+          neighbour to take it away. What stands in it — its places, their groups whole, the loose fixtures inside —
+          moves with it, and goes when it is deleted.
         </p>
       </Section>
     </>

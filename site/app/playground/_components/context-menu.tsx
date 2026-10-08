@@ -12,8 +12,9 @@ type Props = {
   at: CanvasMenuAt | null
   editor: SeatPlanEditor<string>
   onClose(): void
-  // Deleting says what it could not delete, so the workspace does it.
+  // Deleting says what it could not delete, and pasting why it could not paste, so the workspace does them.
   onRemove(): void
+  onPaste(at: PlanPoint | undefined): void
   onSaveAsset(): void
   // Lock or hide the selection — the layers panel's toggles, for the selection at once.
   onFreeze(): void
@@ -28,6 +29,7 @@ export function CanvasMenu({
   editor,
   onClose,
   onRemove,
+  onPaste,
   onSaveAsset,
   onFreeze,
   onHide,
@@ -40,7 +42,7 @@ export function CanvasMenu({
   const hasGrouped = selection.some(
     (item) => item.kind === 'object' && plan.objects.some((o) => o.id === item.id && o.group !== undefined),
   )
-  const paste = () => editor.paste(at?.plan ?? undefined)
+  const paste = () => onPaste(at?.plan ?? undefined)
 
   return (
     <Menu

@@ -15,6 +15,7 @@ import {
   type Shape,
 } from 'ichno'
 import { planEdits, type EditorHandles } from 'ichno/editor'
+import { doorAt } from './walls'
 
 // What the playground's tools build, and the rows and tables it reads back from groups. ichno stores places,
 // fixtures and groups; a seat, a desk or a table is this site's role for one of them. Every tool makes one object —
@@ -74,7 +75,19 @@ export function fixtureTool(
   }
 }
 
-// A section drawn corner by corner — S1, S2… the first such id the plan does not use. Three corners at least.
+// A door in the wall nearest the tap — just inside a room's edge or across a wall fixture, turned to it (./walls.ts)
+// — and in front of a wall fixture, so the band it paints shows the gap. null with no wall near enough to take it.
+export function doorTool(size: PlanSize) {
+  return (plan: Plan, stroke: PlanStroke): Plan | null => {
+    const spot = doorAt(plan, stroke.end, size)
+    if (typeof spot === 'string') return null
+    const { plan: next, ids } = planEdits.addFixtures(plan, [spot.box], { role: 'door' })
+    return spot.wall.kind === 'wall' ? planEdits.reorder(next, ids, 'front') : next
+  }
+}
+
+// A section drawn corner by corner, or dragged out as a rectangle — S1, S2… the first such id the plan does not use.
+// Three corners at least.
 export function sectionTool(plan: Plan, stroke: PlanStroke): Plan | null {
   const points = stroke.points ?? []
   if (points.length < 3) return null

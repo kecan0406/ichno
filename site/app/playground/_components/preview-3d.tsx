@@ -18,7 +18,6 @@ import {
   type PerspectiveCamera,
 } from 'three'
 import {
-  METRE,
   WALL_CUT,
   WALL_HEIGHT,
   overviewOf,
@@ -30,6 +29,7 @@ import {
   type Piece,
   type Sight,
 } from '../_lib/scene'
+import { METRE } from '../_lib/units'
 import { Daylight, Fallback, Floor, Solids, Text, usePalette, type Look, type Palette, type Solid } from './drawing-3d'
 import ui from './controls.module.css'
 import styles from './preview-3d.module.css'

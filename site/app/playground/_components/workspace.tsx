@@ -9,10 +9,13 @@ import {
   type LintCode,
   type LintSeverity,
   type Place,
+  type PlanObject,
   type PlanPoint,
   type PlanRect,
   type PlanTarget,
+  type PlanTemplate,
   type ScreenPoint,
+  type SeatPlan,
 } from 'ichno'
 import {
   planEdits,
@@ -31,16 +34,20 @@ import { DEFAULT_LINT, PRESETS, checksOf, copyDocument, downloadDocument, type W
 import { rowHandles } from '../_lib/build'
 import { loadLibrary, newObjectId, saveLibrary, type SavedObject } from '../_lib/library'
 import { PLAYGROUND_OBJECTS, PRIMITIVE_TOOLS, savedObjectTool, type ToolDef } from '../_lib/playground-objects'
+import { METRE } from '../_lib/units'
 import { AssetsPanel } from './assets'
 import type { BuildCamera, BuildControls, BuildView, Handoff } from './build-3d'
 import { CanvasMenu, type CanvasMenuAt } from './context-menu'
 import controls from './controls.module.css'
 import { DesignPanel } from './design'
+import { Dimensions } from './dimensions'
 import { DocumentHead } from './file-menu'
 import { Resizer, usePanels } from './frame'
 import { Icon } from './icons'
 import { LayersPanel } from './layers'
 import { MenuButton, MenuItem, MenuSeparator } from './menu'
+import marks from './marks.module.css'
+import { Openings } from './openings'
 import { ChecksPanel, ImportDialog, JsonPanel, PreviewPanel, type PickRules } from './panels'
 import { ShortcutsDialog } from './shortcuts'
 import { Toolbar } from './toolbar'
@@ -65,8 +72,11 @@ const Build3D = dynamic(() => import('./build-3d'), {
   loading: () => <p className={styles.loading}>Loading the 3D view…</p>,
 })
 
-const NOWHERE = 'Every place belongs to a section — move inside one to place it.'
+const UNPASTABLE = 'What was copied holds places — paste it inside a section.'
 const NO_IDS: ReadonlySet<string> = new Set()
+const NO_STRAYS: string[] = []
+// The steps a typed edge keeps to, toward the pointer — 15°, as Shift keeps a corner.
+const EDGE_STEP = Math.PI / 12
 // Seat numbers drawn smaller than this on screen are left out (`SeatMap.Content` defaults to 9).
 const LABEL_MIN_PX = 6
 
@@ -148,6 +158,8 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const [menu, setMenu] = useState<CanvasMenuAt | null>(null)
   // The plan point under the pointer as last seen — where the menu's Paste lands.
   const pointRef = useRef<PlanPoint | null>(null)
+  // A length typed for the next edge of the section being drawn, in metres as typed.
+  const [typed, setTyped] = useState('')
 
   const plan = editor.plan
   const checks = checksOf(plan, lint)
@@ -177,6 +189,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // Picks a tool to draw with, or goes back to selecting with null.
   function choose(def: ToolDef | null) {
     setNotice(null)
+    setTyped('')
     setHand(false)
     editor.setTool(def === null ? null : { ...def.tool, keep })
   }
@@ -224,6 +237,53 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     const listener = (e: KeyboardEvent) => onKeyDown(e)
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
+  }, [])
+
+  // Pastes — under the pointer, or where the menu opened — and says why when nothing could go there.
+  function pasteAt(at: PlanPoint | undefined) {
+    setNotice(editor.paste(at).length === 0 ? UNPASTABLE : null)
+  }
+
+  // The length typed for the next edge, while a section is being drawn.
+  const typedLength = editor.tool?.draw === 'polygon' && editor.corners !== null ? typed : ''
+
+  // Keys caught before ichno's (which close a polygon on Enter and take a corner back on ⌫): while a section is drawn,
+  // digits type a length — Enter puts the next corner that far toward the pointer, in 15° steps, and ⌫ and Esc take
+  // the typing back first; ⌘V pastes the way ichno does, saying why when it cannot.
+  const onEarlyKey = useEffectEvent((e: KeyboardEvent) => {
+    if (e.defaultPrevented || mode !== 'edit' || e.altKey) return
+    if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], dialog')) return
+    if (e.metaKey || e.ctrlKey) {
+      if (e.code !== 'KeyV' || editor.clipboard === null) return
+      e.preventDefault()
+      pasteAt(undefined)
+      return
+    }
+    const last = editor.tool?.draw === 'polygon' ? editor.corners?.at(-1) : undefined
+    if (last === undefined) return
+    const decimal = (e.key === '.' || e.key === ',') && !typedLength.includes('.')
+    if (/^[0-9]$/.test(e.key) || decimal) {
+      e.preventDefault()
+      setTyped(typedLength + (decimal ? '.' : e.key))
+      return
+    }
+    if (typedLength === '') return
+    if (e.key === 'Backspace' || e.key === 'Escape') {
+      e.preventDefault()
+      setTyped(e.key === 'Escape' ? '' : typedLength.slice(0, -1))
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      setTyped('')
+      const length = Number(typedLength) * METRE
+      if (length > 0) editor.addPoint(edgeToward(last, editor.pointer, length))
+    }
+  })
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => onEarlyKey(e)
+    window.addEventListener('keydown', listener, { capture: true })
+    return () => window.removeEventListener('keydown', listener, { capture: true })
   }, [])
 
   // Opens the Assets tab's form for saving what is selected.
@@ -407,16 +467,43 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     map.setView(planView.zoom(current, (level * current.w) / home.w, middle, home))
   }
 
-  // Over the plan with a tool that can make nothing there — its places need a section to belong to.
-  // Sections are not drafted — the polygon being drawn shows them.
-  const nowhere =
-    activeTool !== null && activeTool.tool.draw !== 'polygon' && editor.pointer !== null && editor.draft === null
+  // Where the tool would draw — the end of the stroke under way, or where the pointer is — and whether it can make
+  // nothing there, and why. A section has no draft to miss: the polygon being drawn shows it.
+  const drawAt = editor.stroke?.end ?? editor.pointer
+  const refused = activeTool !== null && activeTool.tool.draw !== 'polygon' && drawAt !== null && editor.draft === null
+  const reason = refused && activeTool && drawAt ? (activeTool.why?.(plan, drawAt) ?? null) : null
+  // What it would have dropped, under the pointer, in the colour of what cannot be had — a stroke under way is marked
+  // itself.
+  const refusedSample =
+    refused && editor.stroke === null && editor.pointer !== null && activeTool?.sample
+      ? sampleAt(activeTool.sample, editor.pointer, plan)
+      : null
+  // Places standing outside their section — as drawn, and where a drag is taking them — marked like overlaps, unless
+  // Checks has the warning off. A drag drawn in one layer (a section, or most of the plan) is all in `stillPlan`.
+  const strayOff = lint.outside_section === 'off'
+  const strays = strayOff ? NO_STRAYS : straysOf(editor.stillPlan.objects, editor.stillPlan)
+  const movingStrays =
+    strayOff || editor.movingPlan === null ? NO_STRAYS : straysOf(editor.movingPlan.objects, editor.stillPlan)
+  const stillInvalid = strays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...strays]
+  const movingInvalid = movingStrays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...movingStrays]
+  const strayCount = strays.length + movingStrays.length
+  // The plan with the door a tool would put in a wall, for the gaps doors leave.
+  const opened =
+    editor.draft === null
+      ? editor.displayPlan
+      : { ...editor.displayPlan, objects: [...editor.displayPlan.objects, ...editor.draft.objects] }
+  // The one selected section's outline as drawn — its edges are measured.
+  const [only] = editor.selection.length === 1 ? editor.selection : []
+  const measuredSection =
+    only?.kind === 'section' ? (seatPlan.sectionOf(editor.displayPlan, only.id)?.points ?? null) : null
   const threeD = mode === 'preview' && dimension === '3d'
   const hint =
     mode !== 'edit'
       ? null
       : (notice ??
-        (nowhere ? NOWHERE : hand ? 'Drag to pan the plan — V to select again.' : (activeTool?.hint ?? null)))
+        (typedLength !== ''
+          ? `Next edge ${typedLength} m — Enter puts the corner toward the pointer, Esc clears it.`
+          : (reason ?? (hand ? 'Drag to pan the plan — V to select again.' : (activeTool?.hint ?? null)))))
   const canvasTool = hand ? 'hand' : editor.tool === null ? 'select' : 'draw'
   const layerFrame = mode === 'edit' && layerHover !== null ? planHandles.frame(editor.displayPlan, [layerHover]) : null
 
@@ -502,13 +589,19 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         />
       </aside>
 
-      <main ref={canvasRef} className={styles.canvas} data-tool={canvasTool}>
+      <main
+        ref={canvasRef}
+        className={styles.canvas}
+        data-tool={canvasTool}
+        data-refused={(refused && editor.stroke !== null) || undefined}
+      >
         {building && (
           <Build3D
             plan={editor.displayPlan}
             draft={editor.draft}
+            refused={refusedSample}
             selected={editor.selectedObjects.map((object) => object.id)}
-            conflicts={editor.conflictIds}
+            conflicts={movingStrays.length === 0 ? stillInvalid : [...stillInvalid, ...movingStrays]}
             status={bookedStatus}
             overlay={{ ...editor.overlayProps, hoverFrame: layerFrame ?? editor.overlayProps.hoverFrame }}
             grid={snapping ? GRID_CELL : null}
@@ -564,7 +657,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                 <SeatMap.Content
                   plan={editor.stillPlan}
                   selected={editor.selectedPlaceIds}
-                  invalid={editor.conflictIds}
+                  invalid={stillInvalid}
                   status={bookedStatus}
                   isDisabled={never}
                   sectionLabel={sectionLabel}
@@ -578,7 +671,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                   <SeatMap.Content
                     plan={editor.movingPlan}
                     selected={editor.selectedPlaceIds}
-                    invalid={editor.conflictIds}
+                    invalid={movingInvalid}
                     status={bookedStatus}
                     isDisabled={never}
                     fixtureLabel={fixtureLabel}
@@ -587,6 +680,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                     minLabelPx={LABEL_MIN_PX}
                   />
                 )}
+                <Openings plan={opened} scale={frame.scale} />
                 {editor.draft && (
                   <g className={styles.draft}>
                     <SeatMap.Content
@@ -597,6 +691,21 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                     />
                   </g>
                 )}
+                {refusedSample && (
+                  <g className={marks.refused}>
+                    <SeatMap.Content plan={refusedSample} fixtureVariant={fixtureVariant} minLabelPx={Infinity} />
+                  </g>
+                )}
+                <Dimensions
+                  stroke={editor.stroke}
+                  draw={editor.tool?.draw}
+                  corners={editor.corners}
+                  pointer={editor.pointer}
+                  typed={typedLength}
+                  frame={editor.overlayProps.frame}
+                  section={measuredSection}
+                  scale={frame.scale}
+                />
                 <SeatMap.EditorOverlay
                   {...editor.overlayProps}
                   hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame}
@@ -635,13 +744,19 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
           </SeatMap.Viewport>
         )}
 
-        {mode === 'edit' && editor.conflictIds.length > 0 && (
+        {mode === 'edit' && (editor.conflictIds.length > 0 || strayCount > 0) && (
           <p className={styles.conflicts} role="status">
-            {editor.conflictIds.length} overlapping — the schema would refuse to save them
+            {[
+              editor.conflictIds.length > 0 &&
+                `${editor.conflictIds.length} overlapping — the schema would refuse to save them`,
+              strayCount > 0 && `${strayCount} outside their section`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </p>
         )}
         {hint && (
-          <p className={styles.hint} aria-live="polite" data-warn={nowhere || undefined}>
+          <p className={styles.hint} aria-live="polite" data-warn={(notice === null && reason !== null) || undefined}>
             {hint}
           </p>
         )}
@@ -878,6 +993,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         editor={editor}
         onClose={() => setMenu(null)}
         onRemove={remove}
+        onPaste={pasteAt}
         onSaveAsset={startSaving}
         onFreeze={() => setFrozen((current) => new Set([...current, ...editor.selectedIds]))}
         onHide={() => setHidden((current) => new Set([...current, ...editor.selectedIds]))}
@@ -897,6 +1013,35 @@ function openDialog(id: string) {
 
 function never(): boolean {
   return false
+}
+
+// A template centred on `at` — what a tool would drop there, to draw (no section; the ids it was kept with).
+function sampleAt(template: PlanTemplate, at: PlanPoint, plan: SeatPlan<string>): SeatPlan<string> {
+  return {
+    ...plan,
+    sections: [],
+    groups: template.groups,
+    objects: template.objects.map((object): PlanObject<string> => {
+      const moved = seatPlan.translate(object, at.x, at.y)
+      return moved.kind === 'place' ? { ...moved, section: '' } : moved
+    }),
+  }
+}
+
+// The places among `objects` standing outside their section in `plan` — the way Checks finds them (`lintSeatPlan`).
+function straysOf(objects: readonly PlanObject<string>[], plan: SeatPlan<string>): string[] {
+  return objects.flatMap((object) => {
+    if (object.kind !== 'place') return []
+    const section = seatPlan.sectionOf(plan, object.section)
+    return section && seatPlan.sectionAt({ sections: [section] }, seatPlan.centerOf(object)) === null ? [object.id] : []
+  })
+}
+
+// `length` from `from` toward `toward` (rightward with no pointer), the direction kept to 15° steps — a typed edge.
+function edgeToward(from: PlanPoint, toward: PlanPoint | null, length: number): PlanPoint {
+  const angle =
+    toward === null ? 0 : Math.round(Math.atan2(toward.y - from.y, toward.x - from.x) / EDGE_STEP) * EDGE_STEP
+  return { x: Math.round(from.x + Math.cos(angle) * length), y: Math.round(from.y + Math.sin(angle) * length) }
 }
 
 // Loose fixtures are named; the furniture in a group (chairs, table tops) goes unlabelled.

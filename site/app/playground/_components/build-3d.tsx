@@ -88,9 +88,11 @@ export type Handoff = { center: PlanPoint; zoom: number; level: number }
 export type BuildView = { level: number; canZoomIn: boolean; canZoomOut: boolean }
 
 export type Build3DProps = {
-  // The plan as drawn (the drag in progress applied), and what the tool would make.
+  // The plan as drawn (the drag in progress applied), what the tool would make, and what it would have dropped
+  // where it can make nothing (drawn in the colour of what cannot be had).
   plan: SeatPlan<string>
   draft: SeatPlan<string> | null
+  refused: SeatPlan<string> | null
   // Every selected object — grouped ones through their group.
   selected: readonly string[]
   conflicts: readonly string[]
@@ -846,9 +848,11 @@ function Stage({ stageRef, onFrame }: { stageRef: RefObject<(() => RootState) | 
 
 type SceneProps = Build3DProps & { palette: Palette; picks: Picks; hoveredPlace: string | null }
 
-function Scene({ plan, draft, palette, picks, hoveredPlace, ...props }: SceneProps) {
+function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }: SceneProps) {
   const pieces = piecesOf(plan)
-  const walls = wallsOf(plan)
+  // A door the tool would put in a wall opens it already.
+  const doors = draft?.objects.filter((o) => o.kind === 'fixture' && o.role === 'door') ?? []
+  const walls = wallsOf(doors.length === 0 ? plan : { ...plan, objects: [...plan.objects, ...doors] })
   const selected = new Set(props.selected)
   const conflicts = new Set(props.conflicts)
   const reach = Math.hypot(plan.width, plan.height)
@@ -888,13 +892,21 @@ function Scene({ plan, draft, palette, picks, hoveredPlace, ...props }: ScenePro
     conflicts.has(id)
       ? { fill: palette.warningFill, line: 'warning', dash: true }
       : { fill: palette.surface, line: 'ink', dash: true }
-  const ghosts =
-    draft === null
+  const refusedLook: Look = { fill: palette.warningFill, line: 'warning', dash: true }
+  const ghosts = [
+    ...(draft === null
       ? []
       : [
           ...piecesOf(draft).map((piece) => solidOf(piece, ghostLook(piece.id))),
           ...wallsOf(draft).map((wall) => wallOf(wall, ghostLook(wall.id ?? ''))),
-        ]
+        ]),
+    ...(refused === null
+      ? []
+      : [
+          ...piecesOf(refused).map((piece) => solidOf(piece, refusedLook)),
+          ...wallsOf(refused).map((wall) => wallOf(wall, refusedLook)),
+        ]),
+  ]
 
   return (
     <>
