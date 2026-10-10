@@ -102,8 +102,10 @@ export function DocumentHead({
 // next visit follows the system again, and leaving the playground hands the page back to it (./playground.tsx).
 function toggleTheme() {
   const root = document.documentElement
+
   const dark = root.dataset.theme
     ? root.dataset.theme === 'dark'
     : window.matchMedia('(prefers-color-scheme: dark)').matches
+
   root.dataset.theme = dark ? 'light' : 'dark'
 }

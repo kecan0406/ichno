@@ -40,6 +40,7 @@ export function NumberField({ icon, label, value, min, max, unit, title, onCommi
   function commit(next: number) {
     setDraft(null)
     const clamped = Math.min(max, Math.max(min, Math.round(next)))
+
     if (Number.isNaN(clamped) || clamped === value) return
     onCommit(clamped)
   }
@@ -64,7 +65,9 @@ export function NumberField({ icon, label, value, min, max, unit, title, onCommi
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
+
           if (e.key === 'Escape') cancel(e.currentTarget, setDraft)
+
           if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && value !== null) {
             e.preventDefault()
             commit(value + (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 10 : 1))
@@ -88,6 +91,7 @@ type TextFieldProps = {
 // Text with its name to the left.
 export function TextField({ label, value, placeholder, mono, onCommit }: TextFieldProps) {
   const [draft, setDraft] = useState<string | null>(null)
+
   return (
     <label className={styles.row}>
       <span className={styles.rowLabel}>{label}</span>
@@ -103,10 +107,12 @@ export function TextField({ label, value, placeholder, mono, onCommit }: TextFie
           onBlur={() => {
             const next = draft?.trim()
             setDraft(null)
+
             if (next !== undefined && next !== value) onCommit(next)
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.currentTarget.blur()
+
             if (e.key === 'Escape') cancel(e.currentTarget, setDraft)
           }}
         />
@@ -232,15 +238,18 @@ export function SliderField({
 }) {
   const [draft, setDraft] = useState<number | null>(null)
   const shown = draft ?? value
+
   function change(next: number) {
     setDraft(next)
     onPreview?.(next)
   }
+
   function commit() {
     if (draft !== null && draft !== value) onCommit(draft)
     else if (draft !== null) onPreview?.(null)
     setDraft(null)
   }
+
   return (
     <label className={styles.row}>
       <span className={styles.rowLabel}>

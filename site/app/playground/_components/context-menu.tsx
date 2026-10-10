@@ -39,9 +39,11 @@ export function CanvasMenu({
 }: Props) {
   const { plan, selection } = editor
   const hasGroups = selection.some((item) => item.kind === 'group')
+
   const hasGrouped = selection.some(
     (item) => item.kind === 'object' && plan.objects.some((o) => o.id === item.id && o.group !== undefined),
   )
+
   const paste = () => onPaste(at?.plan ?? undefined)
 
   return (

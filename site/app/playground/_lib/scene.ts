@@ -7,6 +7,7 @@ import { METRE } from './units'
 // An app with a 3D view writes its own. The plan's x and y lie on the floor (y becomes z); heights are plan units.
 
 type Plan = SeatPlan<string>
+
 type Thing = Place<string> | Fixture
 
 // What stands on a footprint, by the role this site gave it. A role it does not know stands as a plain block.
@@ -25,25 +26,25 @@ export type Model =
   | 'pillar'
   | 'block'
 
-const PLACE_MODELS: Record<string, Model> = {
-  seat: 'chair',
-  sofa: 'sofa',
-  table: 'table',
-  desk: 'desk',
-  booth: 'booth',
-  area: 'area',
-}
+const PLACE_MODELS = new Map<string, Model>([
+  ['seat', 'chair'],
+  ['sofa', 'sofa'],
+  ['table', 'table'],
+  ['desk', 'desk'],
+  ['booth', 'booth'],
+  ['area', 'area'],
+])
 
-const FIXTURE_MODELS: Record<string, Model> = {
-  chair: 'chair',
-  table: 'table',
-  coffee: 'coffee',
-  stage: 'stage',
-  screen: 'screen',
-  bar: 'bar',
-  door: 'door',
-  pillar: 'pillar',
-}
+const FIXTURE_MODELS = new Map<string, Model>([
+  ['chair', 'chair'],
+  ['table', 'table'],
+  ['coffee', 'coffee'],
+  ['stage', 'stage'],
+  ['screen', 'screen'],
+  ['bar', 'bar'],
+  ['door', 'door'],
+  ['pillar', 'pillar'],
+])
 
 // How tall each model stands.
 export const HEIGHT: Record<Model, number> = {
@@ -64,17 +65,24 @@ export const HEIGHT: Record<Model, number> = {
 
 // Where a screen's picture starts.
 export const SCREEN_BOTTOM = 1 * METRE
+
 // Walls in full, and cut down while the camera is up high, so it sees into the rooms.
 export const WALL_HEIGHT = 2.8 * METRE
+
 export const WALL_CUT = 0.5 * METRE
+
 // How high a group's label stands as a sign.
 export const SIGN_HEIGHT = 0.95 * METRE
+
 const SEATED_EYE = 1.2 * METRE
+
 const STANDING_EYE = 1.6 * METRE
 
 // What people sit on, what they gather round, and what a room looks at.
 const SEATING = new Set<Model>(['chair', 'sofa'])
+
 const SURFACES = new Set<Model>(['table', 'desk', 'coffee'])
+
 const FOCI = new Set<Model>(['stage', 'screen'])
 
 // One thing on the floor: the centre of its footprint, its size across (`w`) and along (`d`) the way it faces, and
@@ -132,12 +140,15 @@ export function piecesOf(plan: Plan): Piece[] {
   const models = new Map(things.map((thing) => [thing.id, modelOf(thing)]))
   const rooms = seatPlan.roomsOf(plan)
   const members = new Map<string, Thing[]>()
+
   for (const thing of things) {
     if (thing.group === undefined) continue
     const list = members.get(thing.group)
+
     if (list) list.push(thing)
     else members.set(thing.group, [thing])
   }
+
   return things.map((thing) => {
     const model = models.get(thing.id)!
     const center = seatPlan.centerOf(thing)
@@ -147,6 +158,7 @@ export function piecesOf(plan: Plan): Piece[] {
     // Seating keeps to quarter turns of its box, so it stands on the footprint the plan shows.
     const quarter = toward === null ? 0 : Math.round(angleBetween(turn, toward) / (Math.PI / 2))
     const across = Math.abs(quarter) % 2 === 1
+
     return {
       id: thing.id,
       model,
@@ -169,11 +181,14 @@ export function wallsOf(plan: Plan): Wall[] {
   return plan.walls.flatMap((wall) => {
     const half = wall.thickness / 2
     const openings = seatPlan.openingsOf(wall)
+
     return seatPlan.wallEdgesOf(wall).flatMap((edge) => {
       if (edge.length === 0) return []
+
       const gaps = openings.flatMap(({ opening }): [number, number][] =>
         opening.edge === edge.index ? [[opening.at, opening.at + opening.width]] : [],
       )
+
       return stretchesOf(-half, edge.length + half, gaps).map(([from, to]): Wall => ({
         x: edge.a.x + (edge.along.x * (from + to)) / 2,
         z: edge.a.y + (edge.along.y * (from + to)) / 2,
@@ -190,11 +205,14 @@ export function wallsOf(plan: Plan): Wall[] {
 function stretchesOf(start: number, end: number, gaps: readonly [number, number][]): [number, number][] {
   const pieces: [number, number][] = []
   let from = start
+
   for (const [gapFrom, gapTo] of [...gaps].sort((x, y) => x[0] - y[0])) {
     if (gapFrom > from) pieces.push([from, Math.min(gapFrom, end)])
     from = Math.max(from, gapTo)
   }
+
   if (end > from) pieces.push([from, end])
+
   return pieces.filter(([a, b]) => b - a > 0.5)
 }
 
@@ -208,19 +226,23 @@ export function writingOf(
   fixtureName: (fixture: Fixture) => string | null,
 ): Writing[] {
   const byId = new Map(pieces.map((piece) => [piece.id, piece]))
+
   const fixtures = plan.objects.flatMap((object): Writing[] => {
     if (object.kind !== 'fixture') return []
     const piece = byId.get(object.id)
     const layout = piece ? seatPlan.fixtureLabelOf(object, fixtureName(object)) : null
+
     if (!piece || !layout) return []
     const long = Math.max(object.w, object.h)
     // Tall fixtures read bottom to top, like the 2D view.
     const yaw = -radians(object.rotation ?? 0) + (layout.vertical ? Math.PI / 2 : 0)
     const top = piece.model === 'door' ? 1 : HEIGHT[piece.model] + 1
     const written = { x: piece.x, y: top, z: piece.z, size: layout.fontSize, yaw }
+
     if (piece.model === 'screen') {
       // On the picture, facing the room.
       const out = piece.d / 2 + 1
+
       return [
         {
           text: layout.text,
@@ -237,6 +259,7 @@ export function writingOf(
         },
       ]
     }
+
     return [
       {
         text: layout.text,
@@ -254,12 +277,15 @@ export function writingOf(
       },
     ]
   })
+
   const groups = plan.objects.flatMap((object): Writing[] => {
     if (object.kind !== 'label') return []
     const group = seatPlan.groupById(plan, object.group)
     const center = seatPlan.centerOf(object)
     const layout = seatPlan.groupLabelOf(object, group?.label ?? object.group)
+
     if (!layout) return []
+
     return [
       {
         text: layout.text,
@@ -276,6 +302,7 @@ export function writingOf(
       },
     ]
   })
+
   return [...fixtures, ...groups]
 }
 
@@ -285,29 +312,39 @@ export function writingOf(
 // has no such place.
 export function sightFrom(plan: Plan, pieces: readonly Piece[], id: string): Sight | null {
   const own = pieces.find((piece) => piece.id === id)
+
   if (!own?.place) return null
+
   const chair =
     own.model === 'desk' || own.model === 'table'
       ? pieces.find((piece) => piece.group !== undefined && piece.group === own.group && piece.model === 'chair')
       : undefined
+
   const spot = chair ?? own
   const seated = SEATING.has(spot.model)
   const eye = { x: spot.x, y: seated ? SEATED_EYE : STANDING_EYE, z: spot.z }
   const rooms = seatPlan.roomsOf(plan)
   const room = seatPlan.roomAt(rooms, { x: own.x, y: own.z })
+
   const focus = pieces
     .filter((piece) => FOCI.has(piece.model) && seatPlan.roomAt(rooms, { x: piece.x, y: piece.z }) === room)
     .sort((a, b) => distance(eye, a) - distance(eye, b))[0]
+
   if (focus) {
     const y = focus.model === 'screen' ? (SCREEN_BOTTOM + HEIGHT.screen) / 2 : HEIGHT.stage + 0.8 * METRE
+
     return { eye, look: { x: focus.x, y, z: focus.z } }
   }
+
   const middle = middleOf(plan, room)
+
   if (!seated && distance(eye, { x: middle.x, z: middle.y }) > METRE) {
     return { eye, look: { x: middle.x, y: METRE, z: middle.y } }
   }
+
   // Ahead, and a little down.
   const reach = 3 * METRE
+
   return {
     eye,
     look: { x: eye.x - Math.sin(spot.yaw) * reach, y: 0.8 * METRE, z: eye.z - Math.cos(spot.yaw) * reach },
@@ -317,6 +354,7 @@ export function sightFrom(plan: Plan, pieces: readonly Piece[], id: string): Sig
 export function overviewOf(plan: Plan, pieces: readonly Piece[]): Overview {
   const bounds = seatPlan.drawingBoundsOf(plan)
   const focus = pieces.filter((piece) => FOCI.has(piece.model)).sort((a, b) => b.w * b.d - a.w * a.d)[0]
+
   return {
     x: bounds.x + bounds.w / 2,
     z: bounds.y + bounds.h / 2,
@@ -330,7 +368,8 @@ export function overviewOf(plan: Plan, pieces: readonly Piece[]): Overview {
 
 function modelOf(thing: Thing): Model {
   const models = thing.kind === 'place' ? PLACE_MODELS : FIXTURE_MODELS
-  return (thing.role === undefined ? undefined : models[thing.role]) ?? 'block'
+
+  return (thing.role === undefined ? undefined : models.get(thing.role)) ?? 'block'
 }
 
 // What a piece turns to face, if anything: seating the nearest table, desk or coffee table of its group, a stage or
@@ -345,14 +384,18 @@ function targetOf(
   models: ReadonlyMap<string, Model>,
 ): PlanPoint | null {
   const center = seatPlan.centerOf(thing)
+
   if (SEATING.has(model)) {
     const surfaces = (thing.group === undefined ? [] : (members.get(thing.group) ?? []))
       .filter((other) => other !== thing && SURFACES.has(models.get(other.id)!))
       .map(seatPlan.centerOf)
       .sort((a, b) => Math.hypot(a.x - center.x, a.y - center.y) - Math.hypot(b.x - center.x, b.y - center.y))
+
     return surfaces[0] ?? null
   }
+
   if (FOCI.has(model)) return middleOf(plan, seatPlan.roomAt(rooms, center))
+
   return null
 }
 
@@ -370,6 +413,7 @@ function middleOf(plan: Plan, room: Room | null): PlanPoint {
 function yawToward(from: PlanPoint, to: PlanPoint): number | null {
   const dx = to.x - from.x
   const dy = to.y - from.y
+
   return dx === 0 && dy === 0 ? null : Math.atan2(-dx, -dy)
 }
 

@@ -35,7 +35,9 @@ export function useSeatMapView(
   // Frames the given rectangles (seatPlan.boundsOf a place, a section's bounds). false when there is nothing to frame.
   function zoomTo(rects: readonly PlanRect[], around: number = padding): boolean {
     const next = planView.fitTo(rects, around, home)
+
     if (next) setView(next)
+
     return next !== null
   }
 
@@ -62,4 +64,5 @@ function middleOf(view: PlanView): PlanPoint {
 
 // A zoom button's step, and the room around what zoomTo frames — two editor cells.
 const ZOOM_BUTTON_STEP = 1.5
+
 const ZOOM_TO_PADDING = GRID_CELL * 2

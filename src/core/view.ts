@@ -6,6 +6,7 @@ import type { PlanPoint, PlanRect, SeatPlan } from './types'
 // the moment they happen.
 
 export type PlanView = PlanRect
+
 // The viewport's size in CSS pixels.
 export type ViewportSize = { width: number; height: number }
 
@@ -13,6 +14,7 @@ export type ViewportSize = { width: number; height: number }
 // than the home view itself: a step cut short at a limit below it would leave every later step off the home view
 // (90% × 1.1 = 99%), so zooming in and back out would never come back to it.
 export const ZOOM_STEP = 1.1
+
 const ZOOM_MAX_FACTOR = 6
 
 export const planView = {
@@ -40,6 +42,7 @@ function home(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pi
 function zoom(view: PlanView, factor: number, center: PlanPoint, homeView: PlanView): PlanView {
   const w = clamp(view.w / factor, homeView.w / ZOOM_MAX_FACTOR, homeView.w)
   const applied = view.w / w
+
   return {
     x: center.x - (center.x - view.x) / applied,
     y: center.y - (center.y - view.y) / applied,
@@ -64,6 +67,7 @@ function pinch(
 ): PlanView {
   const perPixel = 1 / scaleOf(view, size)
   const panned = pan(view, { x: -step.delta.x * perPixel, y: -step.delta.y * perPixel })
+
   // Where the fingers are now, on the plan as it has followed them — not on the view before it moved.
   return zoom(panned, step.factor, toPlan(panned, size, step.center), homeView)
 }
@@ -79,6 +83,7 @@ function fitTo(rects: readonly PlanRect[], padding: number, homeView: PlanView):
   const y1 = Math.max(...rects.map((r) => r.y + r.h)) + padding
   const w = clamp(x1 - x0, homeView.w / ZOOM_MAX_FACTOR, homeView.w)
   const h = clamp(y1 - y0, homeView.h / ZOOM_MAX_FACTOR, homeView.h)
+
   return { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h }
 }
 
@@ -89,6 +94,7 @@ function clamp(value: number, min: number, max: number) {
 // Screen pixels per plan unit — the viewBox scales uniformly to fit the viewport (preserveAspectRatio meet).
 function scaleOf(view: PlanView, size: ViewportSize): number {
   if (view.w <= 0 || view.h <= 0) return 1
+
   return Math.min(size.width / view.w, size.height / view.h)
 }
 
@@ -99,6 +105,7 @@ function toPlan(view: PlanView, size: ViewportSize, point: { x: number; y: numbe
   const scale = scaleOf(view, size)
   const offsetX = (size.width - view.w * scale) / 2
   const offsetY = (size.height - view.h * scale) / 2
+
   return { x: view.x + (point.x - offsetX) / scale, y: view.y + (point.y - offsetY) / scale }
 }
 
@@ -106,9 +113,11 @@ function toPlan(view: PlanView, size: ViewportSize, point: { x: number; y: numbe
 // the viewBox (xMidYMid meet) and the plan beyond it stays visible. Cull, and keep things on screen, against this.
 function visible(view: PlanView, size: ViewportSize): PlanRect {
   const scale = scaleOf(view, size)
+
   if (!(scale > 0)) return view
   const w = size.width / scale
   const h = size.height / scale
+
   return { x: view.x - (w - view.w) / 2, y: view.y - (h - view.h) / 2, w, h }
 }
 

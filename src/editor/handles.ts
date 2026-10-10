@@ -57,16 +57,21 @@ export const planHandles = {
 }
 
 const CORNERS = ['nw', 'ne', 'se', 'sw'] as const
+
 type Corner = (typeof CORNERS)[number]
 
 // How far the rotation knob sits above the top edge (plan units).
 const KNOB_OFFSET = 28
+
 // The turn a snapping editor steps by (degrees).
 const ROTATION_STEP = 15
+
 // How close (screen pixels) a dragged vertex comes to its neighbour to merge with it.
 const MERGE_PX = 8
+
 // How close (plan units) a fixture comes to an edge's line to stand against it — a side snapped onto it.
 const TOUCH = 1
+
 const EPSILON = 1e-9
 
 // The handles a selection shows. `turn` turns a selection's knob (and `frame` its box) while the knob is dragged —
@@ -78,34 +83,47 @@ function handlesOf<S extends string>(
 ): PlanHandle<S>[] {
   if (selection.length > 1) {
     const together = selectionKnobOf(plan, selection, turn)
+
     return together ? [{ owner: { kind: 'selection' }, name: 'rotate', point: together.knob }] : []
   }
-  if (selection.length !== 1) return []
-  const [item] = selection as [EditorSelection<S>]
+
+  const item = selection[0]
+
+  if (selection.length !== 1 || item === undefined) return []
+
   if (item.kind === 'wall') {
     const wall = seatPlan.wallOf(plan, item.id)
+
     return wall ? wallHandlesOf<S>(wall) : []
   }
+
   if (item.kind === 'section') {
     const section = seatPlan.sectionOf(plan, item.id)
+
     if (!section) return []
     const { points } = section
+
     return [
       ...points.map((point, i) => ({ owner: item, name: `vertex-${i}`, point })),
       ...points.map((point, i) => {
         const next = points[(i + 1) % points.length]!
+
         // It pushes across the edge — the resize cursor points that way.
         return { owner: item, name: `edge-${i}`, point: middle(point, next), angle: angleOf(point, next) + 90 }
       }),
     ]
   }
+
   const box = boxOf(plan, item.id)
+
   if (!box) return []
   const knob = { owner: item, name: 'rotate', point: knobOf(box) }
+
   if (item.kind === 'group') return [knob]
   const object = seatPlan.objectById(plan, item.id)!
   const center = seatPlan.centerOf(box)
   const corners = cornersOf(box)
+
   return [
     ...CORNERS.map((name) => ({ owner: item, name, point: corners[name], angle: angleOf(center, corners[name]) })),
     ...(object.kind === 'label' ? [] : [knob]),
@@ -122,12 +140,17 @@ function frameOf<S extends string>(
 ): PlanPoint[] | null {
   if (selection.length > 1) return selectionKnobOf(plan, selection, turn)?.frame ?? null
   const [item] = selection
+
   if (selection.length !== 1 || !item || item.kind === 'section') return null
+
   if (item.kind === 'wall') {
     const wall = seatPlan.wallOf(plan, item.id)
+
     return wall ? wallFrameOf(wall) : null
   }
+
   const box = boxOf(plan, item.id)
+
   return box ? outlineOf(box, 'rect') : null
 }
 
@@ -137,23 +160,31 @@ function framesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edito
   const groups = new Map(plan.groups.map((group) => [group.id, group]))
   const objects = new Map(plan.objects.map((object) => [object.id, object]))
   const members = new Map<string, PlanObject<S>[]>()
+
   for (const object of plan.objects) {
     if (object.group === undefined) continue
     const list = members.get(object.group)
+
     if (list) list.push(object)
     else members.set(object.group, [object])
   }
+
   return selection.flatMap((item) => {
     if (item.kind === 'section') return []
+
     if (item.kind === 'wall') {
       const wall = seatPlan.wallOf(plan, item.id)
       const frame = wall ? wallFrameOf(wall) : null
+
       return frame ? [frame] : []
     }
+
     const group = item.kind === 'group' ? groups.get(item.id) : undefined
+
     const box = group
       ? seatPlan.frameOf(members.get(group.id) ?? [], group.rotation ?? 0)
       : (objects.get(item.id) ?? null)
+
     return box ? [outlineOf(box, 'rect')] : []
   })
 }
@@ -168,10 +199,12 @@ function selectionKnobOf<S extends string>(
   turn = 0,
 ): { frame: PlanPoint[]; knob: PlanPoint; pivot: PlanPoint } | null {
   const ids = new Set(selection.flatMap((item) => (item.kind === 'object' || item.kind === 'group' ? [item.id] : [])))
+
   if (ids.size < 2) return null
   const bounds: PlanRect[] = []
   const centers: PlanPoint[] = []
   const members = new Map<string, PlanObject<S>[]>()
+
   for (const object of plan.objects) {
     if (ids.has(object.id)) {
       bounds.push(seatPlan.boundsOf(object))
@@ -181,17 +214,24 @@ function selectionKnobOf<S extends string>(
       members.set(object.group, [...(members.get(object.group) ?? []), object])
     }
   }
+
   for (const [id, list] of members) {
     const box = seatPlan.frameOf(list, seatPlan.groupById(plan, id)?.rotation ?? 0)
+
     if (box) centers.push(seatPlan.centerOf(box))
   }
+
   const extent = unionBounds(bounds)
+
   if (!extent || centers.length === 0) return null
+
   const pivot = {
     x: centers.reduce((sum, c) => sum + c.x, 0) / centers.length,
     y: centers.reduce((sum, c) => sum + c.y, 0) / centers.length,
   }
+
   const top = { x: extent.x + extent.w / 2, y: extent.y - KNOB_OFFSET }
+
   return {
     frame: outlineOf(extent, 'rect').map((p) => rotatePoint(p, pivot, turn)),
     knob: rotatePoint(top, pivot, turn),
@@ -207,8 +247,10 @@ function selectionTurnOf<S extends string>(
   snapping = false,
 ): number {
   const together = selectionKnobOf(plan, selection)
+
   if (!together) return 0
   const { pivot, knob } = together
+
   return stepped(shortest(angleOf(pivot, add(knob, total)) - angleOf(pivot, knob)), snapping)
 }
 
@@ -229,12 +271,17 @@ function dragHandle<S extends string>(
 ): SeatPlan<S> {
   // The selection's knob turns what is selected — `planEdits.applyDrag` knows what that is.
   if (owner.kind === 'selection') return plan
+
   if (owner.kind === 'wall') return dragWallHandle(plan, owner.id, name, total, snap, constrain, pixel, alt)
+
   if (owner.kind === 'section') {
     const section = seatPlan.sectionOf(plan, owner.id)
+
     if (!section) return plan
     const [kind, at] = name.split('-')
+
     if (kind === 'edge' && !alt) return pushedEdge(plan, section, Number(at), total, snap)
+
     return {
       ...plan,
       sections: plan.sections.map((s) =>
@@ -242,18 +289,23 @@ function dragHandle<S extends string>(
       ),
     }
   }
+
   if (name !== 'rotate' && !isCorner(name)) return plan
+
   if (owner.kind === 'group') {
     const group = seatPlan.groupById(plan, owner.id)
     const frame = boxOf(plan, owner.id)
+
     if (name !== 'rotate' || !group || !frame) return plan
     // The knob sets the direction the group faces; the members turn by the difference, about the frame's centre.
     const center = seatPlan.centerOf(frame)
     const facing = stepped(angleOf(center, add(knobOf(frame), total)) + 90, snap !== null || constrain)
     const turn = shortest(facing - (group.rotation ?? 0))
     const turned = turnObjects(plan, seatPlan.membersOf(plan, owner.id), center, turn)
+
     return withGroupRotation(turned, owner.id, facing)
   }
+
   return {
     ...plan,
     objects: plan.objects.map((object) =>
@@ -276,22 +328,29 @@ function reshapedOutline(
   const [kind, at] = name.split('-')
   const index = Number(at)
   const from = points[index]
+
   if (!from || (kind !== 'vertex' && kind !== 'edge')) return [...points]
   const step = snap ? snap.cell : 1
   const by = constrain ? alongAxis(total) : total
   const start = kind === 'edge' ? middle(from, points[(index + 1) % points.length]!) : from
+
   const point = {
     x: clamp(roundTo(start.x + by.x, step), 0, Math.floor(plan.width / step) * step),
     y: clamp(roundTo(start.y + by.y, step), 0, Math.floor(plan.height / step) * step),
   }
+
   if (kind === 'edge') return [...points.slice(0, index + 1), point, ...points.slice(index + 1)]
+
   const near = (other: PlanPoint | undefined) =>
     other !== undefined && Math.hypot(other.x - point.x, other.y - point.y) <= MERGE_PX * pixel
+
   const previous = points[(index - 1 + points.length) % points.length]
   const next = points[(index + 1) % points.length]
+
   if (points.length > 3 && (near(previous) || near(next))) {
     return points.filter((_, i) => i !== index)
   }
+
   return points.map((p, i) => (i === index ? point : p))
 }
 
@@ -311,6 +370,7 @@ function pushedEdge<S extends string>(
   const a = points[index]
   const b = points[next]
   const length = a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0
+
   if (!a || !b || length === 0) return plan
   const edge = { a, along: { x: (b.x - a.x) / length, y: (b.y - a.y) / length }, length }
   const across = { x: -edge.along.y, y: edge.along.x }
@@ -320,13 +380,18 @@ function pushedEdge<S extends string>(
   const level = across.x === 0 || across.y === 0
   // On a level or upright edge the push lands on a cell line — stepped back inside the range if rounding passed it.
   let push = level ? onLine(a, across, wanted, step) : wanted
+
   if (push > high) push -= step
+
   if (push < low) push += step
   const d = { x: Math.round(across.x * push), y: Math.round(across.y * push) }
+
   if (d.x === 0 && d.y === 0) return plan
+
   const carried = new Set<PlanObject<S>>(
     plan.objects.flatMap((o) => (o.kind === 'fixture' && o.group === undefined && against(o, edge, across) ? [o] : [])),
   )
+
   return {
     ...plan,
     sections: plan.sections.map((s) =>
@@ -359,11 +424,14 @@ function pushRange(
     if (i === index || i === (index + 1) % points.length) return
     const u = (p.x - a.x) * along.x + (p.y - a.y) * along.y
     const v = (p.x - a.x) * across.x + (p.y - a.y) * across.y
+
     if (u < -EPSILON || u > length + EPSILON) return
+
     if (v > EPSILON) high = Math.min(high, v - step)
     else if (v < -EPSILON) low = Math.max(low, v + step)
   })
   const ends = [a, { x: a.x + along.x * length, y: a.y + along.y * length }]
+
   for (const p of ends) {
     for (const [n, start, extent] of [
       [across.x, p.x, plan.width],
@@ -375,6 +443,7 @@ function pushRange(
       high = Math.min(high, Math.max(t1, t2))
     }
   }
+
   return [Math.min(low, 0), Math.max(high, 0)]
 }
 
@@ -382,6 +451,7 @@ function pushRange(
 function onLine(a: PlanPoint, across: PlanPoint, wanted: number, step: number): number {
   const axis = across.x === 0 ? 'y' : 'x'
   const sign = across[axis]
+
   return (roundTo(a[axis] + wanted * sign, step) - a[axis]) * sign
 }
 
@@ -390,8 +460,10 @@ function onLine(a: PlanPoint, across: PlanPoint, wanted: number, step: number): 
 function against(object: PlanObject, { a, along, length }: Edge, across: PlanPoint): boolean {
   const center = seatPlan.centerOf(object)
   const u = (center.x - a.x) * along.x + (center.y - a.y) * along.y
+
   if (u < 0 || u > length) return false
   const offsets = outlineOf(object, 'rect').map((p) => (p.x - a.x) * across.x + (p.y - a.y) * across.y)
+
   return Math.min(...offsets) <= TOUCH && Math.max(...offsets) >= -TOUCH
 }
 
@@ -402,24 +474,27 @@ function middle(a: PlanPoint, b: PlanPoint): PlanPoint {
 function reshaped<S extends string>(
   plan: SeatPlan<S>,
   object: PlanObject<S>,
-  name: string,
+  name: 'rotate' | Corner,
   total: PlanPoint,
   snap: Snap | null,
   constrain: boolean,
 ): PlanObject<S> {
   const rotation = object.rotation ?? 0
   const center = seatPlan.centerOf(object)
+
   if (name === 'rotate') {
     const turned = normalizeRotation(
       stepped(angleOf(center, add(knobOf(object), total)) + 90, snap !== null || constrain),
     )
+
     const { rotation: _, ...rest } = object
-    return (turned === 0 ? rest : { ...rest, rotation: turned }) as PlanObject<S>
+
+    return turned === 0 ? rest : { ...rest, rotation: turned }
   }
+
   const corners = cornersOf(object)
-  const corner = name as Corner
-  const anchor = corners[OPPOSITE[corner]]
-  const moved = add(corners[corner], total)
+  const anchor = corners[OPPOSITE[name]]
+  const moved = add(corners[name], total)
   // The drag in the object's own frame — its x and y axes turned with it.
   const a = (rotation * Math.PI) / 180
   const u = { x: Math.cos(a), y: Math.sin(a) }
@@ -427,21 +502,26 @@ function reshaped<S extends string>(
   const d = { x: moved.x - anchor.x, y: moved.y - anchor.y }
   let du = d.x * u.x + d.y * u.y
   let dv = d.x * v.x + d.y * v.y
+
   if (constrain) {
     // Proportions kept — the box grows by whichever side was pulled further, the other follows.
     const k = Math.max(Math.abs(du) / object.w, Math.abs(dv) / object.h)
     du = Math.sign(du || 1) * object.w * k
     dv = Math.sign(dv || 1) * object.h * k
   }
+
   const step = snap ? snap.cell / 2 : 1
   let w = Math.max(step, roundTo(Math.abs(du), step))
   let h = Math.max(step, roundTo(Math.abs(dv), step))
+
   const mid = {
     x: anchor.x + (u.x * (Math.sign(du || 1) * w)) / 2 + (v.x * (Math.sign(dv || 1) * h)) / 2,
     y: anchor.y + (u.y * (Math.sign(du || 1) * w)) / 2 + (v.y * (Math.sign(dv || 1) * h)) / 2,
   }
+
   let x = Math.round(mid.x - w / 2)
   let y = Math.round(mid.y - h / 2)
+
   if (!rotation) {
     // A level box never grows past the plan edge.
     x = Math.max(0, x)
@@ -449,27 +529,34 @@ function reshaped<S extends string>(
     w = Math.min(w, Math.max(1, plan.width - x))
     h = Math.min(h, Math.max(1, plan.height - y))
   }
+
   const resized = { ...object, x, y, w, h }
+
   if (resized.kind !== 'place') return resized
   const section = seatPlan.sectionAt(plan, seatPlan.centerOf(resized)) ?? resized.section
+
   return { ...resized, section }
 }
 
 // The corners of a turned box, by the name they have on the unturned one.
 function cornersOf(box: PlanBox): Record<Corner, PlanPoint> {
+  // SAFETY: outlineOf draws a rect as its four corners, clockwise from the top left of the unturned box.
   const [nw, ne, se, sw] = outlineOf(box, 'rect') as [PlanPoint, PlanPoint, PlanPoint, PlanPoint]
+
   return { nw, ne, se, sw }
 }
 
 // The rotation knob — above the middle of the top edge, turned with the box.
 function knobOf(box: PlanBox): PlanPoint {
   const center = seatPlan.centerOf(box)
+
   return rotatePoint({ x: center.x, y: box.y - KNOB_OFFSET }, center, box.rotation ?? 0)
 }
 
 // A turn the short way round (−180 < turn ≤ 180), so a group facing 350° turned to 10° moves by 20°, not −340°.
 function shortest(degrees: number): number {
   const d = normalizeRotation(degrees)
+
   return d > 180 ? d - 360 : d
 }
 
@@ -491,7 +578,7 @@ export function alongAxis(delta: PlanPoint): PlanPoint {
 const OPPOSITE: Record<Corner, Corner> = { nw: 'se', ne: 'sw', se: 'nw', sw: 'ne' }
 
 function isCorner(name: string): name is Corner {
-  return (CORNERS as readonly string[]).includes(name)
+  return CORNERS.some((corner) => corner === name)
 }
 
 function add(a: PlanPoint, b: PlanPoint): PlanPoint {

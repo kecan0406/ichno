@@ -29,9 +29,11 @@ export type ThemeVar = keyof typeof themeVars
 
 // Font families — unset means the renderer inherits the surrounding font.
 export const FONT_VAR = '--ichno-font'
+
 export const NUMBER_FONT_VAR = '--ichno-number-font'
 
 export function cssVar(key: ThemeVar): string {
   const { name, fallback } = themeVars[key]
+
   return `var(${name}, ${fallback})`
 }

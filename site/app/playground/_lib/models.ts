@@ -21,6 +21,7 @@ export function partsOf(model: Solid3D, round: boolean): Part[] {
   if (model === 'wall') return [box(-0.5, 0.5, -0.5, 0.5, 0, 1)]
   const top = HEIGHT[model]
   const m = METRE
+
   switch (model) {
     case 'chair':
       return [
@@ -78,12 +79,15 @@ export function creasesOf(model: Solid3D, round: boolean): Float32Array {
     const arrays = partsOf(model, round).map(
       (part) => new EdgesGeometry(geometryOf(part), CREASE_ANGLE).attributes.position!.array,
     )
+
     const out = new Float32Array(arrays.reduce((sum, array) => sum + array.length, 0))
     let at = 0
+
     for (const array of arrays) {
       out.set(array, at)
       at += array.length
     }
+
     return out
   })
 }
@@ -95,15 +99,19 @@ export function polesOf(model: Solid3D, round: boolean): Extract<Part, { kind: '
 
 // Faces meeting at more than this many degrees draw an edge.
 const CREASE_ANGLE = 30
+
 const FACES = new Map<string, BufferGeometry>()
+
 const CREASES = new Map<string, Float32Array>()
 
 function cached<T>(cache: Map<string, T>, model: Solid3D, round: boolean, make: () => T): T {
   const key = `${model}:${round}`
   const found = cache.get(key)
+
   if (found) return found
   const made = make()
   cache.set(key, made)
+
   return made
 }
 

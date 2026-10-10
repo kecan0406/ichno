@@ -31,10 +31,12 @@ describe('planView — screen and plan coordinates without reading layout', () =
     // cut short at the limit (90% × 1.1 = 99%).
     const levels: number[] = []
     let view = home
+
     for (const factor of [1.1, 1 / 1.1, 1 / 1.1, 1 / 1.1, 1.1]) {
       view = planView.zoom(view, factor, center, home)
       levels.push(Math.round((home.w / view.w) * 100))
     }
+
     expect(levels).toEqual([110, 100, 100, 100, 110])
     // Framing places reaches no further out either.
     const everything = planView.fitTo([{ x: -50, y: -50, w: 1100, h: 600 }], 100, home)

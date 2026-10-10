@@ -10,10 +10,12 @@ import {
   Color,
   Matrix4,
   MeshLambertMaterial,
+  OrthographicCamera,
   Quaternion,
   ShapeGeometry,
   Shape as Outline,
   ShaderMaterial,
+  Sprite,
   SRGBColorSpace,
   Vector2,
   Vector3,
@@ -22,9 +24,7 @@ import {
   type Mesh,
   type MeshBasicMaterial,
   type Object3D,
-  type OrthographicCamera,
   type PerspectiveCamera,
-  type Sprite,
 } from 'three'
 import { creasesOf, facesOf, polesOf, type Solid3D } from '../_lib/models'
 import type { Writing } from '../_lib/scene'
@@ -55,6 +55,7 @@ export function usePalette(hostRef: RefObject<HTMLElement | null>): Palette | nu
   const [palette, setPalette] = useState<Palette | null>(null)
   useLayoutEffect(() => {
     const host = hostRef.current
+
     if (!host) return
     const read = () => setPalette(paletteOf(host))
     read()
@@ -62,11 +63,13 @@ export function usePalette(hostRef: RefObject<HTMLElement | null>): Palette | nu
     scheme.addEventListener('change', read)
     const picked = new MutationObserver(read)
     picked.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+
     return () => {
       scheme.removeEventListener('change', read)
       picked.disconnect()
     }
   }, [hostRef])
+
   return palette
 }
 
@@ -78,6 +81,7 @@ function paletteOf(host: HTMLElement): Palette {
   canvas.width = 1
   canvas.height = 1
   const context = canvas.getContext('2d', { willReadFrequently: true })!
+
   // Through the probe for the page's variables, then through a pixel for sRGB — `color()` and `color-mix()` come
   // back from the style in forms three.js cannot parse.
   const read = (css: string) => {
@@ -86,9 +90,12 @@ function paletteOf(host: HTMLElement): Palette {
     context.fillStyle = getComputedStyle(probe).color
     context.fillRect(0, 0, 1, 1)
     const [r = 0, g = 0, b = 0] = context.getImageData(0, 0, 1, 1).data
+
     return new Color().setRGB(r / 255, g / 255, b / 255, SRGBColorSpace)
   }
+
   const mix = (a: string, share: number) => read(`color-mix(in srgb, ${a} ${share}%, var(--ichno-surface))`)
+
   const palette: Palette = {
     ground: read('var(--theme-bg)'),
     surface: read('var(--ichno-surface)'),
@@ -100,7 +107,9 @@ function paletteOf(host: HTMLElement): Palette {
     categories: { premium: mix('var(--theme-premium)', 14), access: mix('var(--theme-access)', 14) },
     font: getComputedStyle(host).getPropertyValue('--ichno-font').trim() || 'sans-serif',
   }
+
   probe.remove()
+
   return palette
 }
 
@@ -117,6 +126,7 @@ export function Daylight() {
 }
 
 const SHADE = 0.72
+
 const LIGHT_FROM = new Vector3(0.25, 1, 0.45)
 
 // ---------- Solids ----------
@@ -171,7 +181,9 @@ export function Solids({
     solids.filter((solid) => solid.look.fill !== null),
     (solid) => `${solid.model}:${solid.round}`,
   )
+
   const lines = groupBy(solids, (solid) => lookKey(solid.look))
+
   return (
     <>
       {[...faces].map(([key, batch]) => (
@@ -217,6 +229,7 @@ function Faces({
 
   useLayoutEffect(() => {
     const mesh = ref.current
+
     if (!mesh) return
     drawn.current = solids
     solids.forEach((solid, i) => mesh.setMatrixAt(i, matrixOf(solid)))
@@ -228,8 +241,10 @@ function Faces({
 
   useFrame((state) => {
     const mesh = ref.current
+
     if (!mesh || !turns) return
     const now = downOf(state.camera)
+
     if (Math.abs(now - down.current) < 0.001) return
     down.current = now
     paintFaces(mesh, solids, now)
@@ -237,8 +252,10 @@ function Faces({
 
   useEffect(() => {
     const mesh = ref.current
+
     if (!mesh || !picks) return
     picks.set(mesh, (i) => (i === undefined ? null : (drawn.current[i]?.target ?? null)))
+
     return () => {
       picks.delete(mesh)
     }
@@ -263,9 +280,11 @@ function Faces({
         onTap &&
         ((e) => {
           e.stopPropagation()
+
           // A drag turned the camera; it picked nothing.
           if (e.delta > CLICK_SLOP_PX) return
           const solid = solidAt(e)
+
           if (solid) onTap(solid, e)
         })
       }
@@ -276,6 +295,7 @@ function Faces({
 // Each solid's colour, `down` of the way to its 2D paint.
 function paintFaces(mesh: InstancedMesh, solids: readonly Solid[], down: number) {
   solids.forEach((solid, i) => mesh.setColorAt(i, paintOf(solid.look.fill!, solid.look.flat, down)))
+
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 }
 
@@ -311,6 +331,7 @@ function SolidEdges({ solids, color, look }: { solids: readonly Solid[]; color: 
 
   useFrame(({ camera }) => {
     const last = seen.current
+
     if (last && last.solids === solids && last.eye.equals(camera.matrixWorld)) return
     seen.current = { eye: camera.matrixWorld.clone(), solids }
     setSegments(outlines, outlineSegments(solids, camera))
@@ -328,9 +349,11 @@ function creaseSegments(solids: readonly Solid[]): Float32Array {
   const total = solids.reduce((sum, solid) => sum + creasesOf(solid.model, solid.round).length, 0)
   const out = new Float32Array(total)
   let at = 0
+
   for (const solid of solids) {
     const local = creasesOf(solid.model, solid.round)
     const matrix = matrixOf(solid)
+
     for (let i = 0; i < local.length; i += 3) {
       POINT.set(local[i]!, local[i + 1]!, local[i + 2]!).applyMatrix4(matrix)
       out[at++] = POINT.x
@@ -338,6 +361,7 @@ function creaseSegments(solids: readonly Solid[]): Float32Array {
       out[at++] = POINT.z
     }
   }
+
   return out
 }
 
@@ -345,24 +369,29 @@ function creaseSegments(solids: readonly Solid[]): Float32Array {
 // — an ellipse with half-axes a and b — and the view grazes it where the ellipse's normal is square to the
 // direction the camera looks at it from.
 function outlineSegments(solids: readonly Solid[], camera: Camera): Float32Array {
-  const ortho = (camera as OrthographicCamera).isOrthographicCamera === true
+  const ortho = camera instanceof OrthographicCamera
   camera.getWorldDirection(AHEAD)
   const lines: number[] = []
+
   for (const solid of solids) {
     const poles = polesOf(solid.model, solid.round)
+
     if (poles.length === 0) continue
     const vx = ortho ? AHEAD.x : solid.x - camera.position.x
     const vz = ortho ? AHEAD.z : solid.z - camera.position.z
+
     if (Math.hypot(vx, vz) < 1e-6) continue
     const cos = Math.cos(solid.yaw)
     const sin = Math.sin(solid.yaw)
     // The view direction in the solid's own frame (turned back by its yaw).
     const lx = vx * cos - vz * sin
     const lz = vx * sin + vz * cos
+
     for (const pole of poles) {
       const a = pole.r * Math.max(solid.w, 1)
       const b = pole.r * Math.max(solid.d, 1)
       const t = Math.atan2(-b * lx, a * lz)
+
       for (const side of [1, -1]) {
         const px = side * a * Math.cos(t)
         const pz = side * b * Math.sin(t)
@@ -373,6 +402,7 @@ function outlineSegments(solids: readonly Solid[], camera: Camera): Float32Array
       }
     }
   }
+
   return new Float32Array(lines)
 }
 
@@ -412,43 +442,44 @@ export function inkOf(palette: Palette, ink: Ink): Color {
 // Lines one pixel wide at any zoom, in one colour — dashed by the screen pixel like the 2D view's (`3 3` for
 // what cannot be had and the outlines, `2 4` for the grid), and marching while `march` unless motion is reduced.
 export function Hairlines({ geometry, color, look }: { geometry: BufferGeometry; color: Color; look: Look }) {
-  const [material] = useState(() => inkMaterial())
+  const [{ material, uniforms }] = useState(() => inkMaterial())
   const invalidate = useThree((state) => state.invalidate)
   useEffect(() => () => material.dispose(), [material])
   const [dash, gap] = !look.dash ? [0, 0] : look.line === 'grid' ? [2, 4] : [3, 3]
   const march = look.march === true
   // The material is three.js's, changed outside render: its ink once drawn, its scale and march every frame.
   useLayoutEffect(() => {
-    setInk(material, color, dash, gap)
+    setInk(uniforms, color, dash, gap)
     invalidate()
-  }, [material, color, dash, gap, invalidate])
+  }, [uniforms, color, dash, gap, invalidate])
   useFrame((state, delta) => {
-    if (stepInk(material, state, delta, march)) state.invalidate()
+    if (stepInk(uniforms, state, delta, march)) state.invalidate()
   })
 
   return <lineSegments geometry={geometry} material={material} frustumCulled={false} renderOrder={1} />
 }
 
-function setInk(material: ShaderMaterial, color: Color, dash: number, gap: number) {
-  const uniforms = material.uniforms as InkUniforms
+function setInk(uniforms: InkUniforms, color: Color, dash: number, gap: number) {
   uniforms.color.value.copy(color)
   uniforms.dash.value = dash
   uniforms.gap.value = gap
 }
 
 // A frame of the ink: dashes measured in screen pixels, and marching — true while they march.
-function stepInk(material: ShaderMaterial, state: RootState, delta: number, march: boolean): boolean {
-  const uniforms = material.uniforms as InkUniforms
+function stepInk(uniforms: InkUniforms, state: RootState, delta: number, march: boolean): boolean {
   uniforms.scale.value = pixelsPerUnit(state.camera, state.size.height)
+
   if (!march || reducedMotion()) return false
   // Six pixels in 0.6 s, the 2D view's march.
   uniforms.offset.value = (uniforms.offset.value - Math.min(delta, 0.1) * 10) % 6
+
   return true
 }
 
 // Replaces a geometry's segments (x, y, z pairs), each measured from its own start so its dashes begin there.
 export function setSegments(geometry: BufferGeometry, positions: Float32Array) {
   const distances = new Float32Array(positions.length / 3)
+
   for (let i = 0; i + 5 < positions.length; i += 6) {
     distances[i / 3 + 1] = Math.hypot(
       positions[i + 3]! - positions[i]!,
@@ -456,6 +487,7 @@ export function setSegments(geometry: BufferGeometry, positions: Float32Array) {
       positions[i + 5]! - positions[i + 2]!,
     )
   }
+
   geometry.setAttribute('position', new BufferAttribute(positions, 3))
   geometry.setAttribute('lineDistance', new BufferAttribute(distances, 1))
   geometry.computeBoundingSphere()
@@ -468,14 +500,17 @@ export function floorSegments(
   y = FLOOR_LINE,
 ): Float32Array {
   const out: number[] = []
+
   for (const points of shapes) {
     const count = closed ? points.length : points.length - 1
+
     for (let i = 0; i < count; i++) {
       const a = points[i]!
       const b = points[(i + 1) % points.length]!
       out.push(a.x, y, a.y, b.x, y, b.y)
     }
   }
+
   return new Float32Array(out)
 }
 
@@ -490,15 +525,20 @@ type InkUniforms = {
   scale: { value: number }
 }
 
-function inkMaterial(): ShaderMaterial {
-  return new ShaderMaterial({
-    uniforms: {
-      color: { value: new Color() },
-      dash: { value: 0 },
-      gap: { value: 0 },
-      offset: { value: 0 },
-      scale: { value: 1 },
-    },
+// The material, and its uniforms kept typed — the same objects the material reads.
+type InkShader = { material: ShaderMaterial; uniforms: InkUniforms }
+
+function inkMaterial(): InkShader {
+  const uniforms: InkUniforms = {
+    color: { value: new Color() },
+    dash: { value: 0 },
+    gap: { value: 0 },
+    offset: { value: 0 },
+    scale: { value: 1 },
+  }
+
+  const material = new ShaderMaterial({
+    uniforms,
     vertexShader: /* glsl */ `
       attribute float lineDistance;
       uniform float scale;
@@ -521,15 +561,18 @@ function inkMaterial(): ShaderMaterial {
       }
     `,
   })
+
+  return { material, uniforms }
 }
 
 // Screen pixels per plan unit where the view is aimed — exact for the editor's orthographic camera, at the floor
 // ahead for the preview's perspective one.
-function pixelsPerUnit(camera: Camera, height: number): number {
-  if ((camera as OrthographicCamera).isOrthographicCamera) return (camera as OrthographicCamera).zoom
+function pixelsPerUnit(camera: OrthographicCamera | PerspectiveCamera, height: number): number {
+  if (camera instanceof OrthographicCamera) return camera.zoom
   camera.getWorldDirection(AHEAD)
   const distance = AHEAD.y < -0.05 ? camera.position.y / -AHEAD.y : FAR_AHEAD
-  return height / (2 * Math.max(distance, 1) * Math.tan(((camera as PerspectiveCamera).fov * Math.PI) / 360))
+
+  return height / (2 * Math.max(distance, 1) * Math.tan((camera.fov * Math.PI) / 360))
 }
 
 // 25 m.
@@ -539,6 +582,7 @@ let motionQuery: MediaQueryList | null = null
 
 export function reducedMotion(): boolean {
   motionQuery ??= window.matchMedia('(prefers-reduced-motion: reduce)')
+
   return motionQuery.matches
 }
 
@@ -556,9 +600,10 @@ export function Floor({
   // The 2D view's paint, which the floor turns to as the camera looks straight down.
   flat?: Color
 }) {
-  const ref = useRef<Mesh>(null)
+  const ref = useRef<PaintedMesh>(null)
   useFrame((state) => {
     const mesh = ref.current
+
     if (mesh && flat) paintFloor(mesh, color, flat, downOf(state.camera))
   })
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null)
@@ -566,9 +611,12 @@ export function Floor({
     // Drawn in x and −y, then laid down: y becomes z and the face looks up.
     const made = new ShapeGeometry(new Outline(points.map((p) => new Vector2(p.x, -p.y)))).rotateX(-Math.PI / 2)
     setGeometry(made)
+
     return () => made.dispose()
   }, [points])
+
   if (!geometry) return null
+
   return (
     <mesh ref={ref} geometry={geometry}>
       <meshBasicMaterial color={color} polygonOffset polygonOffsetFactor={2} polygonOffsetUnits={2} />
@@ -576,8 +624,11 @@ export function Floor({
   )
 }
 
-function paintFloor(mesh: Mesh, color: Color, flat: Color, down: number) {
-  ;(mesh.material as MeshBasicMaterial).color.copy(color).lerp(flat, down)
+// A mesh with one plain material — the floors and the texts.
+type PaintedMesh = Mesh<BufferGeometry, MeshBasicMaterial>
+
+function paintFloor(mesh: PaintedMesh, color: Color, flat: Color, down: number) {
+  mesh.material.color.copy(color).lerp(flat, down)
 }
 
 // Text drawn once into a canvas and shown on a plane (flat or upright) or a sprite (a sign facing the camera). The
@@ -585,33 +636,39 @@ function paintFloor(mesh: Mesh, color: Color, flat: Color, down: number) {
 // (`writing.plan`) — straight down it is the 2D view's — so text never jumps between the views. Upright text cannot
 // lie down: a flat copy takes over from it instead.
 export function Text({ writing, color, font }: { writing: Writing; color: Color; font: string }) {
-  const [label, setLabel] = useState<{ texture: CanvasTexture; aspect: number } | null>(null)
+  const [label, setLabel] = useState<TextLabel | null>(null)
   const hex = color.getHexString()
-  const shown = useRef<Mesh | Sprite>(null)
-  const lying = useRef<Mesh>(null)
+  // The text as shown — a sign's sprite, or a plane — and an upright text's flat copy.
+  const sign = useRef<Sprite>(null)
+  const plane = useRef<PaintedMesh>(null)
+  const lying = useRef<PaintedMesh>(null)
   useEffect(() => {
     const made = textTexture(writing.text, `#${hex}`, font)
     setLabel(made)
+
     return () => made.texture.dispose()
   }, [writing.text, hex, font])
   useFrame((state) => {
-    if (label) placeText(writing, label.aspect, downOf(state.camera), shown.current, lying.current)
+    if (label) placeText(writing, label.aspect, downOf(state.camera), sign.current ?? plane.current, lying.current)
   })
+
   if (!label) return null
   // Drawn at the 3D size; every frame scales and moves it (placeText).
   const h = writing.size * TEXT_LINE
   const w = h * label.aspect
+
   if (writing.lie === 'sign') {
     return (
-      <sprite ref={shown as RefObject<Sprite>}>
+      <sprite ref={sign}>
         <spriteMaterial map={label.texture} transparent depthWrite={false} />
       </sprite>
     )
   }
+
   return (
     <>
       <mesh
-        ref={shown as RefObject<Mesh>}
+        ref={plane}
         // Laid down with its top toward the top of the plan, then turned; upright text faces the way its piece does.
         rotation={writing.lie === 'flat' ? [-Math.PI / 2, 0, writing.yaw] : [0, writing.yaw + Math.PI, 0]}
       >
@@ -634,12 +691,19 @@ function downOf(camera: Camera): number {
   camera.getWorldDirection(AHEAD)
   const steep = (Math.asin(Math.min(1, Math.max(-1, -AHEAD.y))) * 180) / Math.PI
   const t = Math.min(1, Math.max(0, (steep - TEXT_FROM_DEG) / (TEXT_TO_DEG - TEXT_FROM_DEG)))
+
   return t * t * (3 - 2 * t)
 }
 
 // Puts a text `down` of the way from its 3D place and size to the 2D view's. `shown` is the text as the 3D view
 // writes it; `lying`, for upright text, its flat copy, coming in as the upright one goes.
-function placeText(writing: Writing, aspect: number, down: number, shown: Mesh | Sprite | null, lying: Mesh | null) {
+function placeText(
+  writing: Writing,
+  aspect: number,
+  down: number,
+  shown: PaintedMesh | Sprite | null,
+  lying: PaintedMesh | null,
+) {
   if (!shown) return
   const mix = (a: number, b: number) => a + (b - a) * down
   const upright = writing.lie === 'face'
@@ -651,33 +715,43 @@ function placeText(writing: Writing, aspect: number, down: number, shown: Mesh |
   const pad = writing.anchor === 'start' ? TEXT_PAD * size : 0
   const x = upright ? writing.x : mix(writing.x, writing.plan.x)
   const z = upright ? writing.z : mix(writing.z, writing.plan.z)
-  if ((shown as Sprite).isSprite) {
+
+  if (shown instanceof Sprite) {
     shown.position.set(x - pad, writing.y, z)
     shown.scale.set(w, h, 1)
     // A sign stands on its point; seen from above it is centred on it, as the 2D view writes it.
-    ;(shown as Sprite).center.set(writing.anchor === 'start' ? 0 : 0.5, mix(0, 0.5))
+    shown.center.set(writing.anchor === 'start' ? 0 : 0.5, mix(0, 0.5))
+
     return
   }
+
   const yaw = upright ? writing.yaw : mix(writing.yaw, writing.plan.yaw)
   const along = { x: Math.cos(yaw), z: -Math.sin(yaw) }
   // A plane is centred on its position — a left-aligned one moves half its width along the line.
   const shift = pad === 0 ? 0 : w / 2 - pad
   shown.position.set(x + along.x * shift, writing.y, z + along.z * shift)
   shown.scale.setScalar(size / writing.size)
+
   if (!upright) {
     shown.rotation.z = yaw
+
     return
   }
-  ;(shown.material as MeshBasicMaterial).opacity = 1 - down
+
+  shown.material.opacity = 1 - down
   shown.visible = down < 1
+
   if (!lying) return
   lying.position.set(writing.plan.x, writing.plan.y, writing.plan.z)
   lying.scale.setScalar(writing.plan.size / writing.size)
-  ;(lying.material as MeshBasicMaterial).opacity = down
+  lying.material.opacity = down
   lying.visible = down > 0
 }
 
-function textTexture(text: string, color: string, font: string): { texture: CanvasTexture; aspect: number } {
+// A text drawn into a canvas, and how wide it is for its height.
+type TextLabel = { texture: CanvasTexture; aspect: number }
+
+function textTexture(text: string, color: string, font: string): TextLabel {
   const canvas = document.createElement('canvas')
   // Kept on the CPU — WebGL takes the pixels without reading them back from the GPU.
   const context = canvas.getContext('2d', { willReadFrequently: true })!
@@ -694,6 +768,7 @@ function textTexture(text: string, color: string, font: string): { texture: Canv
   const texture = new CanvasTexture(canvas)
   texture.colorSpace = SRGBColorSpace
   texture.anisotropy = 8
+
   return { texture, aspect: canvas.width / canvas.height }
 }
 
@@ -720,28 +795,37 @@ export class Fallback extends Component<{ children: ReactNode; onError(): void }
 
 function groupBy<T>(items: readonly T[], keyOf: (item: T) => string): Map<string, T[]> {
   const groups = new Map<string, T[]>()
+
   for (const item of items) {
     const key = keyOf(item)
     const group = groups.get(key)
+
     if (group) group.push(item)
     else groups.set(key, [item])
   }
+
   return groups
 }
 
 // How far a press may travel and still be a tap.
 const CLICK_SLOP_PX = 6
+
 // Text is drawn this many pixels tall, on a line this many times its size.
 const TEXT_PX = 96
+
 const TEXT_LINE = 1.3
+
 // The room the canvas leaves either side of the letters, in the text's size.
 const TEXT_PAD = 0.2
+
 // Text is the 3D view's from the corner view's tilt and the 2D view's from a degree off straight down.
 const TEXT_FROM_DEG = 35
+
 const TEXT_TO_DEG = 89
 
 // Faces sit a little behind their edges, so the hairlines are never hidden in them.
 const FACES = new MeshLambertMaterial({ polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
+
 const GHOST_FACES = new MeshLambertMaterial({
   transparent: true,
   opacity: 0.55,
@@ -750,11 +834,19 @@ const GHOST_FACES = new MeshLambertMaterial({
   polygonOffsetFactor: 1,
   polygonOffsetUnits: 1,
 })
+
 const UP = new Vector3(0, 1, 0)
+
 const MATRIX = new Matrix4()
+
 const POSITION = new Vector3()
+
 const TURN = new Quaternion()
+
 const SCALE = new Vector3()
+
 const POINT = new Vector3()
+
 const AHEAD = new Vector3()
+
 const PAINT = new Color()

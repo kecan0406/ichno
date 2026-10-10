@@ -38,6 +38,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
 
   const Point = z.object({ x: z.int(), y: z.int() })
   const Rotation = z.number().min(0).lt(360).optional()
+
   // Integer rectangle in plan units — renderers fit-scale it to their container. `rotation` turns it clockwise
   // about its centre, in degrees.
   const Box = z.object({
@@ -53,14 +54,17 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
   const Label = z.string().trim().min(1).max(LABEL_MAX)
 
   const Section = z.object({ id: SectionId, points: z.array(Point).min(3) })
+
   const Opening = z.object({
     edge: z.int().nonnegative(),
     at: z.int().nonnegative(),
     width: z.int().positive(),
     role: Role.optional(),
   })
+
   // A wall's corners keep a hundredth of a unit — a metre of wall turned any way measures a metre.
   const WallPoint = z.object({ x: z.number(), y: z.number() })
+
   const Wall = z.object({
     id: ObjectId,
     points: z.array(WallPoint).min(2),
@@ -68,6 +72,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
     closed: z.boolean().optional(),
     openings: z.array(Opening).optional(),
   })
+
   const Category = z.object({ key: z.string().trim().min(1).max(OBJECT_ID_MAX), accessible: z.boolean().optional() })
   const Group = z.object({ id: ObjectId, label: Label.optional(), role: Role.optional(), rotation: Rotation })
 
@@ -83,6 +88,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
     category: z.string().min(1).optional(),
     tags: z.array(z.string().min(1)).optional(),
   })
+
   const Fixture = Box.extend({
     kind: z.literal('fixture'),
     id: ObjectId,
@@ -90,6 +96,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
     group: ObjectId.optional(),
     role: Role.optional(),
   })
+
   const GroupLabel = Box.extend({ kind: z.literal('label'), id: ObjectId, group: ObjectId })
   const PlanObject = z.discriminatedUnion('kind', [Place, Fixture, GroupLabel])
 
@@ -108,6 +115,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
       const report = reporter(ctx)
 
       const sectionIds = new Set<string>()
+
       for (const [i, section] of plan.sections.entries()) {
         if (sectionIds.has(section.id))
           report(['sections', i, 'id'], { code: 'duplicate_section', sectionId: section.id })
@@ -115,6 +123,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
       }
 
       const categoryKeys = new Set<string>()
+
       for (const [i, category] of plan.categories.entries()) {
         if (categoryKeys.has(category.key))
           report(['categories', i, 'key'], { code: 'duplicate_category', key: category.key })
@@ -122,10 +131,13 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
       }
 
       referenceRules(plan, report)
+
       for (const [i, object] of plan.objects.entries()) {
         const path = ['objects', i]
+
         if (object.kind === 'place' && object.category !== undefined && !categoryKeys.has(object.category))
           report([...path, 'category'], { code: 'unknown_category', id: object.id, category: object.category })
+
         // A group label may sit in the margin beside its row; everything else stays on the plan.
         if (object.kind !== 'label' && !inside(seatPlan.boundsOf(object), plan))
           report(path, { code: 'out_of_bounds', id: object.id })
@@ -137,8 +149,10 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
         if (!wall.points.every((p) => p.x >= 0 && p.y >= 0 && p.x <= plan.width && p.y <= plan.height))
           report(['walls', i], { code: 'out_of_bounds', id: wall.id })
         const edges = wallEdgesOf(wall)
+
         for (const [k, opening] of (wall.openings ?? []).entries()) {
           const edge = edges[opening.edge]
+
           if (!edge || opening.at + opening.width > edge.length + 1e-6)
             report(['walls', i, 'openings', k], { code: 'opening_off_wall', id: wall.id, opening: k })
         }
@@ -147,6 +161,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
       // Places may touch but not overlap; fixtures and labels may overlap anything. The editor marks the same
       // conflicts (seatPlan.conflictsOf).
       const indexOf = new Map(plan.objects.map((object, i) => [object.id, i]))
+
       for (const [a, b] of seatPlan.conflictsOf(plan))
         report(['objects', indexOf.get(b)!], { code: 'overlap', ids: [a, b] })
     })
@@ -168,9 +183,11 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
     category: z.string().optional(),
     tags: z.array(z.string()).optional(),
   }
+
   const Rect = { x: z.number(), y: z.number(), w: z.number(), h: z.number() }
   const PointV2 = z.object({ x: z.number(), y: z.number() })
   const ChairSide = z.enum(['up', 'right', 'down', 'left'])
+
   const DocumentV2 = z.object({
     version: z.literal(2),
     width: z.unknown(),
@@ -247,24 +264,36 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
   })
 
   const SeatPlan = z.preprocess((input, ctx) => {
-    if (typeof input !== 'object' || input === null) return input
+    if (!canHoldVersion(input)) return input
     const version = 'version' in input ? input.version : undefined
+
     if (version !== undefined && version !== 2) return input
     let v2: unknown = input
+
     if (version === undefined) {
       const v1 = DocumentV1.safeParse(input)
+
       if (!v1.success) {
         for (const issue of v1.error.issues) ctx.addIssue({ ...issue, input: undefined })
+
         return z.NEVER
       }
+
+      // SAFETY: the fields left unchecked (`z.unknown()` — sizes, ids, boxes) are only copied and compared by the
+      // upgrade, and DocumentV2 checks what it makes of them next.
       v2 = upgradeV1(v1.data as Parameters<typeof upgradeV1>[0])
     }
+
     const parsed = DocumentV2.safeParse(v2)
+
     if (!parsed.success) {
       for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, input: undefined })
+
       return z.NEVER
     }
+
     // Field types (whole numbers, id lengths) are checked by the current schema after the upgrade.
+    // SAFETY: only `width` and `height` are left unchecked (`z.unknown()`), and the upgrade copies them through.
     return upgradeV2(parsed.data as SeatPlanV2)
   }, Document)
 
@@ -274,6 +303,9 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
 // The structured issue behind a plan-level violation, or null for any other zod issue.
 export function seatPlanIssueOf(issue: z.core.$ZodIssue): SeatPlanIssue | null {
   if (issue.code !== 'custom' || !issue.message.startsWith(ISSUE_PREFIX)) return null
+
+  // SAFETY: a custom issue with the ISSUE_PREFIX message comes only from `reporter`, which puts its SeatPlanIssue in
+  // `params`.
   return (issue.params as SeatPlanIssue | undefined) ?? null
 }
 
@@ -293,22 +325,34 @@ function referenceRules(
   report: Report,
 ) {
   const ids = new Set<string>()
+
   const claim = (path: (string | number)[], id: string) => {
     if (ids.has(id)) report(path, { code: 'duplicate_id', id })
     ids.add(id)
   }
+
   for (const [i, group] of plan.groups.entries()) claim(['groups', i, 'id'], group.id)
+
   for (const [i, wall] of (plan.walls ?? []).entries()) claim(['walls', i, 'id'], wall.id)
   const groupIds = new Set(plan.groups.map((group) => group.id))
+
   for (const [i, object] of plan.objects.entries()) {
     claim(['objects', i, 'id'], object.id)
+
     if (object.group !== undefined && !groupIds.has(object.group))
       report(['objects', i, 'group'], { code: 'unknown_group', id: object.id, group: object.group })
   }
 }
 
+// Whether a stored value is something a `version` can be read from (arrays included — they parse as a 0.1 document
+// and fail there). Anything else is left for the current schema to refuse.
+function canHoldVersion(input: unknown): input is object {
+  return typeof input === 'object' && input !== null
+}
+
 // Turned shapes have fractional bounds; a hair of float error at the edge is still inside.
 function inside(rect: PlanRect, plan: { width: number; height: number }) {
   const eps = 1e-6
+
   return rect.x >= -eps && rect.y >= -eps && rect.x + rect.w <= plan.width + eps && rect.y + rect.h <= plan.height + eps
 }

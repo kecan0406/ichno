@@ -31,21 +31,28 @@ export function validateSelection(
   const unavailable = new Set(selection.unavailable ?? [])
 
   if (rules.min !== undefined && selected.size < rules.min) issues.push({ code: 'too_few', min: rules.min })
+
   if (rules.max !== undefined && selected.size > rules.max) issues.push({ code: 'too_many', max: rules.max })
 
   const lines = new Map<string, string[]>()
+
   for (const object of plan.objects) {
     if (object.kind !== 'place' || object.group === undefined) continue
     lines.set(object.group, [...(lines.get(object.group) ?? []), object.id])
   }
+
   const rows = [...lines.values()].filter((ids) => ids.length > 1)
 
   if (rules.consecutive) {
-    const picked = rows
-      .map((row) => row.flatMap((id, i) => (selected.has(id) ? [i] : [])))
-      .filter((indices) => indices.length > 0)
+    const picked = rows.flatMap((row) => {
+      const indices = row.flatMap((id, i) => (selected.has(id) ? [i] : []))
+
+      return indices.length > 0 ? [indices] : []
+    })
+
     // One group only, and no gap between the first and last picked place.
     const [only, ...others] = picked
+
     if (others.length > 0 || (only && only.at(-1)! - only[0]! + 1 !== only.length)) {
       issues.push({ code: 'not_consecutive' })
     }
@@ -54,10 +61,12 @@ export function validateSelection(
   if (rules.noOrphans) {
     for (const row of rows) {
       const blocked = (i: number) => i < 0 || i >= row.length || isTaken(row[i]!)
+
       for (const [i, id] of row.entries()) {
         if (isTaken(id) || !blocked(i - 1) || !blocked(i + 1)) continue
         // Only strandings this selection causes — a place already stranded before is not the picker's fault.
         const neighbours = [row[i - 1], row[i + 1]]
+
         if (neighbours.some((n) => n !== undefined && selected.has(n))) issues.push({ code: 'orphan_seat', id })
       }
     }

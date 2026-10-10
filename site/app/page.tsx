@@ -14,7 +14,9 @@ import styles from './page.module.css'
 // The demo documents are checked against the schema at build time — a library change that breaks them fails the
 // build instead of the page.
 createSeatPlanSchema({ sectionIds: venueSectionIds }).SeatPlan.parse(venuePlan)
+
 createSeatPlanSchema({ sectionIds: ['R'] }).SeatPlan.parse(roomPlan)
+
 createSeatPlanSchema({ sectionIds: ['H'] }).SeatPlan.parse(hallPlan)
 
 // The lounge on its own — `sectionPlanOf` crops a plan to one section, for narrow screens and thumbnails.
@@ -30,6 +32,7 @@ const PLAYGROUND_POINTS = [
 ]
 
 const GITHUB = 'https://github.com/kecan0406/ichno'
+
 const NPM = 'https://www.npmjs.com/package/ichno'
 
 const FEATURES = [
@@ -236,7 +239,7 @@ export default function Home() {
                   <SeatMap.Content
                     plan={lounge}
                     status={venueStatus}
-                    fixtureLabel={(fixture) => fixtureNames[fixture.role ?? ''] ?? null}
+                    fixtureLabel={(fixture) => fixtureNames.get(fixture.role ?? '') ?? null}
                   />
                 </SeatMap.Root>
               </div>
@@ -273,7 +276,7 @@ export default function Home() {
                 <SeatMap.Content
                   plan={roomPlan}
                   selected={seatPlan.membersOf(roomPlan, 'row-1').flatMap((o) => (o.kind === 'place' ? [o.id] : []))}
-                  fixtureLabel={(fixture) => fixtureNames[fixture.role ?? ''] ?? null}
+                  fixtureLabel={(fixture) => fixtureNames.get(fixture.role ?? '') ?? null}
                 />
               </SeatMap.Root>
             </div>

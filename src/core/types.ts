@@ -6,13 +6,17 @@
 // is not stored — the editor's layouts create the places, and `role` carries the consumer's word for them.
 
 export const OBJECT_KINDS = ['place', 'fixture', 'label'] as const
+
 export type ObjectKind = (typeof OBJECT_KINDS)[number]
 
 export const SHAPES = ['rect', 'ellipse'] as const
+
 export type Shape = (typeof SHAPES)[number]
 
 export type PlanRect = { x: number; y: number; w: number; h: number }
+
 export type PlanPoint = { x: number; y: number }
+
 export type PlanSize = { w: number; h: number }
 
 // A rectangle turned clockwise by `rotation` degrees (0 ≤ rotation < 360) about its centre — `x y w h` are the

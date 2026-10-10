@@ -11,8 +11,8 @@ import type { SavedObject } from './library'
 // what the hint says while it is picked, the ichno tool that places it, one dropped at its standard size (none for a
 // wall) and, for a tool that can refuse, why it makes nothing where the pointer is — said while the sample is drawn
 // there in the colour of what cannot be had.
-export type ToolDef = {
-  id: string
+export type ToolDef<Id extends string = string> = {
+  id: Id
   name: string
   key: string
   code: string
@@ -29,20 +29,26 @@ export type PlaygroundObject = ToolDef & {
 }
 
 const BOX_KEYS = 'Shift: square · Alt: from the centre.'
+
 const NOWHERE = 'Places go on the plan — move onto it to place one.'
+
 const OPENING_REASONS = {
   far: 'A door goes in a wall — move onto one.',
   short: 'This wall is too short for a door.',
   taken: 'There is a door here already.',
 } as const
+
 const PIECE_REASONS = {
   outside: 'Walls go on the plan — move onto it.',
   taken: 'There is a wall here already — turn the piece (wheel or R) or move on.',
 } as const
+
 // How thick walls are built — 15 cm.
 const WALL_THICKNESS = 15
+
 // How far the wheel or R turns the next wall piece — ⇧ for the fine step.
 export const PIECE_TURN = 15
+
 export const PIECE_FINE_TURN = 5
 
 // A scratch plan to drop each object on once, for its sample.
@@ -61,6 +67,7 @@ const SCRATCH: SeatPlan<string> = {
 function sampleOf(create: EditorTool<string>['create']): PlanTemplate {
   const at = { x: SCRATCH.width / 2, y: SCRATCH.height / 2 }
   const made = create(SCRATCH, { start: at, end: at })!
+
   return planEdits.templateOf(
     made,
     made.objects.map((o) => o.id),
@@ -86,6 +93,7 @@ function drawn({
     sample?: EditorTool<string>['create']
   }) {
   const keys = digit === undefined ? { key: '', code: '' } : { key: String(digit), code: `Digit${digit}` }
+
   return {
     id,
     shelf,
@@ -101,6 +109,7 @@ function drawn({
 // An object someone saved, as a tool — it follows the pointer, and a tap puts it down.
 export function savedObjectTool(saved: SavedObject): ToolDef {
   const id = `saved:${saved.id}`
+
   return {
     id,
     name: saved.name,
@@ -150,8 +159,9 @@ const FIXTURES: {
 
 // The Wall tool turned `degrees` clockwise from the right — the toolbar's Wall, as the wheel and R turn it. It stays
 // picked, a piece at every click, until it is put down.
-export function wallPiece(degrees: number): ToolDef {
+export function wallPiece(degrees: number): ToolDef<'wall'> {
   const turn = ((degrees % 360) + 360) % 360
+
   return {
     id: 'wall',
     name: 'Wall',
@@ -166,10 +176,12 @@ export function wallPiece(degrees: number): ToolDef {
   }
 }
 
+export type PrimitiveId = 'place' | 'fixture' | 'wall'
+
 // ichno's own primitives as the toolbar's tools — a place (something to book) and a fixture (anything else), each a
 // bare box, and a wall, put up a metre at a time; rooms close where walls meet. What they are for — a role, a capacity,
 // a category, a wall's thickness — is set in Design once they are drawn.
-export const PRIMITIVE_TOOLS: ToolDef[] = [
+export const PRIMITIVE_TOOLS: ToolDef<PrimitiveId>[] = [
   {
     id: 'place',
     name: 'Place',

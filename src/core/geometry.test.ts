@@ -99,6 +99,7 @@ describe('arc layout (row seats)', () => {
 
   it('draws a half circle at curve 1 — seats equally far from the centre', () => {
     const points = arcPoints(start, end, 1, 5)
+
     for (const p of points) expect(Math.hypot(p.x - 100, p.y - 100)).toBeCloseTo(100, 6)
     expect(points[2]).toEqual({ x: close(100), y: close(0) })
   })
@@ -134,6 +135,7 @@ describe('arc layout (row seats)', () => {
 
 describe('table layout', () => {
   const table = { x: 100, y: 100, w: 100, h: 100 }
+
   const centers = (boxes: { x: number; y: number; w: number; h: number }[]) =>
     boxes.map((b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 }))
 
@@ -159,15 +161,19 @@ describe('table layout', () => {
     expect(Math.min(...gaps) / Math.max(...gaps)).toBeGreaterThan(0.85)
     const seats = boxes.map((b, i) => place(`A${i + 1}`, 'A', b.x, b.y, { ...b, shape: 'ellipse' }))
     expect(seatPlan.conflictsOf({ objects: seats })).toEqual([])
+
     // Each seat sits the seat gap off the edge and faces the nearest point of it — not the middle of the table.
     const edge = Array.from({ length: 3600 }, (_, k) => {
       const t = (2 * Math.PI * k) / 3600
+
       return { x: 150 + 150 * Math.cos(t), y: 50 + 50 * Math.sin(t) }
     })
+
     boxes.forEach((b, i) => {
       const nearest = edge.reduce((best, q) =>
         Math.hypot(q.x - c[i]!.x, q.y - c[i]!.y) < Math.hypot(best.x - c[i]!.x, best.y - c[i]!.y) ? q : best,
       )
+
       expect(Math.abs(Math.hypot(nearest.x - c[i]!.x, nearest.y - c[i]!.y) - (18 + TABLE_SEAT_GAP))).toBeLessThan(1)
       // A seat's front is its local +y, turned with it.
       const toward = (Math.atan2(nearest.y - c[i]!.y, nearest.x - c[i]!.x) * 180) / Math.PI
@@ -240,6 +246,7 @@ describe('turned shapes', () => {
       fixture('chair', 30, 30, 20, 20),
       place('A3', 'A', 300, 20),
     ])
+
     expect(seatPlan.conflictsOf(plan)).toEqual([['A1', 'A2']])
   })
 
@@ -253,6 +260,7 @@ describe('turned shapes', () => {
       ],
       [{ id: 'r1' }, { id: 'r2' }],
     )
+
     expect(seatPlan.orderAlong(plan, ['A3', 'A1', 'A2'])).toEqual(['A1', 'A2', 'A3'])
     expect(seatPlan.orderAlong(plan, ['A3', 'A1', 'A2'], 180)).toEqual(['A3', 'A2', 'A1'])
     // Top to bottom: the seats share a level, so they keep the order given.
@@ -279,6 +287,7 @@ describe('sections', () => {
       { x: 50, y: 100 },
       { x: 0, y: 100 },
     ]
+
     expect(polygonContains(l, { x: 25, y: 75 })).toBe(true)
     expect(polygonContains(l, { x: 75, y: 75 })).toBe(false)
   })
@@ -314,6 +323,7 @@ describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () =
     const cropped = seatPlan.sectionPlanOf(plan, 'B')!
     expect(cropped.width % GRID_CELL).toBe(0)
     expect(cropped.height % GRID_CELL).toBe(0)
+
     for (const o of cropped.objects) {
       const b = seatPlan.boundsOf(o)
       expect(b.x).toBeGreaterThanOrEqual(0)
@@ -340,6 +350,7 @@ describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () =
     const withTv = planOf([place('B1', 'B', 520, 20), fixture('tv-1', 954, 100, 23, 300)])
     expect(seatPlan.sectionPlanOf(withTv, 'A')!.objects).toHaveLength(0)
     const cropped = seatPlan.sectionPlanOf(withTv, 'B')!
+    // SAFETY: section B holds the place B1 and the fixture tv-1, in document order.
     const [b1, tv] = cropped.objects as [Place<S>, Fixture]
     expect(tv.x + tv.w).toBeLessThanOrEqual(cropped.width)
     expect({ dx: tv.x - b1.x, dy: tv.y - b1.y }).toEqual({ dx: 954 - 520, dy: 100 - 20 })
@@ -354,6 +365,7 @@ describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () =
       ],
       [{ id: 'T' }, { id: 'unused' }],
     )
+
     expect(seatPlan.sectionPlanOf(grouped, 'A')!.objects).toHaveLength(0)
     const cropped = seatPlan.sectionPlanOf(grouped, 'B')!
     expect(cropped.objects.map((o) => o.id)).toEqual(['B1', 'top', 'T-l'])
@@ -368,6 +380,7 @@ describe('seatPlan.sectionPlanOf — per-section crops for narrow screens', () =
     const crops = seatPlan.sectionPlansOf(
       planOf([place('A1', 'A', 20, 20), place('B1', 'B', 520, 20), place('B2', 'B', 900, 20)]),
     )
+
     expect(crops.map((c) => c.id)).toEqual(['A', 'B'])
     expect(new Set(crops.map((c) => c.plan.width)).size).toBe(1)
   })

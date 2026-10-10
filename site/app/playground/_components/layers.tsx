@@ -68,11 +68,13 @@ export function LayersPanel({ plan, selection, isLocked, onSelect, onHover, onRe
   }))
 
   const layers: Row[] = []
+
   for (const layer of layersOf(plan)) {
     if (layer.kind === 'object') {
       layers.push(objectRow(plan, layer.object, 1))
       continue
     }
+
     const { group, members } = layer
     const key = keyOf({ kind: 'group', id: group.id })
     const holds = members.some((o) => selected.has(keyOf({ kind: 'object', id: o.id })))
@@ -89,6 +91,7 @@ export function LayersPanel({ plan, selection, isLocked, onSelect, onHover, onRe
       children: members.map((o) => ({ kind: 'object', id: o.id })),
       label: group.label ?? '',
     })
+
     if (open) for (const member of members) layers.push({ ...objectRow(plan, member, 2), parent: key })
   }
 
@@ -189,10 +192,13 @@ function Tree({
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const target = e.target
+
     if (!(target instanceof HTMLElement) || target.getAttribute('role') !== 'treeitem') return
     const index = rows.findIndex((row) => row.key === target.dataset.key)
     const row = rows[index]
+
     if (!row) return
+
     if (e.key === 'ArrowDown') focusRow(rows[index + 1])
     else if (e.key === 'ArrowUp') focusRow(rows[index - 1])
     else if (e.key === 'Home') focusRow(rows[0])
@@ -204,6 +210,7 @@ function Tree({
     // Enter on a selected group selects its members, ⇧Enter on a member its group — the editor's keys, here.
     else if (e.key === 'Enter' && e.shiftKey && row.parent) {
       const parent = rows.find((other) => other.key === row.parent)
+
       if (parent) onSelect([parent.item])
       focusRow(parent)
     } else if (e.key === 'Enter' && row.children && selected.has(row.key)) {
@@ -224,10 +231,12 @@ function Tree({
         const parent = row.parent === undefined ? undefined : rows.find((other) => other.key === row.parent)?.item.id
         const frozen = toggles?.frozen.has(id) ?? false
         const hidden = toggles?.hidden.has(id) ?? false
+
         const byGroup = {
           frozen: parent !== undefined && (toggles?.frozen.has(parent) ?? false),
           hidden: parent !== undefined && (toggles?.hidden.has(parent) ?? false),
         }
+
         return (
           <div
             key={row.key}
@@ -274,10 +283,12 @@ function Tree({
                 onBlur={(e) => {
                   if (editing !== row.key) return
                   setEditing(null)
+
                   if (e.currentTarget.value.trim() !== row.label) onRename(row.item, e.currentTarget.value.trim())
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') e.currentTarget.blur()
+
                   if (e.key === 'Escape') {
                     e.currentTarget.value = row.label ?? ''
                     e.currentTarget.blur()
@@ -363,8 +374,10 @@ function ToggleButton({
 function objectRow(plan: SeatPlan<string>, object: PlanObject<string>, level: 1 | 2): Row {
   const key = keyOf({ kind: 'object', id: object.id })
   const item: Item = { kind: 'object', id: object.id }
+
   if (object.kind === 'label') {
     const group = plan.groups.find((g) => g.id === object.group)
+
     return {
       key,
       item,
@@ -375,9 +388,11 @@ function objectRow(plan: SeatPlan<string>, object: PlanObject<string>, level: 1 
       label: null,
     }
   }
+
   if (object.kind === 'fixture') {
     return { key, item, level, icon: 'fixture', name: object.role ?? object.id, label: null }
   }
+
   const meta =
     object.capacity > 1
       ? { text: `×${object.capacity}` }
@@ -386,6 +401,7 @@ function objectRow(plan: SeatPlan<string>, object: PlanObject<string>, level: 1 
         : level === 1 && object.role
           ? { text: object.role }
           : undefined
+
   return {
     key,
     item,

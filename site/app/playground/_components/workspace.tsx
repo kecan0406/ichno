@@ -65,6 +65,7 @@ import styles from './workspace.module.css'
 // area is its own component; this file holds the state they share and wires them to ichno's editor.
 
 type LeftTab = 'layers' | 'assets'
+
 type RightTab = 'design' | 'checks' | 'json'
 
 // The 3D preview is this site's own (three.js) — fetched only when someone switches to it.
@@ -80,20 +81,27 @@ const Build3D = dynamic(() => import('./build-3d'), {
 })
 
 const UNPASTABLE = 'What was copied holds places — paste it on the plan.'
+
 const NO_IDS: ReadonlySet<string> = new Set()
+
 const NO_STRAYS: string[] = []
+
 // The steps a typed edge keeps to, toward the pointer — 15°, as Shift keeps a corner.
 const EDGE_STEP = Math.PI / 12
+
 // Seat numbers drawn smaller than this on screen are left out (`SeatMap.Content` defaults to 9).
 const LABEL_MIN_PX = 6
+
 // How far (screen pixels) the wheel scrolls to turn the next wall piece a step.
 const TURN_WHEEL_PX = 40
 
 // A set of ids with one put in or taken out.
 function toggled(ids: ReadonlySet<string>, id: string, on: boolean): ReadonlySet<string> {
   const next = new Set(ids)
+
   if (on) next.add(id)
   else next.delete(id)
+
   return next
 }
 
@@ -104,6 +112,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // Layers locked and hidden in the layers panel — editor state, never saved with the document.
   const [frozen, setFrozen] = useState<ReadonlySet<string>>(NO_IDS)
   const [hidden, setHidden] = useState<ReadonlySet<string>>(NO_IDS)
+
   const editor = useSeatPlanEditor({
     initialPlan: initial.plan,
     lockedIds: booked,
@@ -113,6 +122,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     handles: [rowHandles(new Set(booked))],
     guides: guiding,
   })
+
   // One view for both modes — switching keeps where you were looking.
   const map = useSeatMapView(editor.plan)
   const { onTap, onHover, ...viewportProps } = editor.viewportProps
@@ -133,6 +143,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const handoff = useRef<Handoff | null>(null)
   const canvasRef = useRef<HTMLElement>(null)
   const [buildView, setBuildView] = useState<BuildView>({ level: 1, canZoomIn: true, canZoomOut: false })
+
   // What the zoom menu and the zoom keys drive — the 2D canvas's view or the 3D editor's.
   const view: ViewControls & BuildView = building
     ? {
@@ -143,10 +154,12 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         zoomTo: (rects: readonly PlanRect[]) => build.current?.zoomTo(rects) ?? false,
       }
     : map
+
   // What the zoom menu shows — read apart from the controls, which call into the 3D view's ref.
   const zoom: BuildView = building
     ? buildView
     : { level: map.level, canZoomIn: map.canZoomIn, canZoomOut: map.canZoomOut }
+
   useSeatPlanEditorShortcuts(editor, { view })
   const [leftTab, setLeftTab] = useState<LeftTab>('layers')
   const [rightTab, setRightTab] = useState<RightTab>('design')
@@ -187,12 +200,14 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const primitives = PRIMITIVE_TOOLS.map((def) => (def.id === 'wall' ? wallPiece(pieceTurn) : def))
   const tools = [...primitives, ...PLAYGROUND_OBJECTS, ...library.map(savedObjectTool)]
   const activeTool = editor.tool === null ? null : (tools.find((def) => def.id === editor.tool?.id) ?? null)
+
   const placing =
     editor.tool === null
       ? null
       : (PLAYGROUND_OBJECTS.find((object) => object.id === editor.tool?.id)?.sample ??
         library.find((saved) => `saved:${saved.id}` === editor.tool?.id)?.template ??
         null)
+
   const asset = activeTool && placing ? { name: activeTool.name, template: placing } : null
 
   // Saved objects live in localStorage, which the server cannot read.
@@ -214,6 +229,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   function turnPiece(degrees: number) {
     const next = (((pieceTurn + degrees) % 360) + 360) % 360
     setPieceTurn(next)
+
     if (editor.tool?.id === 'wall') editor.setTool(wallPiece(next).tool)
   }
 
@@ -226,6 +242,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   function toggleKeep() {
     const next = !keep
     setKeep(next)
+
     if (editor.tool) editor.setTool({ ...editor.tool, keep: next || activeTool?.tool.keep === true })
   }
 
@@ -239,26 +256,40 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // (useSeatPlanEditorShortcuts).
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
     if (e.defaultPrevented) return
+
     if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], dialog')) return
+
     if ((e.metaKey || e.ctrlKey) && !e.altKey && e.code === 'Backslash') {
       e.preventDefault()
       panels.toggle()
+
       return
     }
+
     if (mode !== 'edit' || e.metaKey || e.ctrlKey || e.altKey) return
+
     if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) return openDialog('shortcuts-dialog')
+
     if (e.shiftKey && e.code === 'KeyI') return toggleAssets()
+
     if (e.shiftKey) return
     const def = [...PRIMITIVE_TOOLS, ...PLAYGROUND_OBJECTS].find((candidate) => candidate.code === e.code)
+
     if (def) return choose(def)
+
     if (e.code === 'KeyV') return choose(null)
+
     if (e.code === 'KeyH') return chooseHand()
+
     if (e.code === 'KeyQ') return toggleKeep()
+
     if (building && (e.code === 'Comma' || e.code === 'Period')) build.current?.turn(e.code === 'Period' ? 1 : -1)
   })
+
   useEffect(() => {
     const listener = (e: KeyboardEvent) => onKeyDown(e)
     window.addEventListener('keydown', listener)
+
     return () => window.removeEventListener('keydown', listener)
   }, [])
 
@@ -275,43 +306,59 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // typing back first; ⌘V pastes the way ichno does, saying why when it cannot.
   const onEarlyKey = useEffectEvent((e: KeyboardEvent) => {
     if (e.defaultPrevented || mode !== 'edit' || e.altKey) return
+
     if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], dialog')) return
+
     if (e.metaKey || e.ctrlKey) {
       if (e.code !== 'KeyV' || editor.clipboard === null) return
       e.preventDefault()
       pasteAt(undefined)
+
       return
     }
+
     // R turns the next wall piece, ahead of ichno's R (which turns the selection).
     if (editor.tool?.id === 'wall' && e.code === 'KeyR') {
       e.preventDefault()
       turnPiece(e.shiftKey ? -PIECE_TURN : PIECE_TURN)
+
       return
     }
+
     const last = editor.tool?.draw === 'path' ? editor.corners?.at(-1) : undefined
+
     if (last === undefined) return
     const decimal = (e.key === '.' || e.key === ',') && !typedLength.includes('.')
+
     if (/^[0-9]$/.test(e.key) || decimal) {
       e.preventDefault()
       setTyped(typedLength + (decimal ? '.' : e.key))
+
       return
     }
+
     if (typedLength === '') return
+
     if (e.key === 'Backspace' || e.key === 'Escape') {
       e.preventDefault()
       setTyped(e.key === 'Escape' ? '' : typedLength.slice(0, -1))
+
       return
     }
+
     if (e.key === 'Enter') {
       e.preventDefault()
       setTyped('')
       const length = Number(typedLength) * METRE
+
       if (length > 0) editor.addPoint(edgeToward(last, editor.pointer, length))
     }
   })
+
   useEffect(() => {
     const listener = (e: KeyboardEvent) => onEarlyKey(e)
     window.addEventListener('keydown', listener, { capture: true })
+
     return () => window.removeEventListener('keydown', listener, { capture: true })
   }, [])
 
@@ -323,17 +370,22 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     e.stopPropagation()
     const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
     const pixels = e.deltaMode === 1 ? delta * 33 : e.deltaMode === 2 ? delta * 800 : delta
+
     if (Math.sign(pixels) !== Math.sign(wheeled.current)) wheeled.current = 0
     wheeled.current += pixels
+
     if (Math.abs(wheeled.current) < TURN_WHEEL_PX) return
     turnPiece(Math.sign(wheeled.current) * (e.shiftKey ? PIECE_FINE_TURN : PIECE_TURN))
     wheeled.current = 0
   })
+
   useEffect(() => {
     const element = canvasRef.current
+
     if (!element) return
     const listener = (e: WheelEvent) => onWheel(e)
     element.addEventListener('wheel', listener, { capture: true, passive: false })
+
     return () => element.removeEventListener('wheel', listener, { capture: true })
   }, [])
 
@@ -346,6 +398,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 
   function saveObject(name: string) {
     const made = planEdits.templateOf(editor.plan, editor.selectedIds)
+
     if (!made) return
     const next = [...library, { id: newObjectId(), name, template: made.template }]
     setLibrary(next)
@@ -357,6 +410,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     const next = library.filter((saved) => saved.id !== id)
     setLibrary(next)
     saveLibrary(next)
+
     if (editor.tool?.id === `saved:${id}`) editor.setTool(null)
   }
 
@@ -373,6 +427,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // Selects exactly what a check points at and brings it into view.
   function focus(ids: string[]) {
     editor.selectIds(ids)
+
     if (building) build.current?.zoomTo(seatPlan.boundsOfIds(plan, ids))
     else map.zoomTo(seatPlan.boundsOfIds(plan, ids), 160)
   }
@@ -382,12 +437,14 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     if (item.kind === 'group') {
       editor.updateGroup(item.id, (group) => {
         const { label: _, ...rest } = group
+
         return label ? { ...rest, label } : rest
       })
     } else {
       editor.updateObject(item.id, (object) => {
         if (object.kind !== 'place') return object
         const { label: _, ...rest } = object
+
         return label ? { ...rest, label } : rest
       })
     }
@@ -398,6 +455,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     setNotice(null)
     setMenu(null)
     setLayerHover(null)
+
     // Keep the editor's shortcuts from acting on a selection or a tool that preview hides.
     if (next === 'preview') {
       editor.setTool(null)
@@ -412,8 +470,10 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         current.includes(target.id) ? current.filter((id) => id !== target.id) : [...current, target.id],
       )
       setPicked((current) => current.filter((id) => id !== target.id))
+
       return
     }
+
     setPicked((current) =>
       current.includes(target.id) ? current.filter((id) => id !== target.id) : [...current, target.id],
     )
@@ -421,7 +481,9 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 
   function loadPreset(id: string) {
     const preset = PRESETS.find((candidate) => candidate.id === id)
+
     if (!preset) return
+
     if (editor.dirty && !window.confirm('Replace the current document? Undo history is cleared.')) return
     onReplace(preset.workbench)
   }
@@ -430,12 +492,16 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // frozen or hidden, Shift adding to the selection.
   function pickSwept(ids: readonly string[], info: { additive: boolean }) {
     const off = (id: string | undefined) => id !== undefined && (frozen.has(id) || hidden.has(id))
+
     const units = ids.flatMap((id): EditorSelection<string>[] => {
       if (seatPlan.wallOf(plan, id)) return off(id) ? [] : [{ kind: 'wall', id }]
       const object = seatPlan.objectById(plan, id)
+
       if (!object || off(object.id) || off(object.group)) return []
+
       return [object.group === undefined ? { kind: 'object', id } : { kind: 'group', id: object.group }]
     })
+
     editor.setSelection(info.additive ? [...editor.selection, ...units] : units)
   }
 
@@ -445,20 +511,27 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     if (next === dimension) return
     setDimension(next)
     const element = canvasRef.current
+
     if (mode !== 'edit' || !element) return
     const size = { width: element.clientWidth, height: element.clientHeight }
+
     if (next === '3d') {
       if (leaving3D) {
         build.current?.rest()
         setLeaving3D(false)
+
         return
       }
+
       const center = { x: map.view.x + map.view.w / 2, y: map.view.y + map.view.h / 2 }
       handoff.current = { center, zoom: planView.scaleOf(map.view, size), level: map.level }
       setEntering3D(true)
+
       return
     }
+
     const camera = buildCamera.current
+
     if (!camera || !build.current) return
     // The 2D view over the 3D camera's spot, zoomed in as far.
     const home = planView.home(plan)
@@ -480,15 +553,19 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // A right-click selects what it is on (the way a click does) unless that is selected already, then opens the menu.
   function openMenuOn(screen: ScreenPoint, target: PlanTarget<string> | null) {
     if (mode !== 'edit') return
+
     if (editor.tool !== null) editor.setTool(null)
+
     if (target?.kind === 'wall') {
       if (!editor.selectedWallIds.includes(target.id)) editor.select(target)
     } else if (target?.kind === 'place' || target?.kind === 'object') {
       const id = target.id
+
       if (!editor.selectedObjects.some((object) => object.id === id)) editor.select({ kind: 'object', id })
     } else {
       editor.select(null)
     }
+
     setMenu({ screen, plan: pointRef.current })
   }
 
@@ -496,10 +573,12 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   function openMenu(e: MouseEvent<SVGSVGElement>) {
     e.preventDefault()
     const element = e.target instanceof Element ? e.target : null
+
     const id =
       element?.closest('[data-ichno-id]')?.getAttribute('data-ichno-id') ??
       element?.closest('[data-ichno-object]')?.getAttribute('data-ichno-object') ??
       null
+
     const wall = element?.closest('[data-ichno-wall]')?.getAttribute('data-ichno-wall') ?? null
     openMenuOn(
       { x: e.clientX, y: e.clientY },
@@ -510,6 +589,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // The pointer over the plan, 2D or 3D — where Paste lands, and what the tool previews (the Hand previews nothing).
   function hover(point: PlanPoint | null, target: PlanTarget<string> | null) {
     pointRef.current = point
+
     if (!hand) onHover(point, target)
   }
 
@@ -517,8 +597,10 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   function zoomToLevel(level: number) {
     if (building) {
       build.current?.setLevel(level)
+
       return
     }
+
     const home = planView.home(plan)
     const current = map.view
     const middle = { x: current.x + current.w / 2, y: current.y + current.h / 2 }
@@ -530,36 +612,44 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const drawAt = editor.stroke?.end ?? editor.pointer
   const refused = activeTool !== null && activeTool.tool.draw !== 'path' && drawAt !== null && editor.draft === null
   const reason = refused && activeTool && drawAt ? (activeTool.why?.(plan, drawAt) ?? null) : null
+
   // What it would have dropped, under the pointer, in the colour of what cannot be had — a stroke under way is marked
   // itself.
   const refusedSample =
     refused && editor.stroke === null && editor.pointer !== null && activeTool?.sample
       ? sampleAt(activeTool.sample, editor.pointer, plan)
       : null
+
   // Places standing outside their section — as drawn, and where a drag is taking them — marked like overlaps, unless
   // Checks has the warning off. The playground's section is the whole plan, so only an imported document has any. A
   // drag drawn in one layer (walls, or most of the plan) is all in `stillPlan`.
   const strayOff = lint.outside_section === 'off'
   const strays = strayOff ? NO_STRAYS : straysOf(editor.stillPlan.objects, editor.stillPlan)
+
   const movingStrays =
     strayOff || editor.movingPlan === null ? NO_STRAYS : straysOf(editor.movingPlan.objects, editor.stillPlan)
+
   const stillInvalid = strays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...strays]
   const movingInvalid = movingStrays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...movingStrays]
   const strayCount = strays.length + movingStrays.length
   // The wall whose edges are measured — the one a wall tool would make or carry on, or else the one selected wall.
   const [only] = editor.selection.length === 1 ? editor.selection : []
+
   const measuredWall =
     editor.tool !== null
       ? (editor.draft?.walls[0] ?? null)
       : only?.kind === 'wall'
         ? (seatPlan.wallOf(editor.displayPlan, only.id) ?? null)
         : null
+
   // What is selected, for the parts to mark — places and walls.
   const selectedMarks =
     editor.selectedWallIds.length === 0
       ? editor.selectedPlaceIds
       : [...editor.selectedPlaceIds, ...editor.selectedWallIds]
+
   const threeD = mode === 'preview' && dimension === '3d'
+
   const hint =
     mode !== 'edit'
       ? null
@@ -567,6 +657,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         (typedLength !== ''
           ? `Next edge ${typedLength} m — Enter puts the corner toward the pointer, Esc clears it.`
           : (reason ?? (hand ? 'Drag to pan the plan — V to select again.' : (activeTool?.hint ?? null)))))
+
   const canvasTool = hand ? 'hand' : editor.tool === null ? 'select' : 'draw'
   const layerFrame = mode === 'edit' && layerHover !== null ? planHandles.frame(editor.displayPlan, [layerHover]) : null
 
@@ -575,6 +666,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       className={styles.app}
       data-mode={mode}
       data-panels={panels.hidden ? 'hidden' : undefined}
+      // SAFETY: CSSProperties lists the standard properties only; these are custom ones, which an inline style takes.
       style={{ '--left': `${panels.widths.left}px`, '--right': `${panels.widths.right}px` } as CSSProperties}
     >
       <aside className={styles.left} aria-label="Layers and assets">
@@ -1058,7 +1150,9 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 }
 
 function openDialog(id: string) {
-  ;(document.getElementById(id) as HTMLDialogElement | null)?.showModal()
+  const dialog = document.getElementById(id)
+
+  if (dialog instanceof HTMLDialogElement) dialog.showModal()
 }
 
 function never(): boolean {
@@ -1073,6 +1167,7 @@ function sampleAt(template: PlanTemplate, at: PlanPoint, plan: SeatPlan<string>)
     groups: template.groups,
     objects: template.objects.map((object): PlanObject<string> => {
       const moved = seatPlan.translate(object, at.x, at.y)
+
       return moved.kind === 'place' ? { ...moved, section: '' } : moved
     }),
   }
@@ -1083,6 +1178,7 @@ function straysOf(objects: readonly PlanObject<string>[], plan: SeatPlan<string>
   return objects.flatMap((object) => {
     if (object.kind !== 'place') return []
     const section = seatPlan.sectionOf(plan, object.section)
+
     return section && seatPlan.sectionAt({ sections: [section] }, seatPlan.centerOf(object)) === null ? [object.id] : []
   })
 }
@@ -1091,13 +1187,15 @@ function straysOf(objects: readonly PlanObject<string>[], plan: SeatPlan<string>
 function edgeToward(from: PlanPoint, toward: PlanPoint | null, length: number): PlanPoint {
   const angle =
     toward === null ? 0 : Math.round(Math.atan2(toward.y - from.y, toward.x - from.x) / EDGE_STEP) * EDGE_STEP
+
   return { x: Math.round(from.x + Math.cos(angle) * length), y: Math.round(from.y + Math.sin(angle) * length) }
 }
 
 // Loose fixtures are named; the furniture in a group (chairs, table tops) goes unlabelled.
 function fixtureLabel(fixture: Fixture): string | null {
   if (fixture.group !== undefined || fixture.role === undefined) return null
-  return fixtureNames[fixture.role] ?? fixture.role
+
+  return fixtureNames.get(fixture.role) ?? fixture.role
 }
 
 function fixtureVariant(fixture: Fixture): 'box' | 'wall' {

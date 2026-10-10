@@ -19,6 +19,7 @@ export type LintIssue =
   | { code: 'empty_section'; section: string }
 
 export type LintCode = LintIssue['code']
+
 export type LintResult = LintIssue & { severity: Exclude<LintSeverity, 'off'> }
 
 export const DEFAULT_LINT_SEVERITY: Record<LintCode, LintSeverity> = {
@@ -31,9 +32,16 @@ export const DEFAULT_LINT_SEVERITY: Record<LintCode, LintSeverity> = {
 // The objects an issue is about — what to select and zoom to. Schema issues (ichno/schema) and lint results name
 // them the same way, in `ids` or `id`; issues about a section or a category name none.
 export function issueIdsOf(issue: { code: string }): string[] {
-  if ('ids' in issue && Array.isArray(issue.ids)) return issue.ids.filter((id) => typeof id === 'string')
-  if ('id' in issue && typeof issue.id === 'string') return [issue.id]
+  if ('ids' in issue && Array.isArray(issue.ids)) return issue.ids.filter(isId)
+
+  if ('id' in issue && isId(issue.id)) return [issue.id]
+
   return []
+}
+
+// Issues arrive as any `{ code }` (schema issues, lint results, the consumer's own), so ids are checked to be strings.
+function isId(value: unknown): value is string {
+  return typeof value === 'string'
 }
 
 // Every enabled rule's findings, in rule order. `severity` overrides the defaults per code.
@@ -43,37 +51,49 @@ export function lintSeatPlan(
 ): LintResult[] {
   const levels = { ...DEFAULT_LINT_SEVERITY, ...severity }
   const places = seatPlan.placesOf(plan)
-  const issues: LintIssue[] = []
+  const results: LintResult[] = []
 
   if (levels.duplicate_label !== 'off') {
     const byLabel = new Map<string, string[]>()
+
     for (const place of places) {
       const label = place.label ?? place.id
       byLabel.set(label, [...(byLabel.get(label) ?? []), place.id])
     }
-    for (const [label, ids] of byLabel) if (ids.length > 1) issues.push({ code: 'duplicate_label', label, ids })
+
+    for (const [label, ids] of byLabel)
+      if (ids.length > 1) results.push({ code: 'duplicate_label', label, ids, severity: levels.duplicate_label })
   }
 
   if (levels.outside_section !== 'off') {
     for (const place of places) {
       const section = seatPlan.sectionOf(plan, place.section)
+
       if (section && !polygonContains(section.points, seatPlan.centerOf(place))) {
-        issues.push({ code: 'outside_section', id: place.id, section: place.section })
+        results.push({
+          code: 'outside_section',
+          id: place.id,
+          section: place.section,
+          severity: levels.outside_section,
+        })
       }
     }
   }
 
   if (levels.missing_category !== 'off' && plan.categories.length > 0) {
     for (const place of places)
-      if (place.category === undefined) issues.push({ code: 'missing_category', id: place.id })
+      if (place.category === undefined)
+        results.push({ code: 'missing_category', id: place.id, severity: levels.missing_category })
   }
 
   if (levels.empty_section !== 'off') {
     const used = new Set(places.map((place) => place.section))
+
     for (const section of plan.sections) {
-      if (!used.has(section.id)) issues.push({ code: 'empty_section', section: section.id })
+      if (!used.has(section.id))
+        results.push({ code: 'empty_section', section: section.id, severity: levels.empty_section })
     }
   }
 
-  return issues.map((issue) => ({ ...issue, severity: levels[issue.code] as Exclude<LintSeverity, 'off'> }))
+  return results
 }

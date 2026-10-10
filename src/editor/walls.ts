@@ -15,11 +15,14 @@ import type { Snap } from './operations'
 
 // How close (screen pixels) a dragged vertex comes to its neighbour to merge with it.
 const MERGE_PX = 8
+
 // How far (plan units) a corner where runs join may lie off the line through its neighbours and still be left out as
 // straight — the most whole units put between corners of a slanted line.
 const STRAIGHT = 1
+
 // How close (plan units) a fixture's outline comes to a wall's face to stand against it.
 const TOUCH = 1
+
 const EPSILON = 1e-9
 
 // Adds a wall — its points to a hundredth of a unit on the plan, a point repeated right after itself dropped; a closed wall
@@ -35,18 +38,19 @@ export function addWall<S extends string>(
       y: Math.min(plan.height, Math.max(0, hundredth(p.y))),
     }))
     .filter((p, i, all) => i === 0 || !samePoint(p, all[i - 1]!))
+
   if (wall.closed && points.length > 1 && samePoint(points[0]!, points.at(-1)!)) points.pop()
   const closed = wall.closed === true && points.length >= 3
+
   if (points.length < 2 || (wall.closed && !closed)) return null
   const id = seatPlan.nextObjectId(plan, 'wall')
-  const made = fitted({
-    id,
-    points,
-    thickness: Math.max(1, Math.round(wall.thickness)),
-    ...(closed ? { closed: true } : {}),
-    ...(wall.openings?.length ? { openings: wall.openings } : {}),
-  })
-  return { plan: { ...plan, walls: [...plan.walls, made] }, ids: [id] }
+  const made: Wall = { id, points, thickness: Math.max(1, Math.round(wall.thickness)) }
+
+  if (closed) made.closed = true
+
+  if (wall.openings?.length) made.openings = wall.openings
+
+  return { plan: { ...plan, walls: [...plan.walls, fitted(made)] }, ids: [id] }
 }
 
 // Adds a run of wall — `points` to a hundredth of a unit, `thickness` across — joined to the open walls its ends meet, the way a
@@ -63,11 +67,15 @@ export function buildWall<S extends string>(
   const points = run.points
     .map((p) => ({ x: hundredth(p.x), y: hundredth(p.y) }))
     .filter((p, i, all) => i === 0 || !samePoint(p, all[i - 1]!))
+
   if (points.length < 2) return null
+
   if (points.some((p) => p.x < 0 || p.y < 0 || p.x > plan.width || p.y > plan.height)) return null
+
   if (points.some((p, i) => i > 0 && alongWall(plan.walls, points[i - 1]!, p))) return null
   const from = openEndAt(plan.walls, points[0]!)
   const to = openEndAt(plan.walls, points.at(-1)!)
+
   if (!from && !to) return addWall(plan, { points, thickness: run.thickness })
   // Carried on from the wall at its start — or, meeting one at its end only, from that one the other way round.
   const path = from ? points : [...points].reverse()
@@ -75,6 +83,7 @@ export function buildWall<S extends string>(
   const tail = from && to ? to : null
   const run2 = path.slice(1)
   let made: Wall
+
   if (tail && tail.id === head.id) {
     // Back at its own start — round into a room.
     made = joinedWall(head, [...head.points, ...run2.slice(0, -1)], true, stationsOf(head), [head.points.length - 1, 0])
@@ -91,7 +100,9 @@ export function buildWall<S extends string>(
   } else {
     made = joinedWall(head, [...head.points, ...run2], false, stationsOf(head), [head.points.length - 1])
   }
+
   const walls = plan.walls.flatMap((w) => (w.id === head.id ? [made] : tail && w.id === tail.id ? [] : [w]))
+
   return { plan: { ...plan, walls }, ids: [made.id] }
 }
 
@@ -104,19 +115,24 @@ export function addOpening<S extends string>(
 ): SeatPlan<S> | null {
   const wall = seatPlan.wallOf(plan, wallId)
   const edge = wall ? wallEdgesOf(wall)[opening.edge] : undefined
+
   if (!wall || !edge || opening.at < 0 || opening.at + opening.width > edge.length + EPSILON) return null
   const others = wall.openings ?? []
+
   if (others.some((o) => o.edge === opening.edge && o.at < opening.at + opening.width && opening.at < o.at + o.width))
     return null
+
   return withWall(plan, { ...wall, openings: [...others, { ...opening, at: Math.round(opening.at) }] })
 }
 
 // Takes an opening out of a wall, by its index in the wall's list.
 export function removeOpening<S extends string>(plan: SeatPlan<S>, wallId: string, index: number): SeatPlan<S> {
   const wall = seatPlan.wallOf(plan, wallId)
+
   if (!wall?.openings?.[index]) return plan
   const openings = wall.openings.filter((_, i) => i !== index)
   const { openings: _, ...rest } = wall
+
   return withWall(plan, openings.length > 0 ? { ...rest, openings } : rest)
 }
 
@@ -129,33 +145,45 @@ export function reshapeWall<S extends string>(
   snap: Snap | null = null,
 ): SeatPlan<S> {
   const wall = seatPlan.wallOf(plan, id)
+
   if (!wall) return plan
   const step = wallStepOf(snap)
+
   const placed = points.map((p) =>
     snap
       ? onPlan(plan, p, step)
       : { x: Math.min(plan.width, Math.max(0, hundredth(p.x))), y: Math.min(plan.height, Math.max(0, hundredth(p.y))) },
   )
+
   return withWall(plan, fitted({ ...wall, points: placed }))
 }
 
+// Unit ids (a group by its own) and wall ids — what a closed wall carries.
+type WallContents = { units: string[]; walls: string[] }
+
 // What the closed walls among `ids` carry when they move — the units standing in them (a group whole when one of
 // its members stands there, a loose object by its centre) and the walls inside them — but nothing `ids` holds itself.
-export function wallContents(plan: SeatPlan<string>, ids: readonly string[]): { units: string[]; walls: string[] } {
+export function wallContents(plan: SeatPlan<string>, ids: readonly string[]): WallContents {
   const listed = new Set(ids)
   const units = new Set<string>()
   const walls = new Set<string>()
+
   for (const id of ids) {
     const wall = seatPlan.wallOf(plan, id)
+
     if (!wall || !isClosed(wall)) continue
+
     for (const o of plan.objects) {
       if (o.kind === 'label' || listed.has(o.id) || (o.group !== undefined && listed.has(o.group))) continue
+
       if (polygonContains(wall.points, seatPlan.centerOf(o))) units.add(o.group ?? o.id)
     }
+
     for (const other of plan.walls) {
       if (!listed.has(other.id) && other.points.every((p) => polygonContains(wall.points, p))) walls.add(other.id)
     }
   }
+
   return { units: [...units], walls: [...walls] }
 }
 
@@ -163,6 +191,7 @@ export function wallContents(plan: SeatPlan<string>, ids: readonly string[]): { 
 // Alt it adds a vertex there).
 export function wallHandlesOf<S extends string>(wall: Wall): PlanHandle<S>[] {
   const owner = { kind: 'wall' as const, id: wall.id }
+
   return [
     ...wall.points.map((point, i) => ({ owner, name: `vertex-${i}`, point })),
     ...wallEdgesOf(wall).flatMap((edge) =>
@@ -177,9 +206,11 @@ export function wallHandlesOf<S extends string>(wall: Wall): PlanHandle<S>[] {
 export function wallFrameOf(wall: Wall): PlanPoint[] | null {
   const rings = wallOutlineOf({ ...wall, openings: [] })
   let widest: PlanPoint[] | null = null
+
   for (const ring of rings) {
     if (widest === null || Math.abs(signedArea(ring)) > Math.abs(signedArea(widest))) widest = ring
   }
+
   return widest
 }
 
@@ -200,16 +231,21 @@ export function dragWallHandle<S extends string>(
   const wall = seatPlan.wallOf(plan, id)
   const [kind, at] = name.split('-')
   const index = Number(at)
+
   if (!wall || (kind !== 'vertex' && kind !== 'edge') || !Number.isInteger(index)) return plan
   const step = wallStepOf(snap)
   const by = constrain ? alongAxisOf(total) : total
   const { points } = wall
+
   if (kind === 'edge' && !alt) return pushedEdge(plan, wall, index, total, snap)
+
   if (kind === 'edge') {
     const edge = wallEdgesOf(wall)[index]
+
     if (!edge || edge.length === 0) return plan
     const point = onPlan(plan, add(middle(edge.a, edge.b), by), step)
     const half = edge.length / 2
+
     const openings = wall.openings?.map((o) =>
       o.edge > index
         ? { ...o, edge: o.edge + 1 }
@@ -217,22 +253,30 @@ export function dragWallHandle<S extends string>(
           ? { ...o, edge: index + 1, at: Math.max(0, o.at - half) }
           : o,
     )
+
     const next = { ...wall, points: [...points.slice(0, index + 1), point, ...points.slice(index + 1)] }
+
     return withWall(plan, fitted(openings ? { ...next, openings } : next))
   }
+
   const from = points[index]
+
   if (!from) return plan
   const point = onPlan(plan, add(from, by), step)
   const closed = isClosed(wall)
   const count = points.length
   const previous = closed || index > 0 ? points[(index - 1 + count) % count] : undefined
   const next = closed || index < count - 1 ? points[(index + 1) % count] : undefined
+
   const near = (other: PlanPoint | undefined) =>
     other !== undefined && Math.hypot(other.x - point.x, other.y - point.y) <= MERGE_PX * pixel
+
   if (count > (closed ? 3 : 2) && (near(previous) || near(next))) {
     return withWall(plan, fitted(withoutVertex(wall, index)))
   }
+
   const moved = fitted({ ...wall, points: points.map((p, i) => (i === index ? point : p)) })
+
   return joined(withWall(plan, moved), wall, moved)
 }
 
@@ -247,6 +291,7 @@ function pushedEdge<S extends string>(
   snap: Snap | null,
 ): SeatPlan<S> {
   const edge = wallEdgesOf(wall)[index]
+
   if (!edge || edge.length === 0) return plan
   const { points } = wall
   const next = (index + 1) % points.length
@@ -256,11 +301,15 @@ function pushedEdge<S extends string>(
   const wanted = Math.min(high, Math.max(low, total.x * across.x + total.y * across.y))
   const level = across.x === 0 || across.y === 0
   let push = level ? onLine(edge.a, across, wanted, step) : wanted
+
   if (push > high) push -= step
+
   if (push < low) push += step
   const d = { x: Math.round(across.x * push), y: Math.round(across.y * push) }
+
   if (d.x === 0 && d.y === 0) return plan
   const reach = wall.thickness / 2 + TOUCH
+
   const carried = new Set<PlanObject<S>>(
     plan.objects.flatMap((o) =>
       o.kind === 'fixture' && o.group === undefined && against(o, edge.a, edge.along, edge.length, across, reach)
@@ -268,11 +317,14 @@ function pushedEdge<S extends string>(
         : [],
     ),
   )
+
   const moved = fitted({
     ...wall,
     points: points.map((p, i) => (i === index || i === next ? { x: p.x + d.x, y: p.y + d.y } : p)),
   })
+
   const pushed = withWall(plan, moved)
+
   return joined(
     carried.size === 0
       ? pushed
@@ -288,31 +340,42 @@ function pushedEdge<S extends string>(
 function joined<S extends string>(plan: SeatPlan<S>, before: Wall, after: Wall): SeatPlan<S> {
   const old = wallEdgesOf(before)
   const now = wallEdgesOf(after)
+
   if (old.length !== now.length) return plan
   const reach = before.thickness / 2 + 0.5
   let changed = false
+
   const walls = plan.walls.map((wall) => {
     if (wall.id === before.id) return wall
     let moved = false
+
     const points = wall.points.map((p) => {
       let best: { index: number; t: number; distance: number } | null = null
+
       for (const edge of old) {
         const { t, distance } = distanceToEdge(edge, p)
+
         if (distance <= reach && (best === null || distance < best.distance)) best = { index: edge.index, t, distance }
       }
+
       if (best === null) return p
       const edge = now[best.index]!
+
       if (distanceToEdge(edge, p).distance <= reach) return p
       moved = true
+
       return {
         x: hundredth(edge.a.x + (edge.b.x - edge.a.x) * best.t),
         y: hundredth(edge.a.y + (edge.b.y - edge.a.y) * best.t),
       }
     })
+
     if (!moved) return wall
     changed = true
+
     return fitted({ ...wall, points })
   })
+
   return changed ? { ...plan, walls } : plan
 }
 
@@ -322,15 +385,21 @@ function withoutVertex(wall: Wall, k: number): Wall {
   const edges = wallEdgesOf(wall)
   const closed = isClosed(wall)
   const last = wall.points.length - 1
+
   const openings = wall.openings?.flatMap((o): WallOpening[] => {
     if (!closed && ((k === 0 && o.edge === 0) || (k === last && o.edge === last - 1))) return []
+
     if (o.edge === k && (closed || k > 0)) {
       const before = edges[(k - 1 + edges.length) % edges.length]!
+
       return [{ ...o, edge: k === 0 ? edges.length - 2 : k - 1, at: o.at + before.length }]
     }
+
     return [o.edge > k ? { ...o, edge: o.edge - 1 } : o]
   })
+
   const next = { ...wall, points: wall.points.filter((_, i) => i !== k) }
+
   return openings ? { ...next, openings } : next
 }
 
@@ -340,17 +409,25 @@ type Stationed = { start: number; width: number; role?: string }
 function stationsOf(wall: Wall): Stationed[] {
   const edges = wallEdgesOf(wall)
   const before = edges.map((_, i) => edges.slice(0, i).reduce((sum, e) => sum + e.length, 0))
-  return (wall.openings ?? []).flatMap((o) =>
-    edges[o.edge] ? [{ start: before[o.edge]! + o.at, width: o.width, ...(o.role ? { role: o.role } : {}) }] : [],
-  )
+
+  return (wall.openings ?? []).flatMap((o) => {
+    if (!edges[o.edge]) return []
+    const station: Stationed = { start: before[o.edge]! + o.at, width: o.width }
+
+    if (o.role) station.role = o.role
+
+    return [station]
+  })
 }
 
 // An open wall ending at `point` (starting there with `start`) — turned round when it is the other way.
 function endingAt(wall: Wall, point: PlanPoint, start = false): Wall {
   const atEnd = samePoint(wall.points.at(-1)!, point)
+
   if (atEnd !== start) return wall
   const total = lengthOf(wall.points)
   const openings = stationsOf(wall).map((o) => ({ ...o, start: total - o.start - o.width }))
+
   return withStations({ ...wall, points: [...wall.points].reverse() }, openings)
 }
 
@@ -368,18 +445,25 @@ function joinedWall(
       const previous = points[i - 1] ?? (closed ? points.at(-1) : undefined)
       const next = points[i + 1] ?? (closed ? points[0] : undefined)
       const p = points[i]
+
       if (!previous || !next || !p) return false
       const a = { x: p.x - previous.x, y: p.y - previous.y }
       const b = { x: next.x - p.x, y: next.y - p.y }
       // Within a unit of the line between its neighbours — corners on whole units leave a slanted wall that far off.
       const chord = Math.hypot(next.x - previous.x, next.y - previous.y)
       const off = chord === 0 ? Infinity : Math.abs(a.x * (next.y - previous.y) - a.y * (next.x - previous.x)) / chord
+
       return off < STRAIGHT && a.x * b.x + a.y * b.y > 0
     }),
   )
+
   const kept = points.filter((_, i) => !straight.has(i))
   const { closed: _, openings: __, ...rest } = base
-  return withStations({ ...rest, points: kept, ...(closed ? { closed: true } : {}) }, stations)
+  const joined: Wall = { ...rest, points: kept }
+
+  if (closed) joined.closed = true
+
+  return withStations(joined, stations)
 }
 
 // A wall with openings placed at their stations along it, each on the edge it falls within.
@@ -387,26 +471,27 @@ function withStations(wall: Wall, stations: readonly Stationed[]): Wall {
   const { openings: _, ...rest } = wall
   const edges = wallEdgesOf(wall)
   let before = 0
+
   const starts = edges.map((edge) => {
     const at = before
     before += edge.length
+
     return at
   })
+
   const openings = stations.flatMap((o): WallOpening[] => {
     const i = edges.findIndex(
       (edge, k) => o.start >= starts[k]! - EPSILON && o.start + o.width <= starts[k]! + edge.length + 0.5,
     )
-    return i < 0
-      ? []
-      : [
-          {
-            edge: i,
-            at: Math.max(0, Math.round(o.start - starts[i]!)),
-            width: o.width,
-            ...(o.role ? { role: o.role } : {}),
-          },
-        ]
+
+    if (i < 0) return []
+    const opening: WallOpening = { edge: i, at: Math.max(0, Math.round(o.start - starts[i]!)), width: o.width }
+
+    if (o.role) opening.role = o.role
+
+    return [opening]
   })
+
   return openings.length > 0 ? { ...rest, openings } : rest
 }
 
@@ -444,13 +529,18 @@ export function wallStepOf(snap: Snap | null): number {
 export function fitted(wall: Wall): Wall {
   if (!wall.openings) return wall
   const edges = wallEdgesOf(wall)
+
   const openings = wall.openings.flatMap((o) => {
     const edge = edges[o.edge]
+
     if (!edge || edge.length < o.width) return []
     const at = Math.max(0, Math.min(Math.round(o.at), Math.floor(edge.length - o.width)))
+
     return [at === o.at ? o : { ...o, at }]
   })
+
   const { openings: _, ...rest } = wall
+
   return openings.length > 0 ? { ...rest, openings } : rest
 }
 
@@ -477,10 +567,13 @@ function pushRange(
     if (i === index || i === next) return
     const u = (p.x - a.x) * along.x + (p.y - a.y) * along.y
     const v = (p.x - a.x) * across.x + (p.y - a.y) * across.y
+
     if (u < -EPSILON || u > length + EPSILON) return
+
     if (v > EPSILON) high = Math.min(high, v - step)
     else if (v < -EPSILON) low = Math.max(low, v + step)
   })
+
   for (const p of [a, { x: a.x + along.x * length, y: a.y + along.y * length }]) {
     for (const [n, start, extent] of [
       [across.x, p.x, plan.width],
@@ -492,6 +585,7 @@ function pushRange(
       high = Math.min(high, Math.max(t1, t2))
     }
   }
+
   return [Math.min(low, 0), Math.max(high, 0)]
 }
 
@@ -499,6 +593,7 @@ function pushRange(
 function onLine(a: PlanPoint, across: PlanPoint, wanted: number, step: number): number {
   const axis = across.x === 0 ? 'y' : 'x'
   const sign = across[axis]
+
   return (roundTo(a[axis] + wanted * sign, step) - a[axis]) * sign
 }
 
@@ -514,8 +609,10 @@ function against(
 ): boolean {
   const center = seatPlan.centerOf(object)
   const u = (center.x - a.x) * along.x + (center.y - a.y) * along.y
+
   if (u < 0 || u > length) return false
   const offsets = outlineOf(object, 'rect').map((p) => (p.x - a.x) * across.x + (p.y - a.y) * across.y)
+
   return Math.min(...offsets) <= reach && Math.max(...offsets) >= -reach
 }
 
@@ -561,18 +658,24 @@ function hundredth(value: number): number {
 export function onWalls(plan: Pick<SeatPlan, 'walls'>, point: PlanPoint, reach: number): PlanPoint | null {
   let corner: { point: PlanPoint; distance: number } | null = null
   let line: { point: PlanPoint; distance: number } | null = null
+
   for (const wall of plan.walls) {
     const near = wall.thickness / 2 + reach
+
     for (const p of wall.points) {
       const distance = Math.hypot(p.x - point.x, p.y - point.y)
+
       if (distance <= near && (corner === null || distance < corner.distance)) corner = { point: p, distance }
     }
+
     for (const edge of wallEdgesOf(wall)) {
       const { t, distance } = distanceToEdge(edge, point)
+
       if (distance > near || (line !== null && distance >= line.distance)) continue
       const foot = { x: edge.a.x + (edge.b.x - edge.a.x) * t, y: edge.a.y + (edge.b.y - edge.a.y) * t }
       line = { point: { x: hundredth(foot.x), y: hundredth(foot.y) }, distance }
     }
   }
+
   return corner?.point ?? line?.point ?? null
 }

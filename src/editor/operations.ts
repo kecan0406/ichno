@@ -37,11 +37,21 @@ import { addOpening, addWall, buildWall, removeOpening, reshapeWall, wallContent
 export type Snap = { cell: number; wall?: number }
 
 export type AlignEdge = 'left' | 'right' | 'top' | 'bottom' | 'center-x' | 'center-y'
+
 // Where `reorder` moves objects in the drawing order.
 export type Reorder = 'front' | 'back' | 'forward' | 'backward'
+
 export type Added<S extends string> = { plan: SeatPlan<S>; ids: string[] }
+
+// A group made, by its id.
+type Made<S extends string> = { plan: SeatPlan<S>; id: string }
+
+// What a removal left, and the ids it would not take.
+type Removed<S extends string> = { plan: SeatPlan<S>; refused: string[] }
+
 // Which members of a group `layoutGroup` lays out — its places, or its fixtures of one role (a table's chairs).
 export type GroupMembers = { kind: 'place' } | { kind: 'fixture'; role?: string }
+
 // What `assign` sets — each on the objects that have it: `shape` and `role` on places and fixtures, `capacity`,
 // `category` and `tags` on places. A key given as undefined clears an optional one (role, category, tags).
 export type ObjectProps = { shape?: Shape; capacity?: number; role?: string; category?: string; tags?: string[] }
@@ -83,11 +93,9 @@ export const planEdits = {
 }
 
 // A new empty group. Its id is `<role>-<n>` (or `group-<n>`).
-function addGroup<S extends string>(
-  plan: SeatPlan<S>,
-  group: Omit<Group, 'id'> = {},
-): { plan: SeatPlan<S>; id: string } {
+function addGroup<S extends string>(plan: SeatPlan<S>, group: Omit<Group, 'id'> = {}): Made<S> {
   const id = seatPlan.nextObjectId(plan, group.role ?? 'group')
+
   return { plan: { ...plan, groups: [...plan.groups, { id, ...group }] }, id }
 }
 
@@ -100,7 +108,9 @@ function addPlaces<S extends string>(
   options: { shape?: Shape; capacity?: number; role?: string; group?: string; category?: string } = {},
 ): Added<S> | null {
   const ids = placeIds(plan, section, boxes.length)
+
   if (!ids) return null
+
   const places = boxes.map((box, i): Place<S> => ({
     kind: 'place',
     id: ids[i]!,
@@ -110,6 +120,7 @@ function addPlaces<S extends string>(
     capacity: options.capacity ?? 1,
     ...defined({ group: options.group, role: options.role, category: options.category }),
   }))
+
   return { plan: { ...plan, objects: [...plan.objects, ...places] }, ids }
 }
 
@@ -121,6 +132,7 @@ function addFixtures<S extends string>(
   options: { shape?: Shape; role?: string; group?: string } = {},
 ): Added<S> {
   const ids = objectIds(plan, options.role ?? 'fixture', boxes.length)
+
   const fixtures = boxes.map((box, i): Fixture => ({
     kind: 'fixture',
     id: ids[i]!,
@@ -128,6 +140,7 @@ function addFixtures<S extends string>(
     shape: options.shape ?? 'rect',
     ...defined({ group: options.group, role: options.role }),
   }))
+
   return { plan: { ...plan, objects: [...fixtures, ...plan.objects] }, ids }
 }
 
@@ -135,6 +148,7 @@ function addFixtures<S extends string>(
 function addLabels<S extends string>(plan: SeatPlan<S>, groupId: string, boxes: readonly PlanBox[]): Added<S> {
   const ids = objectIds(plan, 'label', boxes.length)
   const labels = boxes.map((box, i): GroupLabel => ({ kind: 'label', id: ids[i]!, group: groupId, ...boxOf(box) }))
+
   return { plan: { ...plan, objects: [...plan.objects, ...labels] }, ids }
 }
 
@@ -154,26 +168,35 @@ function layoutGroup<S extends string>(
     o.group === groupId &&
     o.kind === members.kind &&
     (members.kind === 'place' || members.role === undefined || o.role === members.role)
+
   const current = plan.objects.filter(matches)
   const last = current.at(-1)
+
   if (!last || boxes.length === 0) return null
   const surplus = current.slice(boxes.length)
+
   if (surplus.some((o) => locked.has(o.id))) return null
   const extra = boxes.length - current.length
   let added: PlanObject<S>[] = []
+
   if (extra > 0) {
     const ids =
       last.kind === 'place' ? placeIds(plan, last.section, extra) : objectIds(plan, last.role ?? 'fixture', extra)
+
     if (!ids) return null
     // Copies of the last member — a new seat takes no label; `label` numbers it.
-    added = ids.map((id) => defined({ ...last, id, label: undefined }) as PlanObject<S>)
+    added = ids.map((id) => defined({ ...last, id, label: undefined }))
   }
+
   const gone = new Set(surplus.map((o) => o.id))
   const at = plan.objects.indexOf(last)
+
   const objects = [...plan.objects.slice(0, at + 1), ...added, ...plan.objects.slice(at + 1)].filter(
     (o) => !gone.has(o.id),
   )
+
   const ids = [...current.filter((o) => !gone.has(o.id)), ...added].map((o) => o.id)
+
   return arrange({ ...plan, objects }, ids, boxes)
 }
 
@@ -181,13 +204,16 @@ function layoutGroup<S extends string>(
 // Places re-home to the section their new centre lands in.
 function arrange<S extends string>(plan: SeatPlan<S>, ids: readonly string[], boxes: readonly PlanBox[]): SeatPlan<S> {
   const target = new Map(ids.flatMap((id, i) => (boxes[i] ? [[id, boxOf(boxes[i])] as const] : [])))
+
   return {
     ...plan,
     objects: plan.objects.map((o) => {
       const box = target.get(o.id)
+
       if (!box) return o
       const { rotation: _, ...rest } = o
-      return rehomed(plan, { ...rest, ...box } as PlanObject<S>)
+
+      return rehomed(plan, { ...rest, ...box })
     }),
   }
 }
@@ -204,26 +230,35 @@ function convert<S extends string>(
   locked: ReadonlySet<string> = NONE,
 ): SeatPlan<S> | null {
   const wanted = new Set(ids)
-  let next = plan
   const objects: PlanObject<S>[] = []
+  // The places made so far are added to a list of our own, so a fresh id continues after them.
+  const taken = { ...plan, objects: [...plan.objects] }
+
   for (const o of plan.objects) {
     if (!wanted.has(o.id) || o.kind === 'label' || o.kind === to) {
       objects.push(o)
       continue
     }
+
     const box = { ...boxOf(o), ...defined({ group: o.group, role: options.role ?? o.role }) }
+
     if (o.kind === 'place') {
       if (locked.has(o.id)) return null
       objects.push({ kind: 'fixture', id: o.id, shape: o.shape, ...box })
       continue
     }
+
     const section = options.section ?? seatPlan.sectionAt(plan, seatPlan.centerOf(o))
+
     if (section === null) return null
-    const id = o.id.length <= PLACE_ID_MAX ? o.id : placeIds(next, section, 1)?.[0]
+    const id = o.id.length <= PLACE_ID_MAX ? o.id : placeIds(taken, section, 1)?.[0]
+
     if (!id) return null
-    objects.push({ kind: 'place', id, section, shape: o.shape, capacity: options.capacity ?? 1, ...box })
-    next = { ...next, objects: [...next.objects, objects.at(-1)!] }
+    const place: Place<S> = { kind: 'place', id, section, shape: o.shape, capacity: options.capacity ?? 1, ...box }
+    objects.push(place)
+    taken.objects.push(place)
   }
+
   return { ...plan, objects }
 }
 
@@ -232,10 +267,12 @@ function group<S extends string>(
   plan: SeatPlan<S>,
   ids: readonly string[],
   props: Omit<Group, 'id'> = {},
-): { plan: SeatPlan<S>; id: string } | null {
+): Made<S> | null {
   const members = new Set(ids.flatMap((id) => unitOf(plan, id).map((o) => o.id)))
+
   if (members.size === 0) return null
   const created = addGroup(plan, props)
+
   return {
     plan: pruneGroups({
       ...created.plan,
@@ -254,9 +291,11 @@ function ungroup<S extends string>(plan: SeatPlan<S>, groupId: string): SeatPlan
     groups: plan.groups.filter((g) => g.id !== groupId),
     objects: plan.objects.flatMap((o) => {
       if (o.group !== groupId) return [o]
+
       if (o.kind === 'label') return []
       const { group: _, ...rest } = o
-      return [rest as PlanObject<S>]
+
+      return [rest]
     }),
   }
 }
@@ -264,15 +303,21 @@ function ungroup<S extends string>(plan: SeatPlan<S>, groupId: string): SeatPlan
 // Labels places and groups in the given order — a row's seats (pass them in row order), or a set of rows.
 function label<S extends string>(plan: SeatPlan<S>, ids: readonly string[], sequence: LabelSequence): SeatPlan<S> {
   const labels = new Map(ids.map((id, i) => [id, sequence(i, ids.length)]))
-  const labelled = <T extends { id: string; label?: string }>(item: T): T => {
+
+  const labelled = <T extends { id: string; label?: string }>(item: T): T | Omit<T, 'label'> => {
     const text = labels.get(item.id)
+
     if (text === undefined) return item
+
     if (text === '') {
       const { label: _, ...rest } = item
-      return rest as T
+
+      return rest
     }
+
     return { ...item, label: text }
   }
+
   return {
     ...plan,
     groups: plan.groups.map(labelled),
@@ -286,39 +331,62 @@ function label<S extends string>(plan: SeatPlan<S>, ids: readonly string[], sequ
 // reference.
 function assign<S extends string>(plan: SeatPlan<S>, ids: readonly string[], props: ObjectProps): SeatPlan<S> | null {
   const { capacity, role, category, tags } = props
+
   if (capacity !== undefined && !(Number.isInteger(capacity) && capacity > 0)) return null
+
   if (role !== undefined && (role.length === 0 || role.trim() !== role || role.length > OBJECT_ID_MAX)) return null
+
   if (category !== undefined && !plan.categories.some((c) => c.key === category)) return null
+
   if (tags?.some((tag) => tag.length === 0)) return null
   const wanted = new Set(ids.flatMap((id) => unitOf(plan, id).map((o) => o.id)))
+
   return { ...plan, objects: plan.objects.map((o) => (wanted.has(o.id) ? assigned(o, props) : o)) }
 }
 
+// The object with the `props` it has set. A key given as undefined clears role, category or tags; shape and capacity
+// stay, since the object cannot be without them.
 function assigned<S extends string>(object: PlanObject<S>, props: ObjectProps): PlanObject<S> {
   if (object.kind === 'label') return object
-  const next: Record<string, unknown> = { ...object }
-  for (const key of object.kind === 'place' ? PLACE_PROPS : FIXTURE_PROPS) {
-    if (!(key in props)) continue
-    const value = props[key]
-    if (value !== undefined) next[key] = value
-    else if (key !== 'shape' && key !== 'capacity') delete next[key]
-  }
-  return next as PlanObject<S>
-}
+  const next = { ...object }
 
-const PLACE_PROPS = ['shape', 'capacity', 'role', 'category', 'tags'] as const
-const FIXTURE_PROPS = ['shape', 'role'] as const
+  if (props.shape !== undefined) next.shape = props.shape
+
+  if (next.kind === 'place' && props.capacity !== undefined) next.capacity = props.capacity
+
+  if ('role' in props) {
+    if (props.role === undefined) delete next.role
+    else next.role = props.role
+  }
+
+  if (next.kind !== 'place') return next
+
+  if ('category' in props) {
+    if (props.category === undefined) delete next.category
+    else next.category = props.category
+  }
+
+  if ('tags' in props) {
+    if (props.tags === undefined) delete next.tags
+    else next.tags = props.tags
+  }
+
+  return next
+}
 
 // Lines objects (or groups, as a whole) up on one edge or centre line of their combined extent.
 function align<S extends string>(plan: SeatPlan<S>, ids: readonly string[], edge: AlignEdge): SeatPlan<S> {
   const units = unitsOf(plan, ids)
+
   if (units.length < 2) return plan
   const boxes = units.map(extentOfUnit)
   const all = unionBounds(boxes)!
   const right = all.x + all.w
   const bottom = all.y + all.h
+
   return units.reduce((next, unit, i) => {
     const b = boxes[i]!
+
     const delta = (() => {
       switch (edge) {
         case 'left':
@@ -335,6 +403,7 @@ function align<S extends string>(plan: SeatPlan<S>, ids: readonly string[], edge
           return { x: 0, y: all.y + all.h / 2 - (b.y + b.h / 2) }
       }
     })()
+
     return shift(next, unit, { x: Math.round(delta.x), y: Math.round(delta.y) })
   }, plan)
 }
@@ -342,16 +411,22 @@ function align<S extends string>(plan: SeatPlan<S>, ids: readonly string[], edge
 // Spreads objects (or groups) so their centres are evenly spaced between the first and the last along the axis.
 function distribute<S extends string>(plan: SeatPlan<S>, ids: readonly string[], axis: 'x' | 'y'): SeatPlan<S> {
   const units = unitsOf(plan, ids)
+
   if (units.length < 3) return plan
+
   const centerOf = (unit: PlanObject<S>[]) => {
     const b = extentOfUnit(unit)
+
     return axis === 'x' ? b.x + b.w / 2 : b.y + b.h / 2
   }
+
   const ordered = [...units].sort((a, b) => centerOf(a) - centerOf(b))
   const first = centerOf(ordered[0]!)
   const step = (centerOf(ordered.at(-1)!) - first) / (ordered.length - 1)
+
   return ordered.reduce((next, unit, i) => {
     const delta = Math.round(first + step * i - centerOf(unit))
+
     return shift(next, unit, axis === 'x' ? { x: delta, y: 0 } : { x: 0, y: delta })
   }, plan)
 }
@@ -363,10 +438,13 @@ function distribute<S extends string>(plan: SeatPlan<S>, ids: readonly string[],
 // its own order; the plan comes back as it was when there is nothing to pass.
 function reorder<S extends string>(plan: SeatPlan<S>, ids: readonly string[], to: Reorder): SeatPlan<S> {
   const moving = new Set(ids.flatMap((id) => unitOf(plan, id)).map((o) => o.id))
+
   if (moving.size === 0) return plan
   const moved = plan.objects.filter((o) => moving.has(o.id))
   const kept = plan.objects.filter((o) => !moving.has(o.id))
+
   if (to === 'front') return { ...plan, objects: [...kept, ...moved] }
+
   if (to === 'back') return { ...plan, objects: [...moved, ...kept] }
   // How high what moves reaches, and where each unit that stays has its highest member — in the plan's order
   // (`index`) and among what stays (`at`).
@@ -377,15 +455,20 @@ function reorder<S extends string>(plan: SeatPlan<S>, ids: readonly string[], to
     if (moving.has(o.id)) top = index
     else highest.set(o.group ?? o.id, { at: staying++, index })
   })
+
   const passed = [...highest.values()].reduce<{ at: number; index: number } | null>((best, unit) => {
     const beyond = to === 'forward' ? unit.index > top : unit.index < top
+
     if (!beyond) return best
     const nearer = best === null || (to === 'forward' ? unit.index < best.index : unit.index > best.index)
+
     return nearer ? unit : best
   }, null)
+
   if (passed === null) return plan
   // Forward lands just above the unit passed, backward just under its highest member — one place in the listing.
   const at = to === 'forward' ? passed.at + 1 : passed.at
+
   return { ...plan, objects: [...kept.slice(0, at), ...moved, ...kept.slice(at)] }
 }
 
@@ -396,62 +479,90 @@ function duplicate<S extends string>(
   plan: SeatPlan<S>,
   ids: readonly string[],
   offset: PlanPoint = DUPLICATE_OFFSET,
-): { plan: SeatPlan<S>; ids: string[] } {
-  let next = plan
+): Added<S> {
+  // Copies go onto lists of our own, so each fresh id continues after the ones handed out before it.
+  const next = { ...plan, walls: [...plan.walls], groups: [...plan.groups], objects: [...plan.objects] }
   const created: string[] = []
   // A closed wall comes with what stands in it — a room copied whole.
   const contents = wallContents(plan, ids)
+
   for (const id of contents.walls) {
-    const wall = seatPlan.wallOf(next, id) ?? seatPlan.wallOf(plan, id)!
+    const wall = seatPlan.wallOf(plan, id)!
     const fresh = objectIds(next, 'wall', 1)[0]!
-    next = { ...next, walls: [...next.walls, movedWall({ ...wall, id: fresh }, offset)] }
+    next.walls.push(movedWall({ ...wall, id: fresh }, offset))
   }
+
   const asked = new Set(ids)
+
   for (const id of [...ids, ...contents.units]) {
     const wall = seatPlan.wallOf(plan, id)
+
     if (wall) {
       const fresh = objectIds(next, 'wall', 1)[0]!
-      next = { ...next, walls: [...next.walls, movedWall({ ...wall, id: fresh }, offset)] }
+      next.walls.push(movedWall({ ...wall, id: fresh }, offset))
+
       if (asked.has(id)) created.push(fresh)
       continue
     }
+
     const source = seatPlan.groupById(plan, id)
     const unit = unitOf(plan, id)
+
     if (unit.length === 0) continue
     let groupId: string | undefined
+
     if (source) {
-      const added = addGroup(next, {
+      groupId = seatPlan.nextObjectId(next, source.role ?? 'group')
+      next.groups.push({
+        id: groupId,
         ...defined({ label: source.label, role: source.role, rotation: source.rotation }),
       })
-      next = added.plan
-      groupId = added.id
     }
-    const copies: PlanObject<S>[] = []
-    let scratch = next
+
+    const first = next.objects.length
     let skipped = false
+
     for (const o of unit) {
       const moved = seatPlan.translate(o, offset.x, offset.y)
       const regrouped = groupId !== undefined ? { ...moved, group: groupId } : moved
+
       const fresh =
         o.kind === 'place'
-          ? placeIds(scratch, o.section, 1)?.[0]
-          : objectIds(scratch, o.kind === 'label' ? 'label' : (o.role ?? 'fixture'), 1)[0]
+          ? placeIds(next, o.section, 1)?.[0]
+          : objectIds(next, o.kind === 'label' ? 'label' : (o.role ?? 'fixture'), 1)[0]
+
       if (!fresh) {
         skipped = true
         break
       }
-      const copy = { ...regrouped, id: fresh } as PlanObject<S>
-      copies.push(copy)
-      scratch = { ...scratch, objects: [...scratch.objects, copy] }
+
+      next.objects.push({ ...regrouped, id: fresh })
     }
+
+    // A unit whose ids would not save is left out whole — its copies so far and its group.
     if (skipped) {
-      next = groupId !== undefined ? { ...next, groups: next.groups.filter((g) => g.id !== groupId) } : next
+      next.objects.splice(first)
+
+      if (groupId !== undefined) next.groups.pop()
       continue
     }
-    next = { ...next, objects: [...next.objects, ...copies] }
-    if (asked.has(id)) created.push(groupId ?? copies[0]!.id)
+
+    if (asked.has(id)) created.push(groupId ?? next.objects[first]!.id)
   }
-  return { plan: next, ids: created }
+
+  // Lists nothing was copied onto stay the plan's own, so what is built from them keeps its identity.
+  const walls = longer(plan.walls, next.walls)
+  const groups = longer(plan.groups, next.groups)
+  const objects = longer(plan.objects, next.objects)
+
+  if (walls === plan.walls && groups === plan.groups && objects === plan.objects) return { plan, ids: created }
+
+  return { plan: { ...plan, walls, groups, objects }, ids: created }
+}
+
+// `after` when it is longer than `before` (which it extends), otherwise `before` itself.
+function longer<T>(before: T[], after: T[]): T[] {
+  return after.length > before.length ? after : before
 }
 
 function movedWall(wall: Wall, offset: PlanPoint): Wall {
@@ -471,8 +582,10 @@ function templateOf<S extends string>(
   // A label names its group — it only comes along with it.
   const objects = plan.objects.filter((o) => wanted.has(o.id) && (o.kind !== 'label' || groups.has(o.group)))
   const extent = seatPlan.extentOf(objects.filter((o) => o.kind !== 'label'))
+
   if (!extent) return null
   const at = { x: Math.round(extent.x + extent.w / 2), y: Math.round(extent.y + extent.h / 2) }
+
   return {
     at,
     template: {
@@ -480,11 +593,14 @@ function templateOf<S extends string>(
       groups: plan.groups.filter((g) => groups.has(g.id)),
       objects: objects.map((o): TemplateObject => {
         const moved = seatPlan.translate(o, -at.x, -at.y)
+
         if (moved.kind === 'label') return moved
         const { group, ...loose } = moved
         const kept = group !== undefined && groups.has(group) ? moved : loose
+
         if (kept.kind !== 'place') return kept
         const { section: _, ...rest } = kept
+
         return rest
       }),
     },
@@ -507,15 +623,20 @@ function insertTemplate<S extends string>(
       all.findIndex((other) => other.id === g.id) === i &&
       template.objects.some((o) => o.kind !== 'label' && o.group === g.id),
   )
+
   const held = new Set(groups.map((g) => g.id))
   const origin = { x: Math.round(at.x), y: Math.round(at.y) }
+
   const pieces = template.objects
     .filter((o) => o.kind !== 'label' || held.has(o.group))
     .map((o) => {
       const { rotation: _, ...rest } = o
-      return { ...rest, ...boxOf(seatPlan.translate(o, origin.x, origin.y)) } as TemplateObject
+
+      return { ...rest, ...boxOf(seatPlan.translate(o, origin.x, origin.y)) }
     })
+
   const extent = unionBounds(pieces.flatMap((o) => (o.kind === 'label' ? [] : [boundsOfBox(o, o.shape)])))
+
   if (!extent) return null
   // Held inside the plan by what it draws — labels may sit in the margin.
   const dx = inward(extent.x, extent.w, plan.width, 1)
@@ -523,51 +644,76 @@ function insertTemplate<S extends string>(
   const placed = pieces.map((o) => seatPlan.translate(o, dx, dy))
   const middle = { x: extent.x + dx + extent.w / 2, y: extent.y + dy + extent.h / 2 }
   const fallback = options.section ?? seatPlan.sectionAt(plan, middle)
-  const sections = placed.map((o) =>
-    o.kind === 'place' ? (seatPlan.sectionAt(plan, centerOfBox(o)) ?? fallback) : null,
-  )
-  if (placed.some((o, i) => o.kind === 'place' && sections[i] === null)) return null
+
+  // Each place in the section it lands in.
+  const homed: PlanObject<S>[] = []
+
+  for (const o of placed) {
+    if (o.kind !== 'place') {
+      homed.push(o)
+      continue
+    }
+
+    const section = seatPlan.sectionAt(plan, centerOfBox(o)) ?? fallback
+
+    if (section === null) return null
+    homed.push({ ...o, section })
+  }
 
   let next = plan
   const groupIds = new Map<string, string>()
+
   for (const { id, ...props } of groups) {
     const made = addGroup(next, props)
     next = made.plan
     groupIds.set(id, made.id)
   }
+
   // Fresh ids in batches — places by section, the rest by prefix — each batch seeing the ones handed out before.
   const batches: { section: string | null; prefix: string; indices: number[] }[] = []
-  placed.forEach((o, i) => {
-    const section = sections[i] ?? null
+  homed.forEach((o, i) => {
+    const section = o.kind === 'place' ? o.section : null
     const prefix = o.kind === 'label' ? 'label' : o.kind === 'fixture' ? (o.role ?? 'fixture') : ''
     const batch = batches.find((b) => b.section === section && b.prefix === prefix)
+
     if (batch) batch.indices.push(i)
     else batches.push({ section, prefix, indices: [i] })
   })
   const ids: string[] = []
-  let scratch: SeatPlan<S> = next
+  // The ids handed out so far are held as groups of our own, so the next batch continues after them.
+  const taken = { ...next, groups: [...next.groups] }
+
   for (const { section, prefix, indices } of batches) {
-    const fresh =
-      section === null ? objectIds(scratch, prefix, indices.length) : placeIds(scratch, section, indices.length)
+    const fresh = section === null ? objectIds(taken, prefix, indices.length) : placeIds(taken, section, indices.length)
+
     if (!fresh) return null
     indices.forEach((index, k) => (ids[index] = fresh[k]!))
-    scratch = { ...scratch, groups: [...scratch.groups, ...fresh.map((id) => ({ id }))] }
+
+    for (const id of fresh) taken.groups.push({ id })
   }
 
   const categories = new Set(plan.categories.map((c) => c.key))
-  const objects = placed.map((o, i): PlanObject<S> => {
+
+  const objects = homed.map((o, i): PlanObject<S> => {
     const id = ids[i]!
+
     if (o.kind === 'label') return { ...o, id, group: groupIds.get(o.group)! }
     const group = o.group === undefined ? undefined : groupIds.get(o.group)
+
     if (o.kind === 'fixture') {
       const { group: _, ...rest } = o
+
       return { ...rest, id, ...defined({ group }) }
     }
+
     const { group: _, category, ...rest } = o
     const known = category !== undefined && categories.has(category) ? category : undefined
-    return { ...rest, id, section: sections[i] as S, ...defined({ group, category: known }) }
+
+    return { ...rest, id, ...defined({ group, category: known }) }
   })
+
   const loose = objects.flatMap((o) => (o.kind !== 'label' && o.group === undefined ? [o.id] : []))
+
   return { plan: { ...next, objects: [...next.objects, ...objects] }, ids: [...groupIds.values(), ...loose] }
 }
 
@@ -577,11 +723,13 @@ function remove<S extends string>(
   plan: SeatPlan<S>,
   ids: readonly string[],
   locked: ReadonlySet<string> = NONE,
-): { plan: SeatPlan<S>; refused: string[] } {
+): Removed<S> {
   const refused = ids.filter((id) => isLocked(plan, id, locked))
+
   const removed = new Set(
     ids.filter((id) => !refused.includes(id)).flatMap((id) => [id, ...unitOf(plan, id).map((o) => o.id)]),
   )
+
   return {
     plan: pruneGroups({
       ...plan,
@@ -602,18 +750,24 @@ function rename<S extends string>(
   locked: ReadonlySet<string> = NONE,
 ): SeatPlan<S> | null {
   const trimmed = nextId.trim()
+
   if (trimmed !== nextId || trimmed.length === 0 || locked.has(id)) return null
   const ids = seatPlan.idsOf(plan)
+
   if (!ids.includes(id) || (nextId !== id && ids.includes(nextId))) return null
   const object = seatPlan.objectById(plan, id)
+
   if (nextId.length > (object?.kind === 'place' ? PLACE_ID_MAX : OBJECT_ID_MAX)) return null
+
   return {
     ...plan,
     walls: plan.walls.map((w) => (w.id === id ? { ...w, id: nextId } : w)),
     groups: plan.groups.map((g) => (g.id === id ? { ...g, id: nextId } : g)),
     objects: plan.objects.map((o) => {
       if (o.id === id) return { ...o, id: nextId }
+
       if (object === undefined && o.group === id) return { ...o, group: nextId }
+
       return o
     }),
   }
@@ -626,9 +780,12 @@ function rotate<S extends string>(plan: SeatPlan<S>, ids: readonly string[], deg
   const units = ids.flatMap((id) => {
     const members = unitOf(plan, id)
     const pivot = pivotOf(plan, id)
+
     return members.length > 0 && pivot ? [{ id, members, pivot }] : []
   })
+
   if (units.length === 0 || !degrees) return plan
+
   // Several turn together, about the middle of their centres — the mean does not move as they turn.
   const shared =
     units.length > 1
@@ -637,9 +794,11 @@ function rotate<S extends string>(plan: SeatPlan<S>, ids: readonly string[], deg
           y: units.reduce((sum, u) => sum + u.pivot.y, 0) / units.length,
         }
       : null
+
   return units.reduce((next, { id, members, pivot }) => {
     const group = seatPlan.groupById(next, id)
     const turned = turnObjects(next, members, shared ?? (group ? pivot : null), degrees)
+
     return group ? withGroupRotation(turned, id, (group.rotation ?? 0) + degrees) : turned
   }, plan)
 }
@@ -658,33 +817,43 @@ function move<S extends string>(
 ): SeatPlan<S> {
   const walls = new Set(ids.filter((id) => seatPlan.wallOf(plan, id) !== undefined))
   const carried = carry ? wallContents(plan, [...walls]) : { units: [], walls: [] }
+
   for (const id of carried.walls) walls.add(id)
   const units = [...ids.filter((id) => !walls.has(id)), ...carried.units]
   const moving = new Map(units.flatMap((id) => unitOf(plan, id)).map((o) => [o.id, o]))
+
   if (moving.size === 0 && walls.size === 0) return plan
   const objects = [...moving.values()]
   // Walls keep to their own step, and what they carry moves with them.
   const step = walls.size > 0 ? wallStepOf(snap) : snap ? snap.cell / 2 : 1
+
   const only =
     walls.size === 0 && objects.length === 1 && ids.length === 1 && seatPlan.groupById(plan, ids[0]!) === undefined
+
   const along = (axis: 'x' | 'y') => {
     if (exact[axis]) return Math.round(delta[axis])
+
     return only ? roundTo(objects[0]![axis] + delta[axis], step) - objects[0]![axis] : roundTo(delta[axis], step)
   }
+
   let d = { x: along('x'), y: along('y') }
   // Labels may sit in the margin; everything else stays on the plan — a wall by its centre line.
   const held = objects.filter((o) => o.kind !== 'label')
   const lines = plan.walls.flatMap((w) => (walls.has(w.id) ? w.points : []))
+
   const extent = unionBounds([
     ...held.map((o) => seatPlan.translate(seatPlan.boundsOf(o), d.x, d.y)),
     ...(lines.length > 0 ? [seatPlan.translate(boundsOfPoints(lines), d.x, d.y)] : []),
   ])
+
   if (extent)
     d = {
       x: d.x + inward(extent.x, extent.w, plan.width, step),
       y: d.y + inward(extent.y, extent.h, plan.height, step),
     }
+
   if (d.x === 0 && d.y === 0) return plan
+
   return {
     ...plan,
     walls:
@@ -702,6 +871,7 @@ function move<S extends string>(
 // covers can be moved into it with `arrange` or a drag.
 function addSection<S extends string>(plan: SeatPlan<S>, section: Section<S>): SeatPlan<S> | null {
   if (seatPlan.sectionOf(plan, section.id)) return null
+
   const points = section.points
     .map((p) => ({
       x: Math.min(plan.width, Math.max(0, Math.round(p.x))),
@@ -709,9 +879,12 @@ function addSection<S extends string>(plan: SeatPlan<S>, section: Section<S>): S
     }))
     .filter((p, i, all) => {
       const previous = all[(i - 1 + all.length) % all.length]!
+
       return all.length === 1 || p.x !== previous.x || p.y !== previous.y
     })
+
   if (points.length < 3) return null
+
   return { ...plan, sections: [...plan.sections, { id: section.id, points }] }
 }
 
@@ -720,28 +893,29 @@ function addSection<S extends string>(plan: SeatPlan<S>, section: Section<S>): S
 // `removeSection` takes away and `moveSection` carries.
 export function sectionContents<S extends string>(plan: SeatPlan<S>, id: S): string[] {
   const section = seatPlan.sectionOf(plan, id)
+
   if (!section) return []
   const units = new Set<string>()
+
   for (const o of plan.objects) {
     if (o.kind === 'place' && o.section === id) units.add(o.group ?? o.id)
     else if (o.kind === 'fixture' && o.group === undefined && polygonContains(section.points, seatPlan.centerOf(o)))
       units.add(o.id)
   }
+
   return [...units]
 }
 
 // Removes a section with what stands in it (`sectionContents`). Nothing goes when any of that holds a locked id;
 // `refused` lists what does.
-function removeSection<S extends string>(
-  plan: SeatPlan<S>,
-  id: S,
-  locked: ReadonlySet<string> = NONE,
-): { plan: SeatPlan<S>; refused: string[] } {
+function removeSection<S extends string>(plan: SeatPlan<S>, id: S, locked: ReadonlySet<string> = NONE): Removed<S> {
   if (!seatPlan.sectionOf(plan, id)) return { plan, refused: [] }
   const units = sectionContents(plan, id)
   const refused = units.filter((unit) => isLocked(plan, unit, locked))
+
   if (refused.length > 0) return { plan, refused }
   const { plan: cleared } = remove(plan, units)
+
   return { plan: { ...cleared, sections: cleared.sections.filter((s) => s.id !== id) }, refused: [] }
 }
 
@@ -767,31 +941,38 @@ export function moveSections<S extends string>(
 ): SeatPlan<S> {
   const moving = new Set<string>(ids)
   const outlines = plan.sections.filter((s) => moving.has(s.id))
+
   if (outlines.length === 0) return plan
   const carried = new Set(ids.flatMap((id) => sectionContents(plan, id)).flatMap((unit) => unitOf(plan, unit)))
   const step = snap ? snap.cell : 1
   let d = { x: roundTo(delta.x, step), y: roundTo(delta.y, step) }
+
   // Labels may sit in the margin; the outlines and everything else stay on the plan.
   const extent = unionBounds([
     ...outlines.map(seatPlan.sectionBoundsOf),
     ...[...carried].flatMap((o) => (o.kind === 'label' ? [] : [seatPlan.boundsOf(o)])),
   ])!
+
   d = {
     x: d.x + inward(extent.x + d.x, extent.w, plan.width, step),
     y: d.y + inward(extent.y + d.y, extent.h, plan.height, step),
   }
+
   if (d.x === 0 && d.y === 0) return plan
+
   const moved = {
     ...plan,
     sections: plan.sections.map((s) =>
       moving.has(s.id) ? { ...s, points: s.points.map((p) => ({ x: p.x + d.x, y: p.y + d.y })) } : s,
     ),
   }
+
   return {
     ...moved,
     objects: plan.objects.map((o) => {
       if (!carried.has(o)) return o
       const shifted = seatPlan.translate(o, d.x, d.y)
+
       return shifted.kind === 'place' && moving.has(shifted.section) ? shifted : rehomed(moved, shifted)
     }),
   }
@@ -826,53 +1007,70 @@ function applyDrag<S extends string>(
   exact: { x?: boolean; y?: boolean } = {},
 ): SeatPlan<S> {
   const { target, constrain = false } = drag
+
   if (target.kind === 'handle' && target.owner.kind === 'selection') {
     const items = selected.map((id) => ({
       kind: seatPlan.groupById(plan, id) ? ('group' as const) : ('object' as const),
       id,
     }))
+
     return rotate(plan, selected, planHandles.selectionTurn(plan, items, drag.total, snap !== null || constrain))
   }
+
   if (target.kind === 'handle') {
     return planHandles.drag(plan, target.owner, target.name, drag.total, snap, constrain, drag.pixel, drag.copy)
   }
+
   const total = constrain ? alongAxis(drag.total) : drag.total
+
   if (target.kind === 'section') return moveSection(plan, target.id, total, snap)
   let ids: readonly string[]
+
   if (target.kind === 'wall') {
     if (!seatPlan.wallOf(plan, target.id)) return plan
     ids = selected.includes(target.id) ? selected : [target.id]
   } else {
     const object = seatPlan.objectById(plan, target.id)
+
     if (!object) return plan
     const covered = selected.includes(object.id) || (object.group !== undefined && selected.includes(object.group))
     ids = covered ? selected : [object.group ?? object.id]
   }
+
   if (!drag.copy) return move(plan, ids, total, snap, exact)
   // The copies move on their own — a copied room's furniture is among them, the original's stays.
   const copies = duplicate(plan, ids, ORIGIN)
   const known = new Set(seatPlan.idsOf(plan))
+
   const fresh = seatPlan
     .idsOf(copies.plan)
     .filter((id) => !known.has(id) && !seatPlan.objectById(copies.plan, id)?.group)
+
   return move(copies.plan, fresh, total, snap, exact, false)
 }
 
 // Whether an object or group holds an id other records reference — its own, or one of its members'.
 function isLocked(plan: Pick<SeatPlan, 'objects' | 'groups'>, id: string, locked: ReadonlySet<string>): boolean {
   if (locked.has(id)) return true
-  return unitOf(plan as SeatPlan, id).some((o) => locked.has(o.id))
+
+  // An object holds only its own id; a group holds its members' too.
+  return seatPlan.groupById(plan, id) !== undefined && seatPlan.membersOf(plan, id).some((o) => locked.has(o.id))
 }
 
 // What an id stands for — a group's members (in drawing order), or the one object.
 function unitOf<S extends string>(plan: SeatPlan<S>, id: string): PlanObject<S>[] {
   if (seatPlan.groupById(plan, id)) return seatPlan.membersOf(plan, id)
   const object = seatPlan.objectById(plan, id)
+
   return object ? [object] : []
 }
 
 function unitsOf<S extends string>(plan: SeatPlan<S>, ids: readonly string[]): PlanObject<S>[][] {
-  return ids.map((id) => unitOf(plan, id)).filter((unit) => unit.length > 0)
+  return ids.flatMap((id) => {
+    const unit = unitOf(plan, id)
+
+    return unit.length > 0 ? [unit] : []
+  })
 }
 
 function extentOfUnit(unit: readonly PlanObject[]): PlanRect {
@@ -883,6 +1081,7 @@ function extentOfUnit(unit: readonly PlanObject[]): PlanRect {
 function shift<S extends string>(plan: SeatPlan<S>, unit: readonly PlanObject<S>[], d: PlanPoint): SeatPlan<S> {
   if (d.x === 0 && d.y === 0) return plan
   const ids = new Set(unit.map((o) => o.id))
+
   return {
     ...plan,
     objects: plan.objects.map((o) => (ids.has(o.id) ? rehomed(plan, seatPlan.translate(o, d.x, d.y)) : o)),
@@ -893,12 +1092,14 @@ function shift<S extends string>(plan: SeatPlan<S>, unit: readonly PlanObject<S>
 function rehomed<S extends string>(plan: SeatPlan<S>, object: PlanObject<S>): PlanObject<S> {
   if (object.kind !== 'place') return object
   const section = seatPlan.sectionAt(plan, seatPlan.centerOf(object)) ?? object.section
+
   return section === object.section ? object : { ...object, section }
 }
 
 // Groups nothing points at any more are dropped, and so are labels of groups without members.
 function pruneGroups<S extends string>(plan: SeatPlan<S>): SeatPlan<S> {
   const used = new Set(plan.objects.flatMap((o) => (o.kind !== 'label' && o.group !== undefined ? [o.group] : [])))
+
   return {
     ...plan,
     groups: plan.groups.filter((g) => used.has(g.id)),
@@ -910,13 +1111,16 @@ function pruneGroups<S extends string>(plan: SeatPlan<S>): SeatPlan<S> {
 function inward(start: number, size: number, extent: number, step: number): number {
   if (start < 0) return Math.ceil(-start / step) * step
   const over = start + size - extent
+
   if (over <= 0) return 0
+
   return -Math.min(Math.ceil(over / step) * step, Math.floor(start / step) * step)
 }
 
 // A section outline point on the nearest cell corner (whole unit without snapping), inside the plan.
 function snapPoint(plan: Pick<SeatPlan, 'width' | 'height'>, point: PlanPoint, snap: Snap | null): PlanPoint {
   const step = snap ? snap.cell : 1
+
   return {
     x: Math.min(Math.floor(plan.width / step) * step, Math.max(0, roundTo(point.x, step))),
     y: Math.min(Math.floor(plan.height / step) * step, Math.max(0, roundTo(point.y, step))),
@@ -932,39 +1136,49 @@ function placeIds(plan: SeatPlan<string>, section: string, count: number): strin
   const first = seatPlan.nextPlaceId(plan, section)
   const start = Number(first.slice(section.length))
   const ids = Array.from({ length: count }, (_, i) => `${section}${start + i}`)
+
   return ids.every((id) => id.length <= PLACE_ID_MAX) ? ids : null
 }
 
 // `count` fresh `<prefix>-<n>` ids.
 function objectIds(plan: SeatPlan<string>, prefix: string, count: number): string[] {
   const ids: string[] = []
-  let scratch: Pick<SeatPlan, 'objects' | 'groups'> = plan
+  // The ids handed out so far are held as groups of our own, so each one continues after them.
+  const taken = { ...plan, groups: [...plan.groups] }
+
   for (let i = 0; i < count; i++) {
-    const id = seatPlan.nextObjectId(scratch, prefix)
+    const id = seatPlan.nextObjectId(taken, prefix)
     ids.push(id)
-    scratch = { ...scratch, groups: [...scratch.groups, { id }] }
+    taken.groups.push({ id })
   }
+
   return ids
 }
 
 // The document form of a box — whole units, and no turn when there is none.
 function boxOf(box: PlanBox): PlanBox {
   const rotation = normalizeRotation(box.rotation ?? 0)
+
   const rect = {
     x: Math.round(box.x),
     y: Math.round(box.y),
     w: Math.max(1, Math.round(box.w)),
     h: Math.max(1, Math.round(box.h)),
   }
+
   return rotation === 0 ? rect : { ...rect, rotation }
 }
 
 // The object without its undefined fields — documents never hold `key: undefined`.
-function defined<T extends object>(object: T): Partial<T> {
-  return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined)) as Partial<T>
+function defined<T extends object>(object: T): T {
+  // SAFETY: only keys holding undefined are dropped, and reading one of those still gives undefined — which its
+  // type in T allowed, since it held it.
+  return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined)) as T
 }
 
 const NONE: ReadonlySet<string> = new Set()
+
 // Two cells right and down — a copy lands next to its original, not on it.
 const DUPLICATE_OFFSET: PlanPoint = { x: GRID_CELL * 2, y: GRID_CELL * 2 }
+
 const ORIGIN: PlanPoint = { x: 0, y: 0 }

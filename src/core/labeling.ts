@@ -29,8 +29,10 @@ function letters({
 }: { skip?: readonly string[]; reverse?: boolean; lower?: boolean; prefix?: string } = {}): LabelSequence {
   const skipped = new Set(skip.map((letter) => letter.toUpperCase()))
   const alphabet = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].filter((letter) => !skipped.has(letter))
+
   return (index, count) => {
     const label = lettersOf(reverse ? count - 1 - index : index, alphabet)
+
     return `${prefix}${lower ? label.toLowerCase() : label}`
   }
 }
@@ -45,10 +47,12 @@ function lettersOf(index: number, alphabet: readonly string[]): string {
   if (alphabet.length === 0) return ''
   let n = index + 1
   let label = ''
+
   while (n > 0) {
     n -= 1
     label = alphabet[n % alphabet.length] + label
     n = Math.floor(n / alphabet.length)
   }
+
   return label
 }

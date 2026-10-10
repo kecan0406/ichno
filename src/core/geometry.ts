@@ -47,28 +47,38 @@ import {
 // Id length limits — a place id is the booking key other records store (the 0.1 seat limit), other ids (fixtures,
 // labels, groups) are editor handles. The schema enforces them; id generators never exceed them.
 export const PLACE_ID_MAX = 8
+
 export const OBJECT_ID_MAX = 16
 
 // Drawing dimensions (plan units) — every renderer draws with the same values.
 // The outer wall wraps outside the section outline, so it never covers places near the room edge.
 export const WALL_THICKNESS = 5
+
 // A wall fixture paints only a centre band this thick, so a thick wall box does not block the aisle.
 export const INNER_WALL_THICKNESS = 8
+
 // Section name — written above each section's outer wall when a plan holds more than one section. The band is
 // one line of text plus breathing room above the wall.
 export const SECTION_LABEL_FONT = 28
+
 export const SECTION_LABEL_BAND = 64
+
 // Places overlap only when they cut into each other by more than this (plan units). Positions computed on arcs
 // and around tables are rounded to whole units, so neighbours that touch may cross by a fraction.
 export const OVERLAP_TOLERANCE = 1
+
 // Margin around the drawing — holds the outer wall plus a little air.
 const DRAWING_MARGIN = 8
+
 // Crop padding — breathing room between the crop edge and the outermost object (before cell snapping).
 const SECTION_PLAN_PADDING = 20
 
 const FIXTURE_LABEL_MAX_FONT = 20
+
 const FIXTURE_LABEL_MIN_FONT = 10
+
 const GROUP_LABEL_MAX_FONT = 20
+
 const GROUP_LABEL_MIN_FONT = 10
 
 export const seatPlan = {
@@ -168,6 +178,7 @@ function wallOf(plan: Pick<SeatPlan, 'walls'>, id: string): Wall | undefined {
 // The walls whose band touches a rectangle — marquee selection.
 function wallsInRect(plan: Pick<SeatPlan, 'walls'>, rect: PlanRect): string[] {
   const band = outlineOf(rect, 'rect')
+
   return plan.walls
     .filter((wall) => wallOutlineOf({ ...wall, openings: [] }).some((ring) => polygonsOverlap(ring, band, true)))
     .map((wall) => wall.id)
@@ -200,7 +211,12 @@ function roomsOf(plan: Pick<SeatPlan, 'walls'>): Room[] {
 
 // The innermost room around a point, or null outside every room. Pass the rooms when you have them already.
 function roomAt(plan: Pick<SeatPlan, 'walls'> | readonly Room[], point: PlanPoint): Room | null {
-  return roomAtOf(Array.isArray(plan) ? plan : roomsOfWalls((plan as Pick<SeatPlan, 'walls'>).walls), point)
+  return roomAtOf(isRoomList(plan) ? plan : roomsOfWalls(plan.walls), point)
+}
+
+// Rooms found already, not a plan to find them in. `Array.isArray` alone does not narrow a readonly array away.
+function isRoomList(plan: Pick<SeatPlan, 'walls'> | readonly Room[]): plan is readonly Room[] {
+  return Array.isArray(plan)
 }
 
 // The area inside an outline (a room's, a section's) in square plan units.
@@ -227,7 +243,9 @@ function nextObjectId(
 ): string {
   const number = maxSuffix(plan, new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`)) + 1
   const room = OBJECT_ID_MAX - String(number).length - 1
+
   if (prefix.length <= room) return `${prefix}-${number}`
+
   return nextObjectId(plan, prefix.slice(0, Math.max(1, room)))
 }
 
@@ -243,7 +261,9 @@ function fixtureLabelOf(
   const long = Math.max(fixture.w, fixture.h)
   const short = Math.min(fixture.w, fixture.h)
   const fontSize = Math.min(FIXTURE_LABEL_MAX_FONT, Math.floor(short * 0.6))
+
   if (fontSize < FIXTURE_LABEL_MIN_FONT || text.length * fontSize + 8 > long) return null
+
   return { text, fontSize, vertical }
 }
 
@@ -254,6 +274,7 @@ function groupLabelOf(
   text: string | null | undefined,
 ): { text: string; fontSize: number } | null {
   if (!text) return null
+
   return { text, fontSize: groupLabelFont(label) }
 }
 
@@ -270,15 +291,20 @@ export function groupLabelFont(label: Pick<GroupLabel, 'w' | 'h'>): number {
 // cells, so coordinates stay integers. null when the section does not exist.
 function sectionPlanOf<S extends string>(plan: SeatPlan<S>, id: S): SeatPlan<S> | null {
   const section = sectionOf(plan, id)
+
   if (!section) return null
   const places = placesOf(plan)
   const groupsHere = new Set(places.flatMap((p) => (p.section === id && p.group !== undefined ? [p.group] : [])))
   const groupsWithPlaces = new Set(places.flatMap((p) => (p.group === undefined ? [] : [p.group])))
+
   const objects = plan.objects.filter((object) => {
     if (object.kind === 'place') return object.section === id
+
     if (object.group !== undefined && groupsWithPlaces.has(object.group)) return groupsHere.has(object.group)
+
     return polygonContains(section.points, centerOf(object))
   })
+
   const used = new Set(objects.flatMap((object) => (object.group === undefined ? [] : [object.group])))
   // A section with nothing in it has nothing to crop to — its outline is the bound.
   const bounds = extentOf(objects) ?? sectionBoundsOf(section)
@@ -288,6 +314,7 @@ function sectionPlanOf<S extends string>(plan: SeatPlan<S>, id: S): SeatPlan<S> 
   const height = Math.ceil((bounds.y + bounds.h + SECTION_PLAN_PADDING - y0) / GRID_CELL) * GRID_CELL
   // The walls the crop shows some of — cut off by its frame like the rest.
   const frame = { x: x0, y: y0, w: width, h: height }
+
   return {
     version: 3,
     width,
@@ -306,15 +333,20 @@ function sectionPlanOf<S extends string>(plan: SeatPlan<S>, id: S): SeatPlan<S> 
 function sectionPlansOf<S extends string>(plan: SeatPlan<S>): SectionPlan<S>[] {
   const cropped: SectionPlan<S>[] = []
   const ordered = [...plan.sections].sort((a, b) => sectionBoundsOf(a).x - sectionBoundsOf(b).x)
+
   for (const section of ordered) {
     const sectionPlan = sectionPlanOf(plan, section.id)
+
     if (sectionPlan) cropped.push({ id: section.id, plan: sectionPlan })
   }
+
   if (cropped.length === 0) return []
 
   const width = Math.max(...cropped.map((entry) => entry.plan.width))
+
   return cropped.map(({ id, plan: sectionPlan }) => {
     const left = Math.floor((width - sectionPlan.width) / 2 / GRID_CELL) * GRID_CELL
+
     return {
       id,
       plan: {
@@ -331,6 +363,7 @@ function sectionPlansOf<S extends string>(plan: SeatPlan<S>): SectionPlan<S>[] {
 // The objects whose shape touches a rectangle — marquee selection. Every kind included.
 function objectsInRect(plan: Pick<SeatPlan, 'objects'>, rect: PlanRect): string[] {
   const band = outlineOf(rect, 'rect')
+
   return plan.objects
     .filter((object) => polygonsOverlap(outlineOfObject(object), band, true))
     .map((object) => object.id)
@@ -339,6 +372,7 @@ function objectsInRect(plan: Pick<SeatPlan, 'objects'>, rect: PlanRect): string[
 // The painted band of a wall fixture — INNER_WALL_THICKNESS centred along the long edge (local coordinates).
 function innerWallOf(fixture: Pick<Fixture, 'w' | 'h'>): PlanRect {
   const thickness = Math.min(INNER_WALL_THICKNESS, fixture.w, fixture.h)
+
   return fixture.w >= fixture.h
     ? { x: 0, y: (fixture.h - thickness) / 2, w: fixture.w, h: thickness }
     : { x: (fixture.w - thickness) / 2, y: 0, w: thickness, h: fixture.h }
@@ -369,6 +403,7 @@ function boundsOf(object: PlanObject): PlanRect {
 function boundsOfIds(plan: Pick<SeatPlan, 'objects' | 'groups'>, ids: readonly string[]): PlanRect[] {
   return ids.flatMap((id) => {
     const object = objectById(plan, id)
+
     return (object ? [object] : groupById(plan, id) ? membersOf(plan, id) : []).map(boundsOf)
   })
 }
@@ -379,12 +414,15 @@ function boundsOfIds(plan: Pick<SeatPlan, 'objects' | 'groups'>, ids: readonly s
 function orderAlong(plan: Pick<SeatPlan, 'objects' | 'groups'>, ids: readonly string[], degrees = 0): string[] {
   const a = (degrees * Math.PI) / 180
   const along = { x: Math.cos(a), y: Math.sin(a) }
+
   return ids
     .flatMap((id) => {
       const group = objectById(plan, id) ? undefined : groupById(plan, id)
       const box = group ? frameOf(membersOf(plan, id), group.rotation ?? 0) : (objectById(plan, id) ?? null)
+
       if (!box) return []
       const c = centerOf(box)
+
       // Rounded, so centres level in that direction tie instead of being ordered by a trigonometric crumb.
       return [{ id, at: Math.round((c.x * along.x + c.y * along.y) * 1000) / 1000 }]
     })
@@ -402,10 +440,12 @@ function extentOf(objects: readonly PlanObject[]): PlanRect | null {
 // frame's centre leaves the centre where it was. null when there are no objects.
 function frameOf(objects: readonly PlanObject[], rotation = 0): PlanBox | null {
   const points = objects.flatMap(outlineOfObject).map((p) => rotatePoint(p, ORIGIN, -rotation))
+
   if (points.length === 0) return null
   const local = boundsOfPoints(points)
   const center = rotatePoint({ x: local.x + local.w / 2, y: local.y + local.h / 2 }, ORIGIN, rotation)
   const box = { x: center.x - local.w / 2, y: center.y - local.h / 2, w: local.w, h: local.h }
+
   return rotation ? { ...box, rotation } : box
 }
 
@@ -419,6 +459,7 @@ function contains(object: PlanObject, point: PlanPoint): boolean {
 // Whether two objects cut into each other by more than OVERLAP_TOLERANCE — touching is not overlapping.
 function overlaps(a: PlanObject, b: PlanObject): boolean {
   const inset = OVERLAP_TOLERANCE / 2
+
   return polygonsOverlap(outlineOf(a, shapeOf(a), inset), outlineOf(b, shapeOf(b), inset))
 }
 
@@ -430,13 +471,16 @@ function conflictsOf(plan: Pick<SeatPlan, 'objects'>): [string, string][] {
   const byId = new Map(places.map((place) => [place.id, place]))
   const index = spatialIndex.create(places.map((place) => ({ id: place.id, bounds: boundsOf(place) })))
   const overlapping: [string, string][] = []
+
   for (const place of places) {
     for (const other of spatialIndex.query(index, boundsOf(place))) {
       // Each pair once — from its earlier place.
       if (order.get(other.id)! <= order.get(place.id)!) continue
+
       if (overlaps(place, byId.get(other.id)!)) overlapping.push([place.id, other.id])
     }
   }
+
   return overlapping.sort((p, q) => order.get(p[1])! - order.get(q[1])! || order.get(p[0])! - order.get(q[0])!)
 }
 
@@ -458,13 +502,16 @@ function drawingBoundsOf(
   plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pick<SeatPlan, 'walls'>>,
 ): PlanRect {
   const top = showsSectionLabels(plan) ? SECTION_LABEL_BAND : DRAWING_MARGIN
+
   const paper = {
     x: -DRAWING_MARGIN,
     y: -top,
     w: plan.width + DRAWING_MARGIN * 2,
     h: plan.height + top + DRAWING_MARGIN,
   }
+
   const walls = wallsBoundsOf(plan.walls ?? [])
+
   return walls ? unionBounds([paper, walls])! : paper
 }
 
@@ -483,6 +530,7 @@ function maxSuffix(
 ): number {
   return idsOf(plan).reduce((acc, id) => {
     const match = pattern.exec(id)
+
     return match ? Math.max(acc, Number(match[1])) : acc
   }, 0)
 }

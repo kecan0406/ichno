@@ -1,16 +1,21 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { z } from 'zod'
 import styles from './workspace.module.css'
 
 // The editor's frame as this browser left it — how wide the side panels are, and whether they show at all (⌘\).
 
 export type PanelSide = 'left' | 'right'
+
 type Widths = Record<PanelSide, number>
 
 const STORAGE_KEY = 'ichno-playground-panels'
+
 const DEFAULT_WIDTHS: Widths = { left: 248, right: 272 }
+
 const MIN_WIDTH = 200
+
 const MAX_WIDTH = 440
 
 export function usePanels() {
@@ -20,6 +25,7 @@ export function usePanels() {
   // localStorage is the browser's — read after hydration. Anything unreadable leaves the defaults.
   useEffect(() => {
     const stored = storedWidths()
+
     if (stored) setWidths({ left: widthOf(stored.left, 'left'), right: widthOf(stored.right, 'right') })
   }, [])
 
@@ -27,7 +33,9 @@ export function usePanels() {
   function resize(side: PanelSide, width: number, keep = false) {
     setWidths((current) => {
       const next = { ...current, [side]: widthOf(width, side) }
+
       if (keep) store(next)
+
       return next
     })
   }
@@ -43,10 +51,8 @@ export function usePanels() {
   }
 }
 
-function widthOf(width: unknown, side: PanelSide): number {
-  return typeof width === 'number' && Number.isFinite(width)
-    ? Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)))
-    : DEFAULT_WIDTHS[side]
+function widthOf(width: number, side: PanelSide): number {
+  return Number.isFinite(width) ? Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width))) : DEFAULT_WIDTHS[side]
 }
 
 function store(widths: Widths) {
@@ -105,6 +111,7 @@ export function Resizer({
       }}
       onPointerMove={(e) => {
         const start = startRef.current
+
         if (start) onResize(start.width + (e.clientX - start.x) * sign)
       }}
       onPointerUp={end}
@@ -112,6 +119,7 @@ export function Resizer({
       onDoubleClick={onReset}
       onKeyDown={(e) => {
         const step = e.shiftKey ? 40 : 10
+
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
         // Arrow keys here size the panel — they do not move the selection.
         e.preventDefault()
@@ -121,10 +129,18 @@ export function Resizer({
   )
 }
 
+// A kept width that is not a number is the default.
+const StoredWidths = z.object({
+  left: z.number().catch(DEFAULT_WIDTHS.left),
+  right: z.number().catch(DEFAULT_WIDTHS.right),
+})
+
 // The widths kept in this browser, or null when there are none or they cannot be read (blocked, garbled).
-function storedWidths(): Partial<Widths> | null {
+function storedWidths(): Widths | null {
   try {
-    return JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<Widths> | null
+    const stored = StoredWidths.safeParse(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null'))
+
+    return stored.success ? stored.data : null
   } catch {
     return null
   }

@@ -9,7 +9,6 @@ import {
   type PlanObject,
   type PlanRect,
   type SeatPlan,
-  type Shape,
 } from 'ichno'
 import { planEdits, type EditorSelection, type SeatPlanEditor } from 'ichno/editor'
 import type { ReactNode } from 'react'
@@ -28,6 +27,7 @@ import { Icon, type IconName } from './icons'
 // document.
 
 type Editor = SeatPlanEditor<string>
+
 type Item = EditorSelection<string>
 
 type Props = {
@@ -45,14 +45,19 @@ type Props = {
 
 export function DesignPanel(props: Props) {
   const { selection } = props.editor
+
   if (selection.length === 0) return <DocumentDesign {...props} />
   const units = selection.filter((item) => item.kind === 'object' || item.kind === 'group')
+
   if (units.length === 0) {
     const walls = selection.filter((item) => item.kind === 'wall')
     const [only] = walls
+
     if (walls.length === 1 && only) return <WallDesign key={only.id} {...props} wallId={only.id} />
+
     return <Head chip="Wall" name={`${walls.length} walls`} stored="Drag one to move them together." />
   }
+
   // A new selection starts with fresh fields.
   return <SelectionDesign key={units.map((item) => `${item.kind}:${item.id}`).join()} {...props} units={units} />
 }
@@ -63,6 +68,7 @@ function DocumentDesign({ editor, name, booked, snapping, onSnappingChange }: Pr
   const plan = editor.plan
   const places = seatPlan.placesOf(plan)
   const capacity = places.reduce((sum, place) => sum + place.capacity, 0)
+
   return (
     <>
       <Section title="Document">
@@ -125,15 +131,18 @@ function Stat({ name, value }: { name: string; value: number }) {
 
 function WallDesign({ editor, wallId, onRemove }: Props & { wallId: string }) {
   const wall = seatPlan.wallOf(editor.plan, wallId)
+
   if (!wall) return null
   const bounds = seatPlan.sectionBoundsOf(wall)
   const openings = wall.openings ?? []
+
   // A closed wall goes round a floor, and holds what stands on it — what moves with it.
   const inside = wall.closed
     ? seatPlan
         .placesOf(editor.plan)
         .filter((place) => seatPlan.roomAt([{ points: wall.points, walls: [wall.id] }], seatPlan.centerOf(place)))
     : []
+
   const capacity = inside.reduce((sum, place) => sum + place.capacity, 0)
 
   // Exactly where it is typed — not to the grid.
@@ -144,6 +153,7 @@ function WallDesign({ editor, wallId, onRemove }: Props & { wallId: string }) {
   function setClosed(closed: boolean) {
     editor.updateWall(wallId, (current) => {
       const { closed: _, ...rest } = current
+
       return closed ? { ...rest, closed: true } : rest
     })
   }
@@ -240,6 +250,7 @@ function SelectionDesign({ editor, booked, onNotice, onRemove, onSaveAsset, unit
 
   function refused(ok: boolean) {
     onNotice(ok ? null : 'A booked place cannot be removed or turned into furniture.')
+
     return ok
   }
 
@@ -248,16 +259,19 @@ function SelectionDesign({ editor, booked, onNotice, onRemove, onSaveAsset, unit
     onNotice(
       ok ? null : `“${next}” can't be used: ids are unique, ${max} characters at most, and booked places keep theirs.`,
     )
+
     return ok
   }
 
   // Moves everything selected so what it draws starts at the typed position — exactly, not to the grid.
   function moveTo(position: { x?: number; y?: number }) {
     if (!bounds) return
+
     const delta = {
       x: position.x === undefined ? 0 : position.x - Math.round(bounds.x),
       y: position.y === undefined ? 0 : position.y - Math.round(bounds.y),
     }
+
     editor.edit((current) => planEdits.move(current, editor.selectedIds, delta))
   }
 
@@ -448,8 +462,8 @@ function SelectionDesign({ editor, booked, onNotice, onRemove, onSaveAsset, unit
               label="Shape"
               value={shared(direct.map((o) => o.shape))}
               options={[
-                { value: 'rect' as Shape, label: <Icon name="rect" size={14} />, title: 'Rectangle' },
-                { value: 'ellipse' as Shape, label: <Icon name="ellipse" size={14} />, title: 'Ellipse' },
+                { value: 'rect', label: <Icon name="rect" size={14} />, title: 'Rectangle' },
+                { value: 'ellipse', label: <Icon name="ellipse" size={14} />, title: 'Ellipse' },
               ]}
               onChange={(shape) => editor.assign(ids(direct), { shape })}
             />
@@ -473,6 +487,7 @@ function SelectionDesign({ editor, booked, onNotice, onRemove, onSaveAsset, unit
             onCommit={(next) =>
               editor.updateGroup(group.id, (current) => {
                 const { label: _, ...rest } = current
+
                 return next ? { ...rest, label: next } : rest
               })
             }
@@ -484,6 +499,7 @@ function SelectionDesign({ editor, booked, onNotice, onRemove, onSaveAsset, unit
             onCommit={(next) =>
               editor.updateGroup(group.id, (current) => {
                 const { role: _, ...rest } = current
+
                 return next ? { ...rest, role: next } : rest
               })
             }
@@ -510,6 +526,7 @@ function SelectionDesign({ editor, booked, onNotice, onRemove, onSaveAsset, unit
                   editor.updateObject(object.id, (current) => {
                     if (current.kind !== 'place') return current
                     const { label: _, ...rest } = current
+
                     return next ? { ...rest, label: next } : rest
                   })
                 }
@@ -615,7 +632,9 @@ type GroupSectionProps = {
 
 function RowSection({ editor, group, locked, refused }: GroupSectionProps) {
   const row = rowOf(editor.plan, group.id)
+
   if (!row) return null
+
   return (
     <Section title="Playground row">
       <p className={controls.hint}>
@@ -677,7 +696,9 @@ function RowSection({ editor, group, locked, refused }: GroupSectionProps) {
 
 function TableSection({ editor, group, locked, refused }: GroupSectionProps) {
   const table = tableOf(editor.plan, group.id)
+
   if (!table) return null
+
   return (
     <Section title="Playground table">
       <p className={controls.hint}>
@@ -698,8 +719,8 @@ function TableSection({ editor, group, locked, refused }: GroupSectionProps) {
         label="Top"
         value={table.top.shape}
         options={[
-          { value: 'ellipse' as Shape, label: 'Round' },
-          { value: 'rect' as Shape, label: 'Rectangle' },
+          { value: 'ellipse', label: 'Round' },
+          { value: 'rect', label: 'Rectangle' },
         ]}
         onChange={(shape) => editor.edit((current) => relayTable(current, group.id, { shape }, locked))}
       />
@@ -803,7 +824,9 @@ const KIND_NAMES = { place: 'Place', fixture: 'Fixture', label: 'Label' } as con
 
 function storedObject(object: PlanObject<string>): string {
   if (object.kind === 'place') return `a place${object.capacity > 1 ? ` for ${object.capacity}` : ''}`
+
   if (object.kind === 'fixture') return 'a fixture — nothing to book'
+
   return 'a label, where its group’s name is written'
 }
 
@@ -819,6 +842,7 @@ const ALIGN = [
 // The value every item shares — null when they differ (the field shows "Mixed").
 function shared<T>(values: readonly T[]): T | null {
   const [first] = values
+
   return first !== undefined && values.every((value) => value === first) ? first : null
 }
 
@@ -828,6 +852,7 @@ function unionOf(rects: readonly PlanRect[]): PlanRect | null {
   const y = Math.min(...rects.map((r) => r.y))
   const right = Math.max(...rects.map((r) => r.x + r.w))
   const bottom = Math.max(...rects.map((r) => r.y + r.h))
+
   return { x, y, w: right - x, h: bottom - y }
 }
 
@@ -835,6 +860,7 @@ function unionOf(rects: readonly PlanRect[]): PlanRect | null {
 function rotationOf(plan: SeatPlan<string>, item: Item): number {
   if (item.kind === 'group') return Math.round(seatPlan.groupById(plan, item.id)?.rotation ?? 0)
   const object = seatPlan.objectById(plan, item.id)
+
   return Math.round(object && object.kind !== 'label' ? (object.rotation ?? 0) : 0)
 }
 
@@ -844,9 +870,11 @@ function labelTargets(editor: Editor, places: readonly { id: string }[]): string
   const plan = editor.plan
   const groups = editor.selection.flatMap((item) => (item.kind === 'group' ? [item.id] : []))
   const targets = groups.length > 0 ? groups : ids(places)
+
   const facing =
     shared(targets.map((id) => seatPlan.groupById(plan, seatPlan.objectById(plan, id)?.group ?? id)?.rotation ?? 0)) ??
     0
+
   return seatPlan.orderAlong(plan, targets, groups.length > 0 ? facing + 90 : facing)
 }
 

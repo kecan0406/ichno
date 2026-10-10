@@ -3,6 +3,7 @@ import type { PlanPoint } from 'ichno'
 // Plan units have no size; this site reads one as a centimetre, the scale ichno's defaults assume (a 50-unit grid
 // is half a metre).
 export const METRE = 100
+
 // Walls keep to whole metres — a wall is built a metre at a time, and its corners stay on the metre grid.
 export const WALL_STEP = METRE
 
@@ -23,6 +24,7 @@ export function areaOf(points: readonly PlanPoint[]): number {
     const b = points[(i + 1) % points.length]!
     twice += a.x * b.y - b.x * a.y
   })
+
   return Math.abs(twice) / 2
 }
 

@@ -41,8 +41,10 @@ export function AssetsPanel({
 }: Props) {
   const [query, setQuery] = useState('')
   const matches = (name: string) => name.toLowerCase().includes(query.trim().toLowerCase())
+
   const shelf = (name: PlaygroundObject['shelf']) =>
     objects.filter((object) => object.shelf === name && matches(object.name))
+
   const places = shelf('places')
   const fixtures = shelf('fixtures')
   const structure = shelf('structure')
@@ -174,6 +176,7 @@ function AssetCard({
   onDelete?(): void
 }) {
   const parts = partsOf(template.objects, template.groups.length)
+
   return (
     <div className={styles.card}>
       <button
@@ -208,11 +211,13 @@ function AssetCard({
 }
 
 const THUMB = { w: 44, h: 32 }
+
 const SMALL = { w: 30, h: 22 }
 
 // An asset drawn small — the same parts as the plan, without text.
 export function Thumbnail({ template, size }: { template: PlanTemplate; size: { w: number; h: number } }) {
   const { plan, view } = previewOf(template)
+
   return (
     // A picture only — its places are no options to pick, and their ids are the sample's, not the plan's.
     <SeatMap.Root
@@ -263,12 +268,14 @@ function SaveForm({
       </button>
     )
   }
+
   return (
     <form
       className={styles.saveForm}
       onSubmit={(e) => {
         e.preventDefault()
         const name = String(new FormData(e.currentTarget).get('name') ?? '').trim()
+
         if (!name) return
         onSave(name)
         onOpenChange(false)

@@ -10,6 +10,7 @@ export function CodeTabs({ tabs }: { tabs: CodeTab[] }) {
   const [activeId, setActiveId] = useState(tabs[0]?.id)
   const baseId = useId()
   const active = tabs.find((tab) => tab.id === activeId) ?? tabs[0]
+
   if (!active) return null
 
   return (
@@ -17,6 +18,7 @@ export function CodeTabs({ tabs }: { tabs: CodeTab[] }) {
       <div className={styles.tabList} role="tablist" aria-label="Code examples">
         {tabs.map((tab) => {
           const selected = tab.id === active.id
+
           return (
             <button
               key={tab.id}

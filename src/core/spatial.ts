@@ -25,14 +25,17 @@ export const spatialIndex = {
 function create(items: readonly SpatialItem[], cellSize: number = DEFAULT_CELL_SIZE): SpatialIndex {
   const buckets = new Map<string, SpatialItem[]>()
   const order = new Map<string, number>()
+
   for (const [i, item] of items.entries()) {
     order.set(item.id, i)
     forEachCell(item.bounds, cellSize, (key) => {
       const bucket = buckets.get(key)
+
       if (bucket) bucket.push(item)
       else buckets.set(key, [item])
     })
   }
+
   return { cellSize, buckets, order }
 }
 
@@ -44,6 +47,7 @@ function query(index: SpatialIndex, rect: PlanRect): SpatialItem[] {
       if (!found.has(item.id) && intersects(item.bounds, rect)) found.set(item.id, item)
     }
   })
+
   return sortByOrder(index, [...found.values()])
 }
 
@@ -55,15 +59,19 @@ function at(
   contains: (item: SpatialItem, point: PlanPoint) => boolean = containsBounds,
 ): SpatialItem | null {
   const candidates = query(index, { x: point.x, y: point.y, w: 0, h: 0 })
+
   for (let i = candidates.length - 1; i >= 0; i--) {
     const item = candidates[i]!
+
     if (contains(item, point)) return item
   }
+
   return null
 }
 
 function containsBounds(item: SpatialItem, point: PlanPoint): boolean {
   const b = item.bounds
+
   return point.x >= b.x && point.x <= b.x + b.w && point.y >= b.y && point.y <= b.y + b.h
 }
 
@@ -76,6 +84,7 @@ function forEachCell(rect: PlanRect, cellSize: number, visit: (key: string) => v
   const y0 = Math.floor(rect.y / cellSize)
   const x1 = Math.floor((rect.x + rect.w) / cellSize)
   const y1 = Math.floor((rect.y + rect.h) / cellSize)
+
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) visit(`${x},${y}`)
   }

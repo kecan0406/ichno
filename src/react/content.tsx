@@ -45,6 +45,7 @@ type ContentProps<S extends string> = {
 // compose them yourself when you need something else. It skips redrawing when its props are the ones it last drew
 // with (parts are not compiled, so this is the one `memo`): an editor's `stillPlan` keeps its identity through a
 // drag, and the layer drawing it stays put while only the moving part redraws.
+// SAFETY: memo renders ContentOf with exactly the props it is given — only memo's type loses the `S` parameter.
 export const Content = memo(ContentOf) as typeof ContentOf
 
 function ContentOf<S extends string>({
@@ -91,24 +92,26 @@ function ContentOf<S extends string>({
       )}
       {plan.objects.map((object) => {
         if (region && !intersects(seatPlan.boundsOf(object), region)) return null
+
         switch (object.kind) {
           case 'place': {
             const placeStatus = status?.[object.id]
-            return (
-              <Fragment key={object.id}>
-                {renderPlace(object, {
-                  place: object,
-                  status: placeStatus,
-                  selected: selectedSet.has(object.id),
-                  disabled: isDisabled(object, placeStatus),
-                  highlighted: highlightedSet.has(object.id),
-                  dimmed: dimmedSet.has(object.id),
-                  invalid: invalidSet.has(object.id),
-                  ...(readable(placeLabelFont(object)) ? {} : { label: null }),
-                })}
-              </Fragment>
-            )
+
+            const props: PlaceProps = {
+              place: object,
+              status: placeStatus,
+              selected: selectedSet.has(object.id),
+              disabled: isDisabled(object, placeStatus),
+              highlighted: highlightedSet.has(object.id),
+              dimmed: dimmedSet.has(object.id),
+              invalid: invalidSet.has(object.id),
+            }
+
+            if (!readable(placeLabelFont(object))) props.label = null
+
+            return <Fragment key={object.id}>{renderPlace(object, props)}</Fragment>
           }
+
           case 'fixture':
             return (
               <FixturePart
@@ -121,7 +124,9 @@ function ContentOf<S extends string>({
           case 'label': {
             const group = groups.get(object.group)
             const text = group ? groupLabel(group) : null
+
             if (text == null || text === false || text === '' || !readable(groupLabelFont(object))) return null
+
             return (
               <LabelPart key={object.id} label={object}>
                 {text}

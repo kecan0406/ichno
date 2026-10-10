@@ -10,6 +10,7 @@ export function InstallCommand({ command }: { command: string }) {
   useEffect(() => {
     if (!copied) return
     const timer = setTimeout(() => setCopied(false), 1600)
+
     return () => clearTimeout(timer)
   }, [copied])
 

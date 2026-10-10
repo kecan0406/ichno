@@ -9,8 +9,11 @@ import { selectionIssueKey, selectionIssueText } from './messages'
 import { fixtureNames, venuePlan, venueSectionNames, venueStatus, type VenueSection } from './plans'
 
 const places = seatPlan.placesOf(venuePlan)
+
 const placeById = new Map(places.map((place) => [place.id, place]))
+
 const unavailable = Object.keys(venueStatus)
+
 const MAX_PICK = 8
 
 const PALETTES = [
@@ -41,8 +44,10 @@ export function VenueDemo() {
   function showSelection() {
     const rects = selected.flatMap((id) => {
       const place = placeById.get(id)
+
       return place ? [seatPlan.boundsOf(place)] : []
     })
+
     map.zoomTo(rects, 160)
   }
 
@@ -94,7 +99,7 @@ export function VenueDemo() {
               status={venueStatus}
               selected={selected}
               sectionLabel={(section) => venueSectionNames[section.id]}
-              fixtureLabel={(fixture) => fixtureNames[fixture.role ?? ''] ?? null}
+              fixtureLabel={(fixture) => fixtureNames.get(fixture.role ?? '') ?? null}
               region={frame.region}
               scale={frame.scale}
             />

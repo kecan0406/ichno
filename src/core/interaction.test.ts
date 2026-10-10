@@ -43,13 +43,16 @@ describe('gesture', () => {
   function run(steps: ((s: GestureState) => ReturnType<typeof gesture.down>)[]) {
     let state: GestureState = IDLE_GESTURE
     const events: GestureEvent[] = []
+
     for (const step of steps) {
       const result = step(state)
       state = result.state
       events.push(...result.events)
     }
+
     return { state, events }
   }
+
   const p = (id: number, x: number, y: number) => ({ id, x, y })
 
   it('treats a release inside the threshold as a tap', () => {
@@ -58,6 +61,7 @@ describe('gesture', () => {
       (s) => gesture.move(s, p(1, 12, 11)),
       (s) => gesture.up(s, p(1, 12, 11)),
     ])
+
     expect(events).toEqual([{ type: 'tap', target: 'A1', point: { x: 12, y: 11 } }])
     expect(state).toEqual(IDLE_GESTURE)
   })
@@ -69,6 +73,7 @@ describe('gesture', () => {
       (s) => gesture.move(s, p(1, 15, 5)),
       (s) => gesture.up(s, p(1, 15, 5)),
     ])
+
     expect(events.map((e) => e.type)).toEqual(['dragstart', 'drag', 'drag', 'dragend'])
     expect(events[1]).toMatchObject({ delta: { x: 10, y: 0 }, total: { x: 10, y: 0 } })
     expect(events[2]).toMatchObject({ delta: { x: 5, y: 5 }, total: { x: 15, y: 5 } })
@@ -87,6 +92,7 @@ describe('gesture', () => {
       (s) => gesture.down(s, p(2, 110, 0), null),
       (s) => gesture.move(s, p(2, 210, 0)),
     ])
+
     expect(events.map((e) => e.type)).toEqual(['dragstart', 'drag', 'dragend', 'pinch'])
     expect(events[3]).toMatchObject({ factor: 2, center: { x: 110, y: 0 }, delta: { x: 50, y: 0 } })
     expect(state.kind).toBe('pinching')
@@ -100,6 +106,7 @@ describe('gesture', () => {
       (s) => gesture.move(s, p(2, 130, 0)),
       (s) => gesture.up(s, p(2, 130, 0)),
     ])
+
     expect(events.map((e) => e.type)).toEqual(['dragstart', 'drag', 'dragend'])
     expect(events[0]).toMatchObject({ point: { x: 100, y: 0 } })
     expect(events[1]).toMatchObject({ delta: { x: 30, y: 0 } })
@@ -112,6 +119,7 @@ describe('gesture', () => {
       (s) => gesture.down(s, p(3, 50, 50), null),
       (s) => gesture.up(s, p(3, 50, 50)),
     ])
+
     expect(events).toEqual([])
     expect(state.kind).toBe('pinching')
   })
@@ -122,6 +130,7 @@ describe('gesture', () => {
       (s) => gesture.move(s, p(1, 20, 0)),
       (s) => gesture.cancel(s),
     ])
+
     expect(events.at(-1)).toMatchObject({ type: 'dragend', target: 'A1', total: { x: 20, y: 0 } })
     expect(state).toEqual(IDLE_GESTURE)
   })
@@ -162,6 +171,7 @@ describe('placeNavigation', () => {
       { id: 'O', center: { x: 0, y: 0 } },
       { id: 'D', center: { x: 50, y: 100 } },
     ]
+
     expect(placeNavigation.next(steep, 'O', 'right')).toBeNull()
     expect(placeNavigation.next(steep, 'O', 'down')).toBe('D')
   })

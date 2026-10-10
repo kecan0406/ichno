@@ -15,6 +15,7 @@ function planOf(objects: PlanObject<S>[], groups: SeatPlan<S>['groups'] = []): S
     { x: 920, y: 690 },
     { x: 0, y: 690 },
   ]
+
   return {
     version: 3,
     width: 1012,
@@ -28,7 +29,9 @@ function planOf(objects: PlanObject<S>[], groups: SeatPlan<S>['groups'] = []): S
 }
 
 const desk: Place<S> = { kind: 'place', id: 'A1', section: 'A', x: 94, y: 94, w: 88, h: 88, shape: 'rect', capacity: 1 }
+
 const tv: Fixture = { kind: 'fixture', id: 'tv-1', shape: 'rect', role: 'tv', x: 230, y: 0, w: 138, h: 23 }
+
 const seat = (id: string, x: number): Place<S> => ({
   kind: 'place',
   id,
@@ -41,8 +44,11 @@ const seat = (id: string, x: number): Place<S> => ({
   capacity: 1,
   group: 'row-1',
 })
+
 const row = [seat('A2', 92), seat('A3', 184), seat('A4', 276)]
+
 const owner = (id: string) => ({ kind: 'object' as const, id })
+
 const snap = { cell: 46 }
 
 describe('planHandles.of', () => {
@@ -57,8 +63,14 @@ describe('planHandles.of', () => {
     expect(planHandles.of(plan, [owner('A1')]).map((h) => h.name)).toEqual(['nw', 'ne', 'se', 'sw', 'rotate'])
     expect(planHandles.of(plan, [{ kind: 'group', id: 'row-1' }]).map((h) => h.name)).toEqual(['rotate'])
     expect(planHandles.of(plan, [{ kind: 'section', id: 'A' }]).map((h) => h.name)).toEqual([
-      ...['vertex-0', 'vertex-1', 'vertex-2', 'vertex-3'],
-      ...['edge-0', 'edge-1', 'edge-2', 'edge-3'],
+      'vertex-0',
+      'vertex-1',
+      'vertex-2',
+      'vertex-3',
+      'edge-0',
+      'edge-1',
+      'edge-2',
+      'edge-3',
     ])
     const many = planHandles.of(plan, [owner('A1'), { kind: 'group', id: 'row-1' }])
     expect(many.map((h) => [h.owner, h.name])).toEqual([[{ kind: 'selection' }, 'rotate']])
@@ -159,16 +171,23 @@ describe('planHandles.drag', () => {
     const seats = boxes.map((box, i) => ({ ...seat(`A${i + 1}`, 0), ...box }))
     let plan = planOf(seats, [{ id: 'row-1' }])
     const group = { kind: 'group' as const, id: 'row-1' }
+
     const centerOf = (p: SeatPlan<S>) => {
       const frame = planHandles.frame(p, [group])!
+
       return { x: (frame[0]!.x + frame[2]!.x) / 2, y: (frame[0]!.y + frame[2]!.y) / 2 }
     }
+
     const start = centerOf(plan)
+
     const reach = (p: SeatPlan<S>) => {
       const [knob] = planHandles.of(p, [group])
+
       return Math.hypot(knob!.point.x - centerOf(p).x, knob!.point.y - centerOf(p).y)
     }
+
     const knobReach = reach(plan)
+
     // Positions are whole units, so each turn rounds every seat by up to half a unit — the centre may wobble by
     // that much, but never walks off the way the level extent's centre did.
     for (let i = 0; i < 24; i++) {
@@ -183,6 +202,7 @@ describe('planHandles.drag', () => {
       expect(Math.hypot(centerOf(plan).x - start.x, centerOf(plan).y - start.y)).toBeLessThan(2)
       expect(Math.abs(reach(plan) - knobReach)).toBeLessThan(2)
     }
+
     expect(plan.groups[0]!.rotation).toBe((37 * 24) % 360)
   })
 
@@ -203,16 +223,19 @@ describe('planHandles.drag', () => {
     // It stops at the plan's edge (1012), and a cell short of the left edge (x = 0).
     expect(right(planHandles.drag(planOf([]), section, 'edge-1', { x: 500, y: 0 }, snap))[0]).toEqual({ x: 1012, y: 0 })
     expect(right(planHandles.drag(planOf([]), section, 'edge-1', { x: -2000, y: 0 }, snap))[0]).toEqual({ x: 46, y: 0 })
+
     // A slanted edge goes by whole units, off the grid.
     const triangle = [
       { x: 0, y: 0 },
       { x: 400, y: 0 },
       { x: 0, y: 400 },
     ]
+
     const slanted = planHandles.drag({ ...planOf([]), sections: [{ id: 'A', points: triangle }] }, section, 'edge-1', {
       x: 30,
       y: 30,
     })
+
     expect(slanted.sections[0]!.points).toEqual([triangle[0], { x: 430, y: 30 }, { x: 30, y: 430 }])
   })
 
@@ -239,10 +262,12 @@ describe('planHandles.drag', () => {
     const onto = { x: -920, y: 0 }
     const triangle = planHandles.drag(planOf([]), section, 'vertex-1', onto).sections[0]!.points
     expect(triangle).toHaveLength(3)
+
     const kept = planHandles.drag({ ...planOf([]), sections: [{ id: 'A', points: triangle }] }, section, 'vertex-1', {
       x: square[0]!.x - triangle[1]!.x,
       y: square[0]!.y - triangle[1]!.y,
     })
+
     expect(kept.sections[0]!.points).toHaveLength(3)
   })
 

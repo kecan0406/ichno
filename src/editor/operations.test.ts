@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seatPlan } from '../core/geometry'
 import { labeling } from '../core/labeling'
 import { layout } from '../core/layout'
-import type { Place, PlanObject, PlanTemplate, SeatPlan } from '../core/types'
+import type { Fixture, Place, PlanObject, PlanTemplate, SeatPlan } from '../core/types'
 import { planEdits } from './operations'
 
 type S = 'A' | 'B'
@@ -40,10 +40,12 @@ function desk(id: string, x: number, y: number, extra: Partial<Place<S>> = {}): 
 function withRow(base: SeatPlan<S> = planOf()) {
   const { plan: grouped, id } = planEdits.addGroup(base, { role: 'row' })
   const boxes = layout.line({ start: { x: 46, y: 400 }, end: { x: 460, y: 400 }, count: 4, size: 40 })
+
   return { plan: planEdits.addPlaces(grouped, 'A', boxes, { group: id })!.plan, id }
 }
 
 const idsOf = (plan: SeatPlan<S>) => plan.objects.map((o) => o.id)
+
 const xs = (plan: SeatPlan<S>) => plan.objects.map((o) => o.x)
 
 describe('labeling', () => {
@@ -71,10 +73,10 @@ describe('planEdits — creating', () => {
   })
 
   it('refuses places whose ids would pass the 8-character limit, and shortens fixture ids to fit', () => {
-    const long = { ...planOf(), sections: [{ id: 'balcony' as S, points: rect(0, 0, 1012, 828) }] }
+    const long: SeatPlan = { ...planOf(), sections: [{ id: 'balcony', points: rect(0, 0, 1012, 828) }] }
     const boxes = (n: number) => layout.line({ start: { x: 46, y: 400 }, end: { x: 900, y: 400 }, count: n, size: 40 })
-    expect(planEdits.addPlaces(long, 'balcony' as S, boxes(9))).not.toBeNull()
-    expect(planEdits.addPlaces(long, 'balcony' as S, boxes(10))).toBeNull()
+    expect(planEdits.addPlaces(long, 'balcony', boxes(9))).not.toBeNull()
+    expect(planEdits.addPlaces(long, 'balcony', boxes(10))).toBeNull()
     const [id] = planEdits.addFixtures(planOf(), [{ x: 0, y: 0, w: 46, h: 23 }], { role: 'emergency-exit1' }).ids
     expect(id!.length).toBeLessThanOrEqual(16)
   })
@@ -83,12 +85,14 @@ describe('planEdits — creating', () => {
     const plan = planEdits.addFixtures(planOf([desk('A1', 2, 2)]), [{ x: 0, y: 600, w: 400, h: 92 }], {
       role: 'stage',
     }).plan
+
     expect(idsOf(plan)).toEqual(['stage-1', 'A1'])
   })
 })
 
 describe('planEdits — laying a group out', () => {
   const { plan, id } = withRow()
+
   const line = (n: number, end = 460) =>
     layout.line({ start: { x: 46, y: 400 }, end: { x: end, y: 400 }, count: n, size: 40 })
 
@@ -102,12 +106,14 @@ describe('planEdits — laying a group out', () => {
 
   it('bends a row by moving its seats — ids, labels and order stay', () => {
     const labelled = planEdits.label(plan, ['A1', 'A2', 'A3', 'A4'], labeling.numbers())
+
     const bent = planEdits.layoutGroup(
       labelled,
       id,
       layout.arc({ start: { x: 66, y: 420 }, end: { x: 440, y: 420 }, curve: 0.4, count: 4, size: 40 }),
     )!
-    const seats = seatPlan.membersOf(bent, id) as Place<S>[]
+
+    const seats = seatPlan.membersOf(bent, id).filter((o) => o.kind === 'place')
     expect(seats.map((s) => [s.id, s.label])).toEqual([
       ['A1', '1'],
       ['A2', '2'],
@@ -137,6 +143,7 @@ describe('planEdits — groups, removing and renaming', () => {
   it('removes a section with its places, their groups whole and loose fixtures inside — or nothing when locked', () => {
     // Section A is x 0–506: the row, a stage inside it and a chair grouped with a seat in B; a pillar in B.
     const { plan: rowed } = withRow(planOf([desk('B1', 600, 2, { section: 'B' })]))
+
     const plan = {
       ...rowed,
       groups: [...rowed.groups, { id: 'pair' }],
@@ -148,6 +155,7 @@ describe('planEdits — groups, removing and renaming', () => {
         { kind: 'fixture' as const, id: 'chair', shape: 'rect' as const, x: 700, y: 300, w: 40, h: 40, group: 'pair' },
       ],
     }
+
     const { plan: gone, refused } = planEdits.removeSection(plan, 'A')
     expect(refused).toEqual([])
     expect(gone.sections.map((s) => s.id)).toEqual(['B'])
@@ -171,6 +179,7 @@ describe('planEdits — groups, removing and renaming', () => {
   it('moves a section with what stands in it, its outline whole and held inside the plan with what it carries', () => {
     // Section A is x 0–506: the row, a stage inside it and a chair grouped with a seat of A but standing in B.
     const { plan: rowed } = withRow(planOf([desk('B1', 600, 2, { section: 'B' })]))
+
     const plan = {
       ...rowed,
       groups: [...rowed.groups, { id: 'pair' }],
@@ -182,6 +191,7 @@ describe('planEdits — groups, removing and renaming', () => {
         { kind: 'fixture' as const, id: 'chair', shape: 'rect' as const, x: 700, y: 300, w: 40, h: 40, group: 'pair' },
       ],
     }
+
     const moved = planEdits.moveSection(plan, 'A', { x: 30, y: 0 }, { cell: 46 })
     expect(moved.sections[0]!.points).toEqual(rect(46, 0, 506, 828))
     // B1 stays; the row, the stage, A9 and its chair go a cell right; the pillar in B stays.
@@ -223,9 +233,11 @@ describe('planEdits — groups, removing and renaming', () => {
       { kind: 'fixture', id: 'T1', shape: 'ellipse', x: 200, y: 200, w: 92, h: 92, group: 'g', role: 'table' },
       desk('A1', 200, 120, { w: 36, h: 36, group: 'g' }),
     ])
+
     const whole = planEdits.convert(planEdits.convert(table, ['A1'], 'fixture', { role: 'chair' })!, ['T1'], 'place', {
       capacity: 1,
     })!
+
     expect(whole.objects.map((o) => [o.kind, o.id, o.kind === 'label' ? undefined : o.role])).toEqual([
       ['place', 'T1', 'table'],
       ['fixture', 'A1', 'chair'],
@@ -237,21 +249,22 @@ describe('planEdits — groups, removing and renaming', () => {
   it('labels places and groups in the order given', () => {
     const { plan } = withRow(planOf([desk('D1', 600, 2)]))
     const named = planEdits.label(plan, ['A4', 'A3', 'row-1'], labeling.letters())
-    expect((seatPlan.objectById(named, 'A4') as Place<S>).label).toBe('A')
-    expect((seatPlan.objectById(named, 'A3') as Place<S>).label).toBe('B')
+    expect(seatPlan.objectById(named, 'A4')).toHaveProperty('label', 'A')
+    expect(seatPlan.objectById(named, 'A3')).toHaveProperty('label', 'B')
     expect(named.groups[0]!.label).toBe('C')
   })
 
   it('assigns properties to what has them — a group through its members — and refuses values that would not save', () => {
     const { plan: row } = withRow(planOf([], []))
+
     const base = {
       ...planEdits.addFixtures(row, [{ x: 600, y: 2, w: 88, h: 88 }], { role: 'stage' }).plan,
       categories: [{ key: 'vip' }],
     }
+
     const stage = base.objects.find((o) => o.kind === 'fixture')!.id
     const set = planEdits.assign(base, ['row-1', stage], { capacity: 2, category: 'vip', shape: 'ellipse' })!
-    const seat = seatPlan.objectById(set, 'A1') as Place<S>
-    expect([seat.capacity, seat.category, seat.shape]).toEqual([2, 'vip', 'ellipse'])
+    expect(seatPlan.objectById(set, 'A1')).toMatchObject({ capacity: 2, category: 'vip', shape: 'ellipse' })
     expect(seatPlan.objectById(set, stage)).toMatchObject({ shape: 'ellipse' })
     expect(seatPlan.objectById(set, stage)).not.toHaveProperty('category')
     // undefined clears an optional property.
@@ -362,6 +375,7 @@ describe('planEdits — arranging', () => {
     const boxes = layout.arc({ start: { x: 100, y: 400 }, end: { x: 460, y: 400 }, curve: 0.5, count: 7, size: 40 })
     const rowed = planEdits.addPlaces(grouped, 'A', boxes, { group: id })!.plan
     let turned = rowed
+
     for (let i = 0; i < 4; i++) turned = planEdits.rotate(turned, [id], 90)
     turned.objects.forEach((o, i) => {
       expect(Math.abs(o.x - rowed.objects[i]!.x)).toBeLessThanOrEqual(1)
@@ -382,16 +396,14 @@ describe('planEdits — arranging', () => {
 describe('planEdits — drawing order', () => {
   // Bottom to top: a table's top, a stage, A1, the table's seats B1 and B2, A2. Listed by their highest member, top
   // first: A2, the table, A1, the stage.
-  const fixture = (id: string, group?: string): PlanObject<S> => ({
-    kind: 'fixture',
-    id,
-    shape: 'rect',
-    x: 600,
-    y: 600,
-    w: 92,
-    h: 92,
-    ...(group ? { group } : {}),
-  })
+  const fixture = (id: string, group?: string): PlanObject<S> => {
+    const made: Fixture = { kind: 'fixture', id, shape: 'rect', x: 600, y: 600, w: 92, h: 92 }
+
+    if (group) made.group = group
+
+    return made
+  }
+
   const plan = planOf(
     [
       fixture('top', 'table-1'),
@@ -470,6 +482,7 @@ describe('planEdits — templates', () => {
         { kind: 'place', id: 'x', x: -20, y: -20, w: 40, h: 40, shape: 'ellipse', capacity: 1, category: 'vip' },
       ],
     }
+
     const corner = planEdits.insertTemplate(planOf(), seat, { x: 0, y: 0 })!
     expect(seatPlan.objectById(corner.plan, 'A1')).toEqual({
       kind: 'place',
@@ -482,7 +495,7 @@ describe('planEdits — templates', () => {
       shape: 'ellipse',
       capacity: 1,
     })
-    const small = { ...planOf(), sections: [{ id: 'A' as S, points: rect(0, 0, 200, 200) }] }
+    const small: SeatPlan<S> = { ...planOf(), sections: [{ id: 'A', points: rect(0, 0, 200, 200) }] }
     expect(planEdits.insertTemplate(small, seat, { x: 600, y: 600 })).toBeNull()
     expect(planEdits.insertTemplate(small, seat, { x: 600, y: 600 }, { section: 'A' })!.ids).toEqual(['A1'])
   })

@@ -30,6 +30,7 @@ export function ChecksPanel({
   onFocus(ids: string[]): void
 }) {
   const errors = checks.filter((check) => check.severity === 'error').length
+
   return (
     <>
       <Section title="Checks">
@@ -238,6 +239,7 @@ export function PreviewPanel({
 
 export function ImportDialog({ onLoad }: { onLoad(plan: SeatPlan<string>): void }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const textRef = useRef<HTMLTextAreaElement>(null)
   const [errors, setErrors] = useState<string[]>([])
 
   return (
@@ -253,13 +255,15 @@ export function ImportDialog({ onLoad }: { onLoad(plan: SeatPlan<string>): void 
         method="dialog"
         className={controls.dialogBody}
         onSubmit={(e) => {
-          const text = new FormData(e.currentTarget).get('json')
-          const result = parseDocument(typeof text === 'string' ? text : '')
+          const result = parseDocument(textRef.current?.value ?? '')
+
           if ('errors' in result) {
             e.preventDefault()
             setErrors(result.errors)
+
             return
           }
+
           onLoad(result.plan)
         }}
       >
@@ -268,7 +272,7 @@ export function ImportDialog({ onLoad }: { onLoad(plan: SeatPlan<string>): void 
           Paste a SeatPlan document. It is checked with <code>createSeatPlanSchema</code> using its own section ids;
           documents from ichno 0.1 and 0.2 are upgraded on the way in.
         </p>
-        <textarea name="json" className={controls.textarea} rows={12} spellCheck={false} required />
+        <textarea ref={textRef} name="json" className={controls.textarea} rows={12} spellCheck={false} required />
         {errors.length > 0 && (
           <ul className={styles.checks}>
             {errors.slice(0, 8).map((error, i) => (

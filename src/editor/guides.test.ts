@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PlanObject, SeatPlan } from '../core/types'
+import type { Place, PlanObject, SeatPlan } from '../core/types'
 import { planGuides } from './guides'
 
 const box = (x: number, y: number, w = 100, h = 100) => ({ x, y, w, h })
@@ -51,18 +51,14 @@ describe('planGuides', () => {
   })
 
   it('lines up with units and sections, never with what moves', () => {
-    const seat = (id: string, x: number, group?: string): PlanObject => ({
-      kind: 'place',
-      id,
-      section: 'A',
-      x,
-      y: 0,
-      w: 40,
-      h: 40,
-      shape: 'rect',
-      capacity: 1,
-      ...(group ? { group } : {}),
-    })
+    const seat = (id: string, x: number, group?: string): PlanObject => {
+      const place: Place = { kind: 'place', id, section: 'A', x, y: 0, w: 40, h: 40, shape: 'rect', capacity: 1 }
+
+      if (group) place.group = group
+
+      return place
+    }
+
     const plan: SeatPlan = {
       version: 3,
       width: 1000,
@@ -82,6 +78,7 @@ describe('planGuides', () => {
       groups: [{ id: 'r' }],
       objects: [seat('A1', 0, 'r'), seat('A2', 60, 'r'), seat('A3', 200)],
     }
+
     expect(planGuides.targetsOf(plan, new Set(['A3']))).toEqual([box(0, 0, 100, 40), box(0, 0, 500, 500)])
     expect(planGuides.targetsOf(plan, new Set(['r']))).toEqual([box(200, 0, 40, 40), box(0, 0, 500, 500)])
   })

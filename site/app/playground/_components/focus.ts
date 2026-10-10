@@ -6,5 +6,6 @@ import type { MouseEvent } from 'react'
 export function pressKeepingFocus(e: MouseEvent) {
   if (e.target instanceof HTMLInputElement) return
   e.preventDefault()
+
   if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur()
 }

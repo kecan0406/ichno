@@ -49,6 +49,7 @@ const seat = (id: string, x: number, y: number): PlanObject => ({
 })
 
 const wallOf = (plan: SeatPlan, id: string) => seatPlan.wallOf(plan, id)!
+
 const drag = (plan: SeatPlan, id: string, name: string, total: PlanPoint, alt = false) =>
   planHandles.drag(plan, { kind: 'wall', id }, name, total, SNAP, false, 1, alt)
 
@@ -62,6 +63,7 @@ describe('addWall', () => {
       ],
       thickness: 12,
     })!
+
     expect(made.ids).toEqual(['wall-1'])
     expect(wallOf(made.plan, 'wall-1').points).toEqual([
       { x: 0, y: 0.4 },
@@ -74,6 +76,7 @@ describe('addWall', () => {
       { x: 0, y: 0 },
       { x: 400, y: 0 },
     ]
+
     expect(planEdits.addWall(planOf([]), { points: two, thickness: 12, closed: true })).toBeNull()
     expect(planEdits.addWall(planOf([]), { points: two.slice(0, 1), thickness: 12 })).toBeNull()
   })
@@ -95,6 +98,7 @@ describe('moving walls', () => {
       ],
       [seat('S1', 92, 92), seat('S2', 690, 92)],
     )
+
     const moved = planEdits.move(plan, ['w1'], { x: 46, y: 0 }, SNAP)
     expect(wallOf(moved, 'w1').points[0]).toEqual({ x: 92, y: 46 })
     expect(wallOf(moved, 'w2').points[0]).toEqual({ x: 322, y: 46 })
@@ -104,12 +108,14 @@ describe('moving walls', () => {
 
   it('copies a room whole on a copying drag and leaves the original where it was', () => {
     const plan = planOf([room('w1', rect(46, 46, 460, 460))], [seat('S1', 92, 92)])
+
     const copied = planEdits.applyDrag(
       plan,
       { target: { kind: 'wall', id: 'w1' }, phase: 'end', total: { x: 552, y: 0 }, copy: true },
       [],
       SNAP,
     )
+
     expect(copied.walls.map((w) => w.points[0])).toEqual([
       { x: 46, y: 46 },
       { x: 598, y: 46 },
@@ -134,6 +140,7 @@ describe('wall handles', () => {
         thickness: 8,
       },
     ])
+
     const pushed = drag(plan, 'w1', 'edge-0', { x: 0, y: -40 })
     expect(wallOf(pushed, 'w1').points.slice(0, 2)).toEqual([
       { x: 46, y: 0 },
@@ -157,6 +164,7 @@ describe('wall handles', () => {
         thickness: 8,
       },
     ])
+
     const pushed = drag(plan, 'w1', 'edge-0', { x: 0, y: -46 })
     expect(wallOf(pushed, 'w2').points[0]).toEqual({ x: 46, y: 276 })
   })
@@ -173,6 +181,7 @@ describe('wall handles', () => {
         thickness: 8,
       },
     ])
+
     const moved = drag(plan, 'w1', 'vertex-2', { x: 92, y: 0 })
     expect(wallOf(moved, 'w2').points[0]).toEqual({ x: 506, y: 230 })
   })
@@ -186,6 +195,7 @@ describe('wall handles', () => {
         ],
       }),
     ])
+
     // Both edges at the moved corner come out √(368² + 92²) ≈ 379 long.
     const narrower = drag(plan, 'w1', 'vertex-1', { x: -92, y: 92 })
     expect(wallOf(narrower, 'w1').openings).toEqual([{ edge: 0, at: 287, width: 92, role: 'door' }])
@@ -201,6 +211,7 @@ describe('wall handles', () => {
         ],
       }),
     ])
+
     const split = drag(plan, 'w1', 'edge-0', { x: 0, y: 0 }, true)
     expect(wallOf(split, 'w1').points).toHaveLength(5)
     expect(wallOf(split, 'w1').openings).toEqual([
@@ -226,6 +237,7 @@ describe('wall handles', () => {
         },
       ),
     ])
+
     const merged = drag(plan, 'w1', 'vertex-1', { x: -230, y: 0 })
     expect(wallOf(merged, 'w1').points).toHaveLength(4)
     expect(wallOf(merged, 'w1').openings).toEqual([{ edge: 0, at: 276, width: 92 }])
@@ -245,12 +257,14 @@ describe('openings', () => {
 
 describe('building a wall a piece at a time', () => {
   const piece = (a: PlanPoint, b: PlanPoint) => ({ points: [a, b], thickness: 15 })
+
   const line = (id: string, points: PlanPoint[], extra: Partial<Wall> = {}): Wall => ({
     id,
     points,
     thickness: 15,
     ...extra,
   })
+
   const p = (x: number, y: number) => ({ x, y })
 
   it('starts a new wall where no wall ends', () => {
@@ -282,6 +296,7 @@ describe('building a wall a piece at a time', () => {
       line('w1', [p(100, 100), p(200, 100)]),
       line('w2', [p(300, 100), p(300, 300)], { openings: [{ edge: 0, at: 50, width: 90, role: 'door' }] }),
     ])
+
     const built = planEdits.buildWall(plan, piece(p(200, 100), p(300, 100)))!
     expect(built.plan.walls.map((w) => w.id)).toEqual(['w1'])
     const wall = wallOf(built.plan, 'w1')
@@ -308,6 +323,7 @@ describe('building a wall a piece at a time', () => {
   it('keeps a metre turned any way a metre — its corners to a hundredth', () => {
     const a = (10 * Math.PI) / 180
     const built = planEdits.buildWall(planOf([]), piece(p(0, 0), p(100 * Math.cos(a), 100 * Math.sin(a))))!
+    // SAFETY: a wall built from one piece is that piece — its two ends.
     const [from, to] = wallOf(built.plan, 'wall-1').points as [PlanPoint, PlanPoint]
     expect(to).toEqual(p(98.48, 17.36))
     expect(Math.hypot(to.x - from.x, to.y - from.y)).toBeCloseTo(100, 1)

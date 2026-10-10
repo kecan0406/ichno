@@ -3,7 +3,8 @@ import { seatPlan } from './geometry'
 import { signedArea } from './math'
 import type { PlanPoint, Wall } from './types'
 
-function rect(x: number, y: number, w: number, h: number): PlanPoint[] {
+// The four corners, clockwise from the top left.
+function rect(x: number, y: number, w: number, h: number): [PlanPoint, PlanPoint, PlanPoint, PlanPoint] {
   return [
     { x, y },
     { x: x + w, y },
@@ -39,6 +40,7 @@ describe('roomsOf', () => {
         { x: 460, y: 600 },
       ]),
     ])
+
     expect(rooms.map((r) => seatPlan.areaOf(r.points)).sort()).toEqual([460 * 600, 460 * 600])
     expect(rooms.every((r) => r.walls.includes('w2'))).toBe(true)
   })
@@ -51,6 +53,7 @@ describe('roomsOf', () => {
         { x: 460, y: 595 },
       ]),
     ])
+
     expect(rooms).toHaveLength(2)
   })
 
@@ -61,7 +64,7 @@ describe('roomsOf', () => {
   })
 
   it('closes a room from open walls whose ends meet', () => {
-    const [a, b, c, d] = rect(0, 0, 400, 300) as [PlanPoint, PlanPoint, PlanPoint, PlanPoint]
+    const [a, b, c, d] = rect(0, 0, 400, 300)
     const rooms = roomsOf([line('n', [a, b]), line('e', [b, c]), line('s', [c, d]), line('w', [d, a])])
     expect(rooms).toHaveLength(1)
     expect(rooms[0]!.walls).toEqual(['e', 'n', 's', 'w'])
@@ -75,6 +78,7 @@ describe('roomsOf', () => {
         { x: 600, y: 150 },
       ]),
     ])
+
     expect(rooms).toHaveLength(1)
     expect(rooms[0]!.points).toHaveLength(4)
     expect(rooms[0]!.walls).toEqual(['w1'])
@@ -109,6 +113,7 @@ describe('wallOutlineOf', () => {
   it('draws a closed wall as an outer and an inner ring turning opposite ways', () => {
     const rings = seatPlan.wallOutlineOf(room('w1', rect(0, 0, 400, 300)))
     expect(rings).toHaveLength(2)
+    // SAFETY: the line above checks there are two rings.
     const [a, b] = rings.map(signedArea) as [number, number]
     expect(Math.sign(a)).toBe(-Math.sign(b))
     expect(seatPlan.wallBoundsOf(room('w1', rect(0, 0, 400, 300)))).toEqual({ x: -6, y: -6, w: 412, h: 312 })
@@ -139,6 +144,7 @@ describe('wallOutlineOf', () => {
       ],
       { openings: [{ edge: 0, at: 100, width: 92 }] },
     )
+
     const rings = seatPlan.wallOutlineOf(wall)
     expect(rings).toHaveLength(2)
     const xs = rings.map((ring) => ring.map((p) => p.x))

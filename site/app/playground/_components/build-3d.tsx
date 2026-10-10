@@ -55,6 +55,7 @@ import styles from './build-3d.module.css'
 // the screen — on the floor it would show as a diamond — and picks what it touches as it stands. Handles stay in 2D. Drawn like the 2D plan (./drawing-3d.tsx); loaded only when someone switches to it.
 
 type Editor = SeatPlanEditor<string>
+
 // What a press means to the editor — <SeatMap.Viewport>'s handlers, with plan points read off the floor.
 type Handlers = Pick<Editor['viewportProps'], 'canDrag' | 'onTargetDrag' | 'onDraw'> & {
   onTap(target: PlanTarget<string> | null, info: { point: PlanPoint | null; additive: boolean }): void
@@ -162,10 +163,12 @@ export default function Build3D(props: Build3DProps) {
   // react-three-fiber's state, for the camera and the canvas size outside the canvas.
   const stageRef = useRef<(() => RootState) | null>(null)
   const [picks] = useState<Picks>(() => new Map())
+
   const aimRef = useRef<BuildCamera & { tilt: number }>({
     ...(props.cameraRef.current ?? { x: 0, z: 0, quarter: 0, angle: azimuthOf(0), zoom: 1 }),
     tilt: TILT,
   })
+
   const motionRef = useRef<Motion | null>(null)
   // On its way back to the 2D view — it no longer turns.
   const leavingRef = useRef(false)
@@ -199,24 +202,30 @@ export default function Build3D(props: Build3DProps) {
   // Aims the ray through a point of the view; false before the canvas is there.
   function aimRay(at: ScreenPoint): boolean {
     const state = stage()
+
     if (!state) return false
     RAY.setFromCamera(NDC.set((at.x / state.size.width) * 2 - 1, -(at.y / state.size.height) * 2 + 1), state.camera)
+
     return true
   }
 
   // The plan point on the floor under a point of the view.
   function floorAt(at: ScreenPoint): PlanPoint | null {
     const hit = aimRay(at) ? RAY.ray.intersectPlane(FLOOR, HIT) : null
+
     return hit ? { x: hit.x, y: hit.z } : null
   }
 
   // What is drawn nearest under a point of the view — a place, a fixture or a wall.
   function targetAt(at: ScreenPoint): PlanTarget<string> | null {
     if (!aimRay(at)) return null
+
     for (const hit of RAY.intersectObjects([...picks.keys()], false)) {
       const target = picks.get(hit.object)?.(hit.instanceId)
+
       if (target) return target
     }
+
     return null
   }
 
@@ -225,40 +234,51 @@ export default function Build3D(props: Build3DProps) {
   // rubber band touches.
   function touchedBy(box: PlanRect): string[] {
     const state = stage()
+
     if (!state) return []
     const heights = new Map(piecesOf(plan).map((piece) => [piece.id, HEIGHT[piece.model]]))
+
     const objects = plan.objects.flatMap((object) => {
       const levels =
         object.kind === 'label'
           ? [SIGN_HEIGHT]
           : [0, object.kind === 'fixture' && object.role === 'wall' ? WALL_CUT : (heights.get(object.id) ?? 0)]
+
       const seen = seatPlan.outlineOf(object).flatMap((point) => levels.map((y) => screenOf(point, y, state)))
+
       return overlapsBox(hullOf(seen), box) ? [object.id] : []
     })
+
     const walls = plan.walls.flatMap((wall) => {
       const touched = wallsOf({ ...plan, walls: [wall] }).some((stretch) => {
         const seen = cornersOfStretch(stretch).flatMap((point) => [0, WALL_CUT].map((y) => screenOf(point, y, state)))
+
         return overlapsBox(hullOf(seen), box)
       })
+
       return touched ? [wall.id] : []
     })
+
     return [...objects, ...walls]
   }
 
   // The zoom that shows the whole drawing from the corner the view is turning to.
   function homeZoom(): number {
     const size = stage()?.size
+
     return size ? zoomToFit(home, aimRef.current.quarter, size) : 1
   }
 
   function clampZoom(zoom: number): number {
     const least = homeZoom()
+
     return Math.min(least * MAX_LEVEL, Math.max(least, zoom))
   }
 
   // Puts the camera where the aim says, at once — so a gesture's next reading of the floor sees the view it made.
   function place() {
     const state = stage()
+
     if (!state) return
     const aim = aimRef.current
     const camera = state.camera
@@ -281,6 +301,7 @@ export default function Build3D(props: Build3DProps) {
   // Frames a rectangle of the plan with `around` plan units of room.
   function show(rect: PlanRect, around: number) {
     const size = stage()?.size
+
     if (!size) return
     const padded = { x: rect.x - around, y: rect.y - around, w: rect.w + around * 2, h: rect.h + around * 2 }
     const aim = aimRef.current
@@ -292,6 +313,7 @@ export default function Build3D(props: Build3DProps) {
 
   function middle(): ScreenPoint {
     const size = stage()?.size
+
     return size ? { x: size.width / 2, y: size.height / 2 } : { x: 0, y: 0 }
   }
 
@@ -302,6 +324,7 @@ export default function Build3D(props: Build3DProps) {
     aim.zoom = clampZoom(aim.zoom * factor)
     place()
     const after = floorAt(about)
+
     if (before && after) {
       aim.x += before.x - after.x
       aim.z += before.y - after.y
@@ -314,6 +337,7 @@ export default function Build3D(props: Build3DProps) {
     const at = middle()
     const from = floorAt(at)
     const to = floorAt({ x: at.x + delta.x, y: at.y + delta.y })
+
     if (!from || !to) return
     const aim = aimRef.current
     aim.x -= to.x - from.x
@@ -327,17 +351,21 @@ export default function Build3D(props: Build3DProps) {
     const aim = aimRef.current
     const under = motionRef.current
     const target = { ...under?.to, ...to }
+
     const finish = () => {
       under?.done?.()
       done?.()
     }
+
     if (reducedMotion()) {
       motionRef.current = null
       Object.assign(aim, target)
       place()
       finish()
+
       return
     }
+
     motionRef.current = { from: poseOf(aim), to: target, ms, elapsed: 0, last: null, ease, fade, done: finish }
     place()
   }
@@ -362,11 +390,13 @@ export default function Build3D(props: Build3DProps) {
       fade: 'in',
       done: () => {
         props.onShown()
+
         const corner = {
           angle: azimuthOf(aimRef.current.quarter),
           tilt: TILT,
           zoom: clampZoom(homeZoom() * from.level),
         }
+
         move(corner, SWITCH_MS, { ease: easeInOut })
       },
     })
@@ -393,49 +423,64 @@ export default function Build3D(props: Build3DProps) {
   // shows it (reported every frame of a move, it would redraw the whole workspace every frame).
   function onFrame() {
     const state = stage()
+
     if (!state || state.size.width === 0) return
     const aim = aimRef.current
+
     if (!readyRef.current) {
       // Not before the scene is there — this frame is the first anyone sees.
       if (state.scene.children.length === 0) return
       readyRef.current = true
       const handoff = props.handoffRef.current
+
       if (handoff) enter(handoff)
       else {
         props.onShown()
+
         if (props.cameraRef.current === null) show(home, 0)
         else place()
       }
     }
+
     const motion = motionRef.current
+
     if (motion) {
       const now = performance.now()
       motion.elapsed += motion.last === null ? 0 : Math.min(now - motion.last, MAX_FRAME_MS)
       motion.last = now
       const t = Math.min(1, motion.elapsed / motion.ms)
       const eased = motion.ease(t)
+
       for (const key of POSE_KEYS) {
         const to = motion.to[key]
+
         if (to === undefined) continue
         const from = motion.from[key]
         // Zoom moves by ratios, so zooming in and out feel the same.
         aim[key] = key === 'zoom' ? from * (to / from) ** eased : from + (to - from) * eased
       }
+
       state.gl.domElement.style.opacity = String(opacityOf(motion.fade, t))
+
       if (t === 1) {
         motionRef.current = null
         motion.done?.()
       }
+
       place()
     }
+
     if (motionRef.current) return
     const least = homeZoom()
+
     const view = {
       level: aim.zoom / least,
       canZoomIn: aim.zoom < least * MAX_LEVEL * 0.999,
       canZoomOut: aim.zoom > least * 1.001,
     }
+
     const last = reportedRef.current
+
     if (
       !last ||
       Math.abs(last.level - view.level) > 0.001 ||
@@ -456,6 +501,7 @@ export default function Build3D(props: Build3DProps) {
       zoomTo: (rects) => {
         if (rects.length === 0) return false
         show(unionOf(rects), ZOOM_TO_PADDING)
+
         return true
       },
       setLevel: (level) => zoomAbout(middle(), (homeZoom() * level) / aimRef.current.zoom),
@@ -463,6 +509,7 @@ export default function Build3D(props: Build3DProps) {
       leave,
       rest,
     }
+
     return () => {
       ref.current = null
     }
@@ -488,26 +535,36 @@ export default function Build3D(props: Build3DProps) {
       const rect = e.currentTarget.getBoundingClientRect()
       originRef.current = { left: rect.left, top: rect.top }
     }
+
     const origin = originRef.current
+
     return { id: e.pointerId, x: e.clientX - origin.left, y: e.clientY - origin.top }
   }
 
   // Reports the drag, marquee or stroke under way where the pointer last was.
   function report(phase: 'move' | 'end') {
     const press = pressRef.current
+
     if (press.mode === 'marquee') {
       if (!press.start || !press.at) return
+
       if (phase === 'move') {
         setSweep({ from: press.start, to: press.at })
+
         return
       }
+
       setSweep(null)
       handlers.onMarquee(touchedBy(boxBetween(press.start, press.at)), { additive: press.additive })
+
       return
     }
+
     const to = press.at && floorAt(press.at)
+
     if (!press.anchor || !to) return
     const keys = keysRef.current
+
     if (press.mode === 'drag' && press.target) {
       const total = { x: to.x - press.anchor.x, y: to.y - press.anchor.y }
       handlers.onTargetDrag({ target: press.target, phase, total, constrain: keys.constrain, copy: keys.fromCenter })
@@ -519,29 +576,37 @@ export default function Build3D(props: Build3DProps) {
   function handle(events: GestureEvent[]) {
     for (const event of events) {
       const press = pressRef.current
+
       switch (event.type) {
         case 'tap': {
           const point = floorAt(event.point)
+
           if (press.mode === 'draw') {
             if (point) handlers.onDraw?.({ start: point, end: point }, { phase: 'end', ...keysRef.current })
             break
           }
+
           // The Hand only pans.
           if (props.tool !== 'hand') handlers.onTap(press.target, { point, additive: press.additive })
           break
         }
+
         case 'dragstart': {
           if (press.mode === 'pan') {
             setPanning(true)
             break
           }
+
           const anchor = floorAt(event.point)
           pressRef.current = { ...press, anchor, start: event.point, at: event.point }
+
           if (press.mode === 'marquee') {
             setSweep({ from: event.point, to: event.point })
             break
           }
+
           if (!anchor) break
+
           if (press.mode === 'drag' && press.target) {
             handlers.onTargetDrag({
               target: press.target,
@@ -553,13 +618,16 @@ export default function Build3D(props: Build3DProps) {
           } else if (press.mode === 'draw') {
             handlers.onDraw?.({ start: anchor, end: anchor }, { phase: 'start', ...keysRef.current })
           }
+
           break
         }
+
         case 'drag':
           if (press.mode === 'pan') {
             panBy(event.delta)
             break
           }
+
           pressRef.current = { ...press, at: event.point }
           report('move')
           break
@@ -568,6 +636,7 @@ export default function Build3D(props: Build3DProps) {
             pressRef.current = { ...press, at: event.point }
             report('end')
           }
+
           setPanning(false)
           // After a pinch the remaining finger pans — it never drags the target the gesture began on.
           pressRef.current = IDLE_PRESS
@@ -584,24 +653,30 @@ export default function Build3D(props: Build3DProps) {
   function cancelStroke() {
     const press = pressRef.current
     const end = press.at && floorAt(press.at)
+
     if (press.mode === 'draw' && press.anchor && end) {
       handlers.onDraw?.({ start: press.anchor, end }, { phase: 'cancel', ...keysRef.current })
     }
+
     pressRef.current = IDLE_PRESS
   }
 
   function handlePointerDown(e: PointerEvent<HTMLDivElement>) {
     const middleButton = e.pointerType === 'mouse' && e.button === 1
+
     // The right button opens the menu (onContextMenu).
     if (e.pointerType === 'mouse' && e.button !== 0 && !middleButton) return
+
     if (middleButton) e.preventDefault()
     keysRef.current = keysOf(e)
     const idle = gestureRef.current.kind === 'idle'
     const pointer = pointerOf(e, idle)
+
     if (idle) {
       const additive = e.shiftKey || e.metaKey || e.ctrlKey
       const pan = middleButton || spaceRef.current || props.tool === 'hand'
       const target = pan ? null : targetAt(pointer)
+
       const mode: Press['mode'] = pan
         ? 'pan'
         : handlers.onDraw
@@ -611,15 +686,18 @@ export default function Build3D(props: Build3DProps) {
             : additive || target !== null || e.pointerType !== 'touch'
               ? 'marquee'
               : 'pan'
+
       pressRef.current = { target, mode, additive, anchor: null, start: null, at: null }
     } else if (pressRef.current.mode === 'draw') {
       // A second finger turns the press into a pinch — the stroke is dropped, not drawn.
       cancelStroke()
     }
+
     e.currentTarget.setPointerCapture(e.pointerId)
     const result = gesture.down(gestureRef.current, pointer, pressRef.current.target ? 'target' : null)
     gestureRef.current = result.state
     handle(result.events)
+
     if (result.state.kind === 'pinching') {
       pressRef.current = IDLE_PRESS
       setSweep(null)
@@ -634,8 +712,10 @@ export default function Build3D(props: Build3DProps) {
       handlers.onHover(floorAt(at), target)
       const next = target?.kind === 'place' || target?.kind === 'object' ? target : null
       setOver((current) => (sameTarget(current, next) ? current : next))
+
       return
     }
+
     keysRef.current = keysOf(e)
     const threshold = e.pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD_PX : undefined
     const result = gesture.move(gestureRef.current, pointerOf(e), threshold)
@@ -659,6 +739,7 @@ export default function Build3D(props: Build3DProps) {
 
   function handlePointerLeave() {
     insideRef.current = false
+
     if (gestureRef.current.kind !== 'idle') return
     handlers.onHover(null, null)
     setOver(null)
@@ -670,40 +751,53 @@ export default function Build3D(props: Build3DProps) {
     e.preventDefault()
     const dx = wheelPixels(e.deltaX, e.deltaMode)
     const dy = wheelPixels(e.deltaY, e.deltaMode)
+
     if (e.ctrlKey || e.metaKey) {
       const host = hostRef.current
+
       if (!host || dy === 0) return
       const rect = host.getBoundingClientRect()
       const factor = Math.exp(-dy * (e.ctrlKey ? PINCH_ZOOM_RATE : WHEEL_ZOOM_RATE))
       zoomAbout({ x: e.clientX - rect.left, y: e.clientY - rect.top }, Math.min(1.1, Math.max(1 / 1.1, factor)))
+
       return
     }
+
     // Shift turns a plain wheel sideways where the browser does not already.
     panBy(e.shiftKey && dx === 0 ? { x: -dy, y: 0 } : { x: -dx, y: -dy })
   })
+
   // Safari reports a trackpad pinch as gesture events — the scale since it began.
   const pinchRef = useRef(1)
-  const onGesture = useEffectEvent((e: Event) => {
+
+  const onGesture = useEffectEvent((e: SafariGesture) => {
     e.preventDefault()
-    const pinch = e as Event & { scale: number; clientX: number; clientY: number }
+
     if (e.type === 'gesturestart') pinchRef.current = 1
+
     if (e.type !== 'gesturechange') return
-    const factor = pinch.scale / pinchRef.current
-    pinchRef.current = pinch.scale
+    const factor = e.scale / pinchRef.current
+    pinchRef.current = e.scale
     const host = hostRef.current
+
     if (!host || !(factor > 0) || !Number.isFinite(factor)) return
     const rect = host.getBoundingClientRect()
-    zoomAbout({ x: pinch.clientX - rect.left, y: pinch.clientY - rect.top }, factor)
+    zoomAbout({ x: e.clientX - rect.left, y: e.clientY - rect.top }, factor)
   })
+
   useEffect(() => {
     const host = hostRef.current
+
     if (!host) return
     const wheel = (e: WheelEvent) => onWheel(e)
-    const pinch = (e: Event) => onGesture(e)
+    const pinch = (e: SafariGesture) => onGesture(e)
     host.addEventListener('wheel', wheel, { passive: false })
+
     for (const type of GESTURE_EVENTS) host.addEventListener(type, pinch)
+
     return () => {
       host.removeEventListener('wheel', wheel)
+
       for (const type of GESTURE_EVENTS) host.removeEventListener(type, pinch)
     }
   }, [])
@@ -712,26 +806,36 @@ export default function Build3D(props: Build3DProps) {
   const onWindowKey = useEffectEvent((e: KeyboardEvent) => {
     if (e.key === 'Shift' || e.key === 'Alt') {
       keysRef.current = keysOf(e)
+
       if (gestureRef.current.kind === 'dragging' && pressRef.current.mode !== 'pan') report('move')
+
       return
     }
+
     if (e.code !== 'Space' || isTyping(e.target)) return
     const down = e.type === 'keydown'
+
     if (down && !insideRef.current) return
+
     if (insideRef.current) e.preventDefault()
+
     if (spaceRef.current === down) return
     spaceRef.current = down
     setSpaceHeld(down)
   })
+
   useEffect(() => {
     const key = (e: KeyboardEvent) => onWindowKey(e)
+
     const blur = () => {
       spaceRef.current = false
       setSpaceHeld(false)
     }
+
     window.addEventListener('keydown', key)
     window.addEventListener('keyup', key)
     window.addEventListener('blur', blur)
+
     return () => {
       window.removeEventListener('keydown', key)
       window.removeEventListener('keyup', key)
@@ -747,9 +851,11 @@ export default function Build3D(props: Build3DProps) {
     pressRef.current = { ...pressRef.current, mode: 'dropped' }
     setSweep(null)
   })
+
   useEffect(() => {
     const key = (e: KeyboardEvent) => onEscape(e)
     window.addEventListener('keydown', key, true)
+
     return () => window.removeEventListener('keydown', key, true)
   }, [])
 
@@ -844,11 +950,13 @@ function Stage({ stageRef, onFrame }: { stageRef: RefObject<(() => RootState) | 
   const get = useThree((state) => state.get)
   useLayoutEffect(() => {
     stageRef.current = get
+
     return () => {
       stageRef.current = null
     }
   }, [get, stageRef])
   useFrame(() => onFrame(), -1)
+
   return null
 }
 
@@ -864,20 +972,27 @@ function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }:
   const selected = new Set(props.selected)
   const conflicts = new Set(props.conflicts)
   const reach = Math.hypot(plan.width, plan.height)
+
   // `flat`: how the 2D view paints it, where that differs — what it turns to as the camera looks straight down.
   const lookOf = (id: string, place: Piece['place'], flat?: Color): Look => {
     // An overlap shows on a selected place too — it is what a drag is about to settle.
     if (selected.has(id)) return { fill: palette.ink, line: conflicts.has(id) ? 'warning' : 'paper' }
+
     if (conflicts.has(id)) return { fill: palette.warningFill, line: 'warning' }
     const fill = (place?.category === undefined ? undefined : palette.categories[place.category]) ?? palette.surface
+
     if (place && props.status[id] !== undefined) return { fill, line: 'ink', dash: true }
+
     if (id === hoveredPlace) return { fill, line: 'ink', dash: true, march: true }
+
     return flat ? { fill, line: 'ink', flat } : { fill, line: 'ink' }
   }
+
   // The 2D editor paints places, chairs and table tops (globals.css) and leaves other fixtures unpainted, the page
   // showing through — as it does through the floor.
   const flatOf = (piece: Piece) =>
     piece.place || piece.model === 'chair' || piece.model === 'table' ? undefined : palette.ground
+
   const solids = [
     ...pieces.map((piece) =>
       solidOf(piece, lookOf(piece.id, piece.place, flatOf(piece)), {
@@ -888,11 +1003,14 @@ function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }:
     // Cut down so the rooms show; in hairlines, as the 2D drawing draws a wall's band.
     ...walls.map((wall, i) => wallOf(wall, i, lookOf(wall.id, null), { kind: 'wall', id: wall.id })),
   ]
+
   const ghostLook = (id: string): Look =>
     conflicts.has(id)
       ? { fill: palette.warningFill, line: 'warning', dash: true }
       : { fill: palette.surface, line: 'ink', dash: true }
+
   const refusedLook: Look = { fill: palette.warningFill, line: 'warning', dash: true }
+
   const ghosts = [
     ...(draft === null
       ? []
@@ -975,18 +1093,21 @@ function wallOf(wall: Wall, index: number, look: Look, target?: PlanTarget<strin
 // tap would select and a tool's stroke in still ones. The marquee is the view's own, on the screen.
 function Overlay({ overlay, palette }: { overlay: Editor['overlayProps']; palette: Palette }) {
   const tracing = [...overlay.frames, ...(overlay.frame ? [overlay.frame] : [])]
+
   const still = [
     ...(overlay.hoverFrame ? [overlay.hoverFrame] : []),
     ...(overlay.stroke && overlay.draw === 'box'
       ? [cornersOf(rectBetween(overlay.stroke.start, overlay.stroke.end))]
       : []),
   ]
+
   const line =
     overlay.stroke && overlay.draw === 'line'
       ? [[overlay.stroke.start, overlay.stroke.end]]
       : overlay.stroke && (overlay.draw === 'polygon' || overlay.draw === 'path')
         ? [overlay.stroke.points ?? []]
         : []
+
   return (
     <>
       <FloorLines segments={floorSegments(tracing, true)} palette={palette} march />
@@ -1014,7 +1135,9 @@ function FloorLines({
     setSegments(geometry, segments)
     invalidate()
   })
+
   if (segments.length === 0) return null
+
   return <Hairlines geometry={geometry} color={palette.ink} look={{ fill: null, line: 'ink', dash: true, march }} />
 }
 
@@ -1025,11 +1148,13 @@ function Grid({ plan, cell, palette }: { plan: SeatPlan<string>; cell: number; p
   useEffect(() => () => geometry.dispose(), [geometry])
   useLayoutEffect(() => {
     const lines: PlanPoint[][] = []
+
     for (let x = cell; x < plan.width; x += cell)
       lines.push([
         { x, y: 0 },
         { x, y: plan.height },
       ])
+
     for (let y = cell; y < plan.height; y += cell)
       lines.push([
         { x: 0, y },
@@ -1038,6 +1163,7 @@ function Grid({ plan, cell, palette }: { plan: SeatPlan<string>; cell: number; p
     setSegments(geometry, floorSegments(lines, false, FLOOR_GRID))
     invalidate()
   }, [plan.width, plan.height, cell, geometry, invalidate])
+
   return <Hairlines geometry={geometry} color={palette.grid} look={{ fill: null, line: 'grid', dash: true }} />
 }
 
@@ -1055,7 +1181,9 @@ function easeInOut(t: number): number {
 // How much of the canvas shows, `t` through a move that fades it.
 function opacityOf(fade: Motion['fade'], t: number): number {
   if (fade === 'in') return t
+
   if (fade === 'out') return 1 - t
+
   return 1
 }
 
@@ -1078,6 +1206,7 @@ function azimuthOf(quarter: number): number {
 function northOf(quarter: number): number {
   const angle = azimuthOf(quarter)
   const degrees = (Math.atan2(Math.sin(angle), Math.cos(angle) * Math.sin(TILT)) * 180) / Math.PI
+
   return (((degrees % 360) + 360) % 360) + 360 * Math.floor(quarter / 4)
 }
 
@@ -1089,14 +1218,17 @@ function zoomToFit(rect: PlanRect, quarter: number, size: { width: number; heigh
   const up = { x: -Math.sin(angle) * Math.sin(TILT), y: Math.cos(TILT), z: -Math.cos(angle) * Math.sin(TILT) }
   const xs: number[] = []
   const ys: number[] = []
+
   for (const x of [rect.x, rect.x + rect.w])
     for (const z of [rect.y, rect.y + rect.h])
       for (const y of [0, WALL_CUT]) {
         xs.push(x * right.x + z * right.z)
         ys.push(x * up.x + y * up.y + z * up.z)
       }
+
   const w = Math.max(...xs) - Math.min(...xs)
   const h = Math.max(...ys) - Math.min(...ys)
+
   return Math.min(size.width / Math.max(w, 1), size.height / Math.max(h, 1)) * FIT_MARGIN
 }
 
@@ -1105,6 +1237,7 @@ function unionOf(rects: readonly PlanRect[]): PlanRect {
   const y0 = Math.min(...rects.map((r) => r.y))
   const x1 = Math.max(...rects.map((r) => r.x + r.w))
   const y1 = Math.max(...rects.map((r) => r.y + r.h))
+
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
 }
 
@@ -1124,21 +1257,27 @@ function rectAttributes(box: PlanRect) {
 // Where a point of the room shows in the view, in its pixels.
 function screenOf(point: PlanPoint, y: number, state: RootState): ScreenPoint {
   const seen = SEEN.set(point.x, y, point.y).project(state.camera)
+
   return { x: ((seen.x + 1) / 2) * state.size.width, y: ((1 - seen.y) / 2) * state.size.height }
 }
 
 // The convex outline round points of the view (Andrew's monotone chain).
 function hullOf(points: readonly ScreenPoint[]): ScreenPoint[] {
   const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y)
+
   const half = (list: readonly ScreenPoint[]) => {
     const chain: ScreenPoint[] = []
+
     for (const p of list) {
       while (chain.length >= 2 && turnOf(chain.at(-2)!, chain.at(-1)!, p) <= 0) chain.pop()
       chain.push(p)
     }
+
     chain.pop()
+
     return chain
   }
+
   return [...half(sorted), ...half([...sorted].reverse())]
 }
 
@@ -1149,35 +1288,44 @@ function turnOf(o: ScreenPoint, a: ScreenPoint, b: ScreenPoint): number {
 // Whether a convex outline and a box of the view touch — no axis of either parts them.
 function overlapsBox(hull: readonly ScreenPoint[], box: PlanRect): boolean {
   if (hull.length === 0) return false
+
   const corners = [
     { x: box.x, y: box.y },
     { x: box.x + box.w, y: box.y },
     { x: box.x + box.w, y: box.y + box.h },
     { x: box.x, y: box.y + box.h },
   ]
+
   const axes = [
     { x: 1, y: 0 },
     { x: 0, y: 1 },
     ...hull.map((p, i) => {
       const q = hull[(i + 1) % hull.length]!
+
       return { x: q.y - p.y, y: p.x - q.x }
     }),
   ]
+
   return axes.every((axis) => {
     const a = spanOf(hull, axis)
     const b = spanOf(corners, axis)
+
     return a.min <= b.max && b.min <= a.max
   })
 }
 
-function spanOf(points: readonly ScreenPoint[], axis: ScreenPoint): { min: number; max: number } {
+type Span = { min: number; max: number }
+
+function spanOf(points: readonly ScreenPoint[], axis: ScreenPoint): Span {
   let min = Infinity
   let max = -Infinity
+
   for (const p of points) {
     const d = p.x * axis.x + p.y * axis.y
     min = Math.min(min, d)
     max = Math.max(max, d)
   }
+
   return { min, max }
 }
 
@@ -1185,6 +1333,7 @@ function spanOf(points: readonly ScreenPoint[], axis: ScreenPoint): { min: numbe
 function cornersOfStretch(stretch: Wall): PlanPoint[] {
   const along = { x: Math.cos(stretch.yaw), y: -Math.sin(stretch.yaw) }
   const across = { x: -along.y, y: along.x }
+
   return [
     [-1, -1],
     [1, -1],
@@ -1208,12 +1357,15 @@ function cornersOf(rect: PlanRect): PlanPoint[] {
 // Whether a gesture still follows this pointer.
 function holds(state: GestureState, id: number): boolean {
   if (state.kind === 'pressed' || state.kind === 'dragging') return state.pointer.id === id
+
   if (state.kind === 'pinching') return state.pointers.some((pointer) => pointer.id === id)
+
   return false
 }
 
 function sameTarget(a: PlanTarget<string> | null, b: PlanTarget<string> | null): boolean {
   if (a === null || b === null) return a === b
+
   return a.kind === b.kind && 'id' in a && 'id' in b && a.id === b.id
 }
 
@@ -1232,27 +1384,58 @@ function wheelPixels(delta: number, mode: number): number {
 // How steep the view looks down — a tycoon game's tilt — and how far back the camera stands (an orthographic
 // camera draws the same at any distance; it only has to clear the drawing).
 const TILT = (35 * Math.PI) / 180
+
 // Straight down, as the 2D view looks — a hair off it, so the camera still knows which way is up.
 const TOP = (89.9 * Math.PI) / 180
+
 const DISTANCE = 100_000
+
 const TURN_MS = 200
+
 // The tilt between the 2D view and this one, and the crossfade between them, the camera still straight above.
 const SWITCH_MS = 300
+
 const FADE_MS = 160
+
 // The most a frame counts for in a move — 30 frames a second.
 const MAX_FRAME_MS = 1000 / 30
+
 const POSE_KEYS = ['x', 'z', 'angle', 'tilt', 'zoom'] as const
+
 // As far in as the 2D canvas goes, the zoom buttons' step, and the room left round what zoomTo frames.
 const MAX_LEVEL = 6
+
 const BUTTON_STEP = 1.5
+
 const ZOOM_TO_PADDING = GRID_CELL * 2
+
 const FIT_MARGIN = 0.92
+
 const WHEEL_ZOOM_RATE = Math.log(1.1) / 100
+
 const PINCH_ZOOM_RATE = 0.01
+
 const FLOOR_GRID = 0.25
+
 const GESTURE_EVENTS = ['gesturestart', 'gesturechange', 'gestureend'] as const
+
+// Safari's trackpad pinch: the scale since it began, about a point. The DOM types leave these events out.
+type SafariGesture = UIEvent & { readonly scale: number; readonly clientX: number; readonly clientY: number }
+
+declare global {
+  interface HTMLElementEventMap {
+    gesturestart: SafariGesture
+    gesturechange: SafariGesture
+    gestureend: SafariGesture
+  }
+}
+
 const FLOOR = new Plane(new Vector3(0, 1, 0), 0)
+
 const RAY = new Raycaster()
+
 const NDC = new Vector2()
+
 const HIT = new Vector3()
+
 const SEEN = new Vector3()

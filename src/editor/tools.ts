@@ -36,6 +36,7 @@ export type StrokeKeys = { constrain?: boolean; fromCenter?: boolean }
 
 // 15° — the steps a constrained line keeps to.
 const LINE_STEP = Math.PI / 12
+
 const EPSILON = 1e-9
 
 // The stroke a tool gets for a press at `anchor` dragged to `pointer`: both ends snapped like everything the editor
@@ -50,13 +51,16 @@ export function strokeOf(
   step: number = snap ? snap.cell / 2 : 1,
 ): PlanStroke {
   const end = snapped(pointer, step)
+
   if (draw === 'point' || draw === 'polygon' || draw === 'path') return { start: end, end }
   const start = snapped(anchor, step)
   let d = { x: end.x - start.x, y: end.y - start.y }
+
   if (keys.constrain && draw === 'box') {
     const side = Math.max(Math.abs(d.x), Math.abs(d.y))
     d = { x: side * signOf(d.x), y: side * signOf(d.y) }
   }
+
   if (keys.constrain && draw === 'line') {
     // The pointer projected onto the nearest 15° step — a level or upright line as far as the grid goes, so a pointer a
     // little off the line does not stretch it past the grid.
@@ -67,6 +71,7 @@ export function strokeOf(
     const length = level ? Math.round(reach / step) * step : reach
     d = { x: Math.round(length * along.x) || 0, y: Math.round(length * along.y) || 0 }
   }
+
   return {
     start: keys.fromCenter ? { x: start.x - d.x, y: start.y - d.y } : start,
     end: { x: start.x + d.x, y: start.y + d.y },

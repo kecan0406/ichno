@@ -30,21 +30,29 @@ export function Menu({ id, label, at, anchor, align = 'start', onOpenChange, chi
 
   useEffect(() => {
     const menu = ref.current
+
     if (!menu || at === undefined) return
+
     if (at === null) {
       if (menu.matches(':popover-open')) menu.hidePopover()
+
       return
     }
+
     placeAt(menu, { left: at.x, top: at.y })
+
     if (!menu.matches(':popover-open')) menu.showPopover()
     keepInside(menu)
     firstItem(menu)?.focus()
+
     // A press or a scroll anywhere else closes it.
     function away(e: Event) {
       if (!(e.target instanceof Node && menu!.contains(e.target))) dismiss()
     }
+
     document.addEventListener('pointerdown', away, true)
     document.addEventListener('wheel', away, { capture: true, passive: true })
+
     return () => {
       document.removeEventListener('pointerdown', away, true)
       document.removeEventListener('wheel', away, true)
@@ -66,6 +74,7 @@ export function Menu({ id, label, at, anchor, align = 'start', onOpenChange, chi
       className={styles.menu}
       onBeforeToggle={(e) => {
         const button = anchor?.current
+
         if (e.newState !== 'open' || !button) return
         const r = button.getBoundingClientRect()
         placeAt(
@@ -78,10 +87,12 @@ export function Menu({ id, label, at, anchor, align = 'start', onOpenChange, chi
       onToggle={(e) => {
         if (pointed) return
         const open = e.newState === 'open'
+
         if (open) {
           keepInside(e.currentTarget)
           firstItem(e.currentTarget)?.focus()
         }
+
         onOpenChange?.(open)
       }}
       onClick={(e) => {
@@ -90,13 +101,17 @@ export function Menu({ id, label, at, anchor, align = 'start', onOpenChange, chi
       // Keys pressed in a menu are the menu's — not the editor's shortcuts behind it.
       onKeyDown={(e) => {
         e.stopPropagation()
+
         if (e.key === 'Escape') {
           e.preventDefault()
           close(e.currentTarget)
+
           return
         }
+
         const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)')]
         const at = items.findIndex((item) => item === document.activeElement)
+
         const next =
           e.key === 'ArrowDown'
             ? items[(at + 1) % items.length]
@@ -107,6 +122,7 @@ export function Menu({ id, label, at, anchor, align = 'start', onOpenChange, chi
                 : e.key === 'End'
                   ? items.at(-1)
                   : undefined
+
         if (next) {
           e.preventDefault()
           next.focus()
@@ -139,6 +155,7 @@ export function MenuButton({
   const id = useId()
   const ref = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
+
   return (
     <>
       <button
@@ -222,8 +239,10 @@ function placeAt(menu: HTMLElement, at: { left?: number; right?: number; top: nu
 // Pulls an open menu back inside the window.
 function keepInside(menu: HTMLElement) {
   const r = menu.getBoundingClientRect()
+
   if (r.right > window.innerWidth - MARGIN) placeAt(menu, { right: MARGIN, top: r.top })
   else if (r.left < MARGIN) placeAt(menu, { left: MARGIN, top: r.top })
+
   if (r.bottom > window.innerHeight - MARGIN) {
     menu.style.top = `${Math.max(MARGIN, window.innerHeight - MARGIN - r.height)}px`
   }

@@ -16,14 +16,14 @@ export const venueSectionNames: Record<VenueSection, string> = {
   S: 'Studio',
 }
 
-export const fixtureNames: Record<string, string> = {
-  stage: 'Stage',
-  bar: 'Bar',
-  screen: 'Screen',
-  wall: 'Wall',
-  door: 'Door',
-  pillar: 'Pillar',
-}
+export const fixtureNames = new Map<string, string>([
+  ['stage', 'Stage'],
+  ['bar', 'Bar'],
+  ['screen', 'Screen'],
+  ['wall', 'Wall'],
+  ['door', 'Door'],
+  ['pillar', 'Pillar'],
+])
 
 type Built<S extends string> = { groups: Group[]; objects: PlanObject<S>[] }
 
@@ -44,10 +44,12 @@ export function row<S extends string>(options: {
 }): Built<S> {
   const { size = 45, shape = 'ellipse' } = options
   const boxes = layout.arc({ ...options, count: options.seats.length, size })
+
   const ends = [
     { x: options.start.x - 50, y: options.start.y },
     { x: options.end.x + 50, y: options.end.y },
   ]
+
   return {
     groups: [{ id: options.id, label: options.label, role: 'row' }],
     objects: [
@@ -87,6 +89,7 @@ function roundTable<S extends string>(
   const top = { x: center.x - 60, y: center.y - 60, w: 120, h: 120 }
   const seats = layout.around({ table: top, shape: 'ellipse', count: options.seats ?? 6, size: 45 })
   const category = options.category === undefined ? {} : { category: options.category }
+
   if (options.whole) {
     return {
       groups: [{ id: group, role: 'table' }],
@@ -113,6 +116,7 @@ function roundTable<S extends string>(
       ],
     }
   }
+
   return {
     groups: [{ id: group, label: id, role: 'table' }],
     objects: [
@@ -145,6 +149,7 @@ export function desk<S extends string>(
   const group = `${id}-desk`
   const top: PlanBox = { x: origin.x + 2, y: chair === 'up' ? origin.y + 43 : origin.y + 2, w: 96, h: 55 }
   const seat: PlanBox = { x: origin.x + 28, y: chair === 'up' ? origin.y + 2 : origin.y + 58, w: 44, h: 40 }
+
   return {
     groups: [{ id: group, role: 'desk' }],
     objects: [
@@ -160,6 +165,7 @@ function hallRows(): Built<VenueSection>[] {
     const y = 350 + 100 * i
     const half = 250 + 25 * i
     const count = 10 + i
+
     return row<VenueSection>({
       id: `row-${letter}`,
       label: letter,
@@ -184,6 +190,7 @@ function studioDesks(): Built<VenueSection>[] {
     [18, 'up'],
     [20, 'down'],
   ]
+
   return rows.flatMap(([cellY, side], r) =>
     [25, 27, 29, 31].map((cellX, c) =>
       desk<VenueSection>(`S${r * 4 + c + 1}`, 'S', { x: cellX * 50, y: cellY * 50 }, side, {
@@ -199,6 +206,7 @@ function assemble<S extends string>(
   pieces: (Built<S> | PlanObject<S>)[],
 ): SeatPlan<S> {
   const built = pieces.map((piece) => ('kind' in piece ? { groups: [], objects: [piece] } : piece))
+
   return {
     version: 3,
     walls: [],
@@ -313,7 +321,7 @@ export const hallPlan: SeatPlan<HallSection> = assemble<HallSection>(
   },
   [
     { kind: 'fixture', id: 'stage', shape: 'rect', role: 'stage', x: 600, y: 50, w: 600, h: 300 },
-    ...[...ROW_LETTERS.slice(0, 6)].map((letter, i) =>
+    ...Array.from(ROW_LETTERS.slice(0, 6)).map((letter, i) =>
       row<HallSection>({
         id: `row-${letter}`,
         label: letter,

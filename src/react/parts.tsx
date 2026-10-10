@@ -35,6 +35,7 @@ type RootProps = Omit<ComponentProps<'svg'>, 'viewBox'> & {
 // drawing's aspect ratio.
 export function Root({ plan, view, style, children, ...rest }: RootProps) {
   const box = view ?? planView.home(plan)
+
   return (
     <svg
       viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`}
@@ -56,6 +57,7 @@ type SectionProps = GProps & {
 // One section — its floor, the outer wall just outside the outline, and an optional name above it.
 export function SectionPart({ section, label, ...rest }: SectionProps) {
   const bounds = seatPlan.sectionBoundsOf(section)
+
   return (
     <g data-ichno-section={section.id} {...rest}>
       <polygon data-part="floor" points={pointsOf(section.points)} fill={cssVar('surface')} />
@@ -157,6 +159,7 @@ export function PlacePart({
   const tone = selected ? TONES.selected : disabled ? TONES.disabled : TONES.idle
   const stroke = invalid ? cssVar('warning') : highlighted && !selected ? cssVar('accent') : tone.stroke
   const text = label === undefined ? (place.label ?? place.id) : label
+
   const shapeProps = {
     'data-part': 'shape',
     fill: tone.fill,
@@ -164,6 +167,7 @@ export function PlacePart({
     strokeWidth: LINE_WIDTH,
     vectorEffect: 'non-scaling-stroke' as const,
   }
+
   return (
     <g
       transform={transformOf(place)}
@@ -225,6 +229,7 @@ export function FixturePart({ fixture, variant = 'box', label, ...rest }: Fixtur
   const layout = variant === 'box' ? seatPlan.fixtureLabelOf(fixture, label) : null
   const cx = fixture.w / 2
   const cy = fixture.h / 2
+
   const face = {
     'data-part': 'shape',
     fill: cssVar('fixture'),
@@ -232,6 +237,7 @@ export function FixturePart({ fixture, variant = 'box', label, ...rest }: Fixtur
     strokeWidth: LINE_WIDTH,
     vectorEffect: 'non-scaling-stroke' as const,
   }
+
   return (
     <g
       transform={transformOf(fixture)}
@@ -283,6 +289,7 @@ type LabelProps = GProps & {
 // The text stays upright.
 export function LabelPart({ label, children, ...rest }: LabelProps) {
   const { w, h } = label
+
   return (
     <g
       transform={`translate(${label.x} ${label.y})`}
@@ -315,8 +322,11 @@ export function GridPart({
   ...rest
 }: GProps & { plan: Pick<SeatPlan, 'width' | 'height'>; cell?: number }) {
   let d = ''
+
   for (let x = cell; x < plan.width; x += cell) d += `M${x} 0V${plan.height}`
+
   for (let y = cell; y < plan.height; y += cell) d += `M0 ${y}H${plan.width}`
+
   return (
     <g data-part="grid" pointerEvents="none" {...rest}>
       <path d={d} stroke={cssVar('grid')} strokeWidth={1} vectorEffect="non-scaling-stroke" fill="none" />
@@ -345,6 +355,7 @@ export function HandlesPart({
   const knob = handles.find((handle) => handle.name === 'rotate')
   const [nw, ne] = frame ?? []
   const line = { stroke: cssVar('accent'), strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const, fill: 'none' }
+
   return (
     <g data-part="handles" {...rest}>
       {frame && frame.length > 2 && (
@@ -363,6 +374,7 @@ export function HandlesPart({
         const edge = handle.name.startsWith('edge-')
         const cap = handle.name === 'rotate' || edge ? 'round' : 'square'
         const size = edge ? EDGE_HANDLE_PX : HANDLE_PX
+
         return (
           <g
             key={`${handle.owner.kind}:${'id' in handle.owner ? handle.owner.id : ''}:${handle.name}`}
@@ -397,6 +409,7 @@ export function HandlesPart({
 // tap would select). A fixed 1px on screen at any zoom; it never takes the pointer.
 export function OutlinePart({ points, ...rest }: Omit<GProps, 'points'> & { points: readonly PlanPoint[] | null }) {
   if (!points || points.length < 2) return null
+
   return (
     <g data-part="outline" pointerEvents="none" {...rest}>
       <polygon
@@ -413,6 +426,7 @@ export function OutlinePart({ points, ...rest }: Omit<GProps, 'points'> & { poin
 // The rubber band of a marquee selection.
 export function MarqueePart({ rect, ...rest }: GProps & { rect: PlanRect | null }) {
   if (!rect) return null
+
   return (
     <g data-part="marquee" pointerEvents="none" {...rest}>
       <rect
@@ -436,6 +450,7 @@ export function placeLabelFont(place: Pick<Place, 'w' | 'h'>): number {
 // Where a box is drawn — moved to its origin and turned about its centre.
 function transformOf(box: PlanBox): string {
   const move = `translate(${box.x} ${box.y})`
+
   return box.rotation ? `${move} rotate(${box.rotation} ${box.w / 2} ${box.h / 2})` : move
 }
 
@@ -463,8 +478,7 @@ function pointsOf(points: readonly PlanPoint[]): string {
 // Closed rings as one path — filled with the nonzero rule, a ring turning the other way leaves a hole.
 function pathOf(rings: readonly (readonly PlanPoint[])[]): string {
   return rings
-    .filter((ring) => ring.length > 2)
-    .map((ring) => `M${ring.map((p) => `${round(p.x)} ${round(p.y)}`).join('L')}Z`)
+    .map((ring) => (ring.length > 2 ? `M${ring.map((p) => `${round(p.x)} ${round(p.y)}`).join('L')}Z` : ''))
     .join('')
 }
 
@@ -478,21 +492,30 @@ function rectOf(rect: PlanRect) {
 
 // Seat number font (plan units) — always drawn regardless of scale; a small number beats none.
 const SEAT_LABEL_FONT = 20
+
 const RECT_RADIUS = 4
+
 const LINE_WIDTH = 1.5
+
 const DIMMED_OPACITY = 0.35
+
 // Handle size in screen pixels — an edge's middle smaller, so the corners stand out.
 const HANDLE_PX = 12
+
 const EDGE_HANDLE_PX = 9
+
 // Resize cursors by the direction a corner points, in 45° sectors from +x.
 const RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'] as const
 
 // A resize cursor the way a handle points (a corner outward, an edge's middle across it), `move` for one that does not.
 function cursorOf(handle: PlanHandle): string {
   if (handle.name === 'rotate') return 'grab'
+
   if (handle.angle === undefined) return 'move'
   const sector = Math.round((((handle.angle % 180) + 180) % 180) / 45) % 4
+
   return RESIZE_CURSORS[sector]!
 }
+
 // Unset variables are invalid at computed-value time, so the number font falls back to the inherited font.
 const NUMBER_FONT_STYLE: CSSProperties = { fontFamily: `var(${NUMBER_FONT_VAR}, var(${FONT_VAR}))` }

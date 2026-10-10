@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { lintSeatPlan } from './lint'
 import { layout } from './layout'
 import { validateSelection } from './selection'
-import type { PlanObject, SeatPlan } from './types'
+import type { Place, PlanObject, SeatPlan } from './types'
 
 const square = [
   { x: 0, y: 0 },
@@ -28,12 +28,13 @@ function planOf(objects: PlanObject[], extra: Partial<SeatPlan> = {}): SeatPlan 
   }
 }
 
-function desk(id: string, x: number, extra: object = {}): PlanObject {
+function desk(id: string, x: number, extra: Partial<Place> = {}): PlanObject {
   return { kind: 'place', id, section: 'A', x, y: 20, w: 80, h: 80, shape: 'rect', capacity: 1, ...extra }
 }
 
 function row(group: string, y: number, ids: string[]): PlanObject[] {
   const boxes = layout.line({ start: { x: 40, y }, end: { x: 440, y }, count: ids.length, size: 40 })
+
   return boxes.map((box, i) => ({
     kind: 'place',
     id: ids[i]!,
@@ -47,7 +48,9 @@ function row(group: string, y: number, ids: string[]): PlanObject[] {
 
 // Row A: seats A1…A6 left to right, in a group; row B: two seats; a desk alone in its own group.
 const rowA = row('row-a', 300, ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'])
+
 const rowB = row('row-b', 400, ['B1', 'B2'])
+
 const lone = desk('D1', 20, { group: 'desk-1' })
 
 describe('lintSeatPlan', () => {

@@ -1,7 +1,7 @@
 'use client'
 
 import type { PlanTemplate } from 'ichno'
-import { PRIMITIVE_TOOLS, type ToolDef } from '../_lib/playground-objects'
+import { PRIMITIVE_TOOLS, type PrimitiveId, type ToolDef } from '../_lib/playground-objects'
 import { Thumbnail } from './assets'
 import { pressKeepingFocus } from './focus'
 import { Icon, type IconName } from './icons'
@@ -51,8 +51,8 @@ export function Toolbar({
       {PRIMITIVE_TOOLS.map((def) => (
         <Tool
           key={def.id}
-          icon={PRIMITIVE_ICONS[def.id] ?? 'place'}
-          label={`${def.name} — ${PRIMITIVE_WHAT[def.id] ?? ''}`}
+          icon={PRIMITIVE_ICONS[def.id]}
+          label={`${def.name} — ${PRIMITIVE_WHAT[def.id]}`}
           keys={def.key}
           pressed={active === def.id}
           onClick={() => onTool(def)}
@@ -77,8 +77,9 @@ export function Toolbar({
   )
 }
 
-const PRIMITIVE_ICONS: Partial<Record<string, IconName>> = { place: 'place', fixture: 'fixture', wall: 'wall' }
-const PRIMITIVE_WHAT: Partial<Record<string, string>> = {
+const PRIMITIVE_ICONS: Record<PrimitiveId, IconName> = { place: 'place', fixture: 'fixture', wall: 'wall' }
+
+const PRIMITIVE_WHAT: Record<PrimitiveId, string> = {
   place: 'something to book',
   fixture: 'anything else',
   wall: 'rooms close where walls meet',

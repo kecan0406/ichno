@@ -7,6 +7,7 @@ import { useEffect, useEffectEvent, useRef, useState, type RefObject } from 'rea
 import {
   Box3,
   Matrix4,
+  PerspectiveCamera,
   Quaternion,
   Raycaster,
   RingGeometry,
@@ -15,7 +16,6 @@ import {
   Vector2,
   Vector3,
   Vector4,
-  type PerspectiveCamera,
 } from 'three'
 import {
   WALL_CUT,
@@ -70,18 +70,23 @@ export default function Preview3D(props: Preview3DProps) {
   // A place that went away (an undo) takes its card and its view with it.
   useEffect(() => {
     if (viewing !== null && sight === null) setViewing(null)
+
     if (focus !== null && focused === null && viewing === null) setFocus(null)
   }, [viewing, sight, focus, focused])
 
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
     if (e.key !== 'Escape' || e.defaultPrevented) return
+
     if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], dialog')) return
+
     if (viewing !== null) setViewing(null)
     else setFocus(null)
   })
+
   useEffect(() => {
     const listener = (e: KeyboardEvent) => onKeyDown(e)
     window.addEventListener('keydown', listener)
+
     return () => window.removeEventListener('keydown', listener)
   }, [])
 
@@ -92,11 +97,15 @@ export default function Preview3D(props: Preview3DProps) {
 
   function zoom(direction: 1 | -1) {
     const controls = controlsRef.current
+
     if (!controls) return
+
     if (viewing !== null) {
       controls.zoom(direction * LENS_STEP, true)
+
       return
     }
+
     // From where the camera is heading, so quick presses add up instead of repeating one step.
     const radius = controls.getSpherical(new Spherical(), true).radius
     controls.dollyTo(direction > 0 ? radius * DOLLY_STEP : radius / DOLLY_STEP, true)
@@ -212,6 +221,7 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
   const mark = marked === null ? undefined : pieces.find((piece) => piece.id === marked)
   const overhead = useOverhead()
   const places = new Map(pieces.flatMap((piece) => (piece.place ? [[piece.id, piece.place] as const] : [])))
+
   const solids = pieces.map((piece): Solid => ({
     id: piece.id,
     model: piece.model,
@@ -223,6 +233,7 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
     yaw: piece.yaw,
     look: lookOf(piece, palette, props),
   }))
+
   // Cut down while the camera is up high, so it sees into the rooms, and at full height once it is down among the
   // seats. Drawn in hairlines, as the 2D drawing draws a wall's band.
   const walls = wallsOf(plan).map((wall, i): Solid => ({
@@ -257,6 +268,7 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
         onHover={(solid) => props.onHover(placeOf(solid, places, props.isDisabled)?.id ?? null)}
         onTap={(solid) => {
           const place = placeOf(solid, places, props.isDisabled)
+
           if (place) props.onTap(place)
         }}
       />
@@ -283,10 +295,14 @@ function lookOf(
   { picked, hovered, isDisabled }: Pick<SceneProps, 'picked' | 'hovered' | 'isDisabled'>,
 ): Look {
   const place = piece.place
+
   if (!place) return { fill: palette.surface, line: 'ink' }
+
   if (picked.includes(place.id)) return { fill: palette.ink, line: 'paper' }
+
   if (isDisabled(place)) return { fill: null, line: 'label', dash: true }
   const fill = (place.category === undefined ? undefined : palette.categories[place.category]) ?? palette.surface
+
   return hovered === place.id ? { fill, line: 'ink', dash: true, march: true } : { fill, line: 'ink' }
 }
 
@@ -297,6 +313,7 @@ function placeOf(
   isDisabled: (place: Place<string>) => boolean,
 ): Place<string> | null {
   const place = solid === null ? null : (places.get(solid.id) ?? null)
+
   return place && !isDisabled(place) ? place : null
 }
 
@@ -306,14 +323,17 @@ function useOverhead(): boolean {
   const [overhead, setOverhead] = useState(true)
   useFrame(() => {
     const now = camera.position.y > WALL_HEIGHT * 1.6
+
     if (now !== overhead) setOverhead(now)
   })
+
   return overhead
 }
 
 // A ring on the floor round the place the card is about.
 function Mark({ piece, palette }: { piece: Piece; palette: Palette }) {
   const radius = Math.max(piece.w, piece.d) * 0.62 + 6
+
   return (
     <mesh position={[piece.x, 2, piece.z]} rotation-x={-Math.PI / 2} geometry={RING} scale={[radius, radius, 1]}>
       <meshBasicMaterial color={palette.ink} />
@@ -336,7 +356,7 @@ function CameraRig({
   viewing: string | null
   controlsRef: RefObject<CameraControls | null>
 }) {
-  const camera = useThree((state) => state.camera) as PerspectiveCamera
+  const camera = useThree((state) => state.camera)
   const gl = useThree((state) => state.gl)
   const invalidate = useThree((state) => state.invalidate)
   const [controls] = useState(() => new CameraControls(camera))
@@ -351,7 +371,9 @@ function CameraRig({
     controls.connect(gl.domElement)
     controlsRef.current = controls
     const wake = () => invalidate()
+
     for (const type of WAKE_EVENTS) controls.addEventListener(type, wake)
+
     return () => {
       for (const type of WAKE_EVENTS) controls.removeEventListener(type, wake)
       controls.disconnect()
@@ -364,6 +386,7 @@ function CameraRig({
     else flyOver(controls, overview, animate)
     invalidate()
   })
+
   // The first view is set at once; later ones fly.
   useEffect(() => {
     fly(flown.current)
@@ -387,9 +410,11 @@ function flyOver(controls: CameraControls, overview: Overview, animate: boolean)
   controls.mouseButtons.middle = CameraControls.ACTION.DOLLY
   controls.mouseButtons.wheel = CameraControls.ACTION.DOLLY
   controls.touches.one = CameraControls.ACTION.TOUCH_ROTATE
-  // Two fingers pinch and slide along the floor. camera-controls handles this for two fingers (its readme lists
-  // it) but leaves it out of the type.
-  controls.touches.two = CameraControls.ACTION.TOUCH_DOLLY_SCREEN_PAN as number as CameraControls['touches']['two']
+  // Two fingers pinch and slide along the floor.
+  // SAFETY: camera-controls runs TOUCH_DOLLY_SCREEN_PAN on two fingers (its readme lists it for `touches.two`); only
+  // its `Touches` type leaves the action out.
+  const touches = controls.touches as { two: number }
+  touches.two = CameraControls.ACTION.TOUCH_DOLLY_SCREEN_PAN
   controls.touches.three = CameraControls.ACTION.TOUCH_SCREEN_PAN
   // The orbit point stays over the drawing.
   controls.setBoundary(
@@ -398,7 +423,11 @@ function flyOver(controls: CameraControls, overview: Overview, animate: boolean)
       new Vector3(overview.x + reach, 0, overview.z + reach),
     ),
   )
-  const distance = fitDistance(controls.camera as PerspectiveCamera, overview)
+  const camera = controls.camera
+
+  // The Canvas makes a perspective camera — the only kind with a field of view to fit the drawing in.
+  if (!(camera instanceof PerspectiveCamera)) return
+  const distance = fitDistance(camera, overview)
   const x = overview.x + distance * Math.sin(HOME_TILT) * Math.sin(overview.azimuth)
   const z = overview.z + distance * Math.sin(HOME_TILT) * Math.cos(overview.azimuth)
   controls.normalizeRotations()
@@ -417,6 +446,7 @@ function fitDistance(camera: PerspectiveCamera, overview: Overview): number {
   const across = (overview.w / 2) * cos + (overview.h / 2) * sin
   const along = (overview.w / 2) * sin + (overview.h / 2) * cos
   const near = along * Math.sin(HOME_TILT)
+
   return Math.max(across / horizontal + near, (along * Math.cos(HOME_TILT)) / vertical + near) * FIT_MARGIN
 }
 
@@ -460,17 +490,28 @@ function reducedMotion(): boolean {
 // ---------- Constants ----------
 
 const FOV = 40
+
 // The overview's tilt from straight down, and how far a drag may tip it toward the horizon.
 const HOME_TILT = (48 * Math.PI) / 180
+
 const MAX_TILT = (80 * Math.PI) / 180
+
 // From a seat: the orbit point's distance in front of the eye, and how far one may look down and up.
 const EYE_REACH = 1
+
 const LOOK_DOWN = (60 * Math.PI) / 180
+
 const LOOK_UP = (35 * Math.PI) / 180
+
 const MAX_FRAME_S = 1 / 30
+
 // Room around the drawing in the overview; a zoom button's step in the overview and through the lens from a seat.
 const FIT_MARGIN = 1.06
+
 const DOLLY_STEP = 0.6
+
 const LENS_STEP = 0.5
+
 const WAKE_EVENTS = ['control', 'transitionstart', 'update', 'wake'] as const
+
 const RING = new RingGeometry(0.86, 1, 48)

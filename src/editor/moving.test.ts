@@ -4,18 +4,13 @@ import type { Place, SeatPlan } from '../core/types'
 import { KEY_SEPARATOR, changedKey, idsKey, onlyIds, overlapsOf, overlapsWith, withoutIds } from './moving'
 import { planEdits } from './operations'
 
-const seat = (id: string, x: number, y: number, group?: string): Place => ({
-  kind: 'place',
-  id,
-  section: 'A',
-  x,
-  y,
-  w: 40,
-  h: 40,
-  shape: 'rect',
-  capacity: 1,
-  ...(group ? { group } : {}),
-})
+const seat = (id: string, x: number, y: number, group?: string): Place => {
+  const place: Place = { kind: 'place', id, section: 'A', x, y, w: 40, h: 40, shape: 'rect', capacity: 1 }
+
+  if (group) place.group = group
+
+  return place
+}
 
 const plan: SeatPlan = {
   version: 3,
@@ -56,11 +51,13 @@ describe('the moving part of a drag', () => {
       objects: [{ id: 'R1', y: 146 }, { id: 'R2' }, { id: 'R3' }],
     })
     expect(changedKey(plan, plan)).toBe('')
+
     const reshaped = planEdits.reshapeSection(plan, 'A', [
       { x: 0, y: 0 },
       { x: 900, y: 0 },
       { x: 1000, y: 1000 },
     ])
+
     expect(changedKey(plan, reshaped)).toBeNull()
     // Gone objects count as changed.
     expect(changedKey(plan, planEdits.remove(plan, ['L1']).plan)).toBe('L1')

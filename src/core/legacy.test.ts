@@ -14,6 +14,7 @@ function v2(objects: PlanObjectV2<'A'>[]): SeatPlanV2<'A'> {
     { x: 1000, y: 800 },
     { x: 0, y: 800 },
   ]
+
   return { version: 2, width: 1000, height: 800, sections: [{ id: 'A', points }], categories: [], objects }
 }
 
@@ -28,6 +29,7 @@ describe('0.1 documents keep parsing', () => {
       seats: [{ id: 'T1', zone: 'A', x: 20, y: 20, w: 80, h: 80, chairSide: 'down' as const }],
       fixtures: [{ id: 'T1', kind: 'tv' as const, x: 300, y: 0, w: 138, h: 23 }],
     }
+
     const upgraded = upgradeSeatPlan(v1)
     expect(upgraded.objects.map((o) => o.id)).toEqual(['tv-1', 'T1', 'T1-c'])
     expect(Schema.safeParse(v1).success).toBe(true)
@@ -39,6 +41,8 @@ describe('0.2 documents keep parsing — every place keeps its id and its spot',
     const plan = upgradeSeatPlan(
       v2([{ kind: 'desk', id: 'A1', section: 'A', x: 2, y: 2, w: 88, h: 88, chairSide: 'up', label: '1' }]),
     )
+
+    // SAFETY: a desk upgrades to its top, a place, followed by its chair, a fixture.
     const [top, chair] = plan.objects as [Place, Fixture]
     expect(top).toMatchObject({ kind: 'place', id: 'A1', label: '1', role: 'desk', x: 2, y: 30, w: 88, h: 60 })
     expect(chair).toMatchObject({ kind: 'fixture', role: 'chair', group: top.group })
@@ -60,6 +64,7 @@ describe('0.2 documents keep parsing — every place keeps its id and its spot',
       seatSize: 40,
       seats: [{ id: 'A1', label: '1' }, { id: 'A2' }, { id: 'A3', category: 'vip' }],
     }
+
     const plan = upgradeSeatPlan(v2([row]))
     expect(plan.groups).toEqual([{ id: 'row-1', role: 'row', label: 'A' }])
     const seats = seatPlan.placesOf(plan)
@@ -92,6 +97,7 @@ describe('0.2 documents keep parsing — every place keeps its id and its spot',
       seatSize: 36,
       seats: [{ id: 'A10' }, { id: 'A11' }, { id: 'A12' }],
     }
+
     const plan = upgradeSeatPlan(v2([table]))
     expect(plan.objects.map((o) => [o.kind, o.id, o.kind === 'label' ? undefined : o.role])).toEqual([
       ['fixture', 'A9', 'table'],
@@ -120,6 +126,7 @@ describe('0.2 documents keep parsing — every place keeps its id and its spot',
         },
       ]),
     )
+
     expect(plan.objects.map((o) => [o.kind, o.id])).toEqual([
       ['fixture', 'A10'],
       ['fixture', 'A11'],
@@ -136,6 +143,7 @@ describe('0.2 documents keep parsing — every place keeps its id and its spot',
         { kind: 'area', id: 'A2', section: 'A', shape: 'ellipse', x: 200, y: 200, w: 300, h: 200, capacity: 80 },
       ]),
     )
+
     expect(plan.objects).toEqual([
       { kind: 'fixture', id: 'stage', shape: 'rect', role: 'stage', x: 0, y: 0, w: 400, h: 92 },
       {
@@ -177,6 +185,7 @@ describe('0.2 documents keep parsing — every place keeps its id and its spot',
       seatSize: 40,
       seats: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }],
     }
+
     const plan = upgradeSeatPlan(v2([crowded]))
     expect(seatPlan.conflictsOf(plan)).toEqual([])
     // Centres 30 apart: the seats shrink to 31 (crossing by less than OVERLAP_TOLERANCE) and stay where they were.
@@ -193,6 +202,7 @@ describe('0.2 documents keep parsing — every place keeps its id and its spot',
         { kind: 'desk', id: 'A1', section: 'A', x: 2, y: 2, w: 88, h: 88, chairSide: 'down' },
       ]),
     )
+
     expect(plan.groups.map((g) => g.id)).toEqual(['A1-g-2'])
     expect(new Set(seatPlan.idsOf(plan)).size).toBe(seatPlan.idsOf(plan).length)
   })

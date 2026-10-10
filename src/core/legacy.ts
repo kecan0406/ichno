@@ -68,14 +68,18 @@ export function upgradeSeatPlan<S extends string>(plan: SeatPlanV1<S> | SeatPlan
 export function upgradeV1<Z extends string>(plan: SeatPlanV1<Z>): SeatPlanV2<Z> {
   const seatIds = new Set(plan.seats.map((seat) => seat.id))
   const taken = new Set([...seatIds, ...plan.fixtures.map((fixture) => fixture.id)])
+
   const fixtureIdOf = (fixture: SeatPlanV1['fixtures'][number]) => {
     if (!seatIds.has(fixture.id)) return fixture.id
     let n = 1
+
     while (taken.has(`${fixture.kind}-${n}`)) n++
     const id = `${fixture.kind}-${n}`
     taken.add(id)
+
     return id
   }
+
   return {
     version: 2,
     width: plan.width,
@@ -126,12 +130,16 @@ export function upgradeV1<Z extends string>(plan: SeatPlanV1<Z>): SeatPlanV2<Z> 
 // upgraded document passes the overlap rule. Seat centres never move.
 export function upgradeV2<S extends string>(plan: SeatPlanV2<S>): SeatPlan<S> {
   const taken = new Set(plan.objects.flatMap((o) => [o.id, ...('seats' in o ? o.seats.map((s) => s.id) : [])]))
+
   const fresh = (base: string) => {
     let id = base.slice(0, OBJECT_ID_MAX)
+
     for (let n = 2; taken.has(id); n++) id = `${base.slice(0, OBJECT_ID_MAX - String(n).length - 1)}-${n}`
     taken.add(id)
+
     return id
   }
+
   const groups: Group[] = []
   const objects: PlanObject<S>[] = []
 
@@ -154,13 +162,18 @@ export function upgradeV2<S extends string>(plan: SeatPlanV2<S>): SeatPlan<S> {
         )
         break
       }
+
       case 'row': {
         const boxes = uncrowded(
           layout.arc({ ...object, count: object.seats.length, size: object.seatSize }).map(unturned),
           object.seatSize,
           false,
         )
-        groups.push({ id: object.id, role: 'row', ...(object.label === undefined ? {} : { label: object.label }) })
+
+        const row: Group = { id: object.id, role: 'row' }
+
+        if (object.label !== undefined) row.label = object.label
+        groups.push(row)
         objects.push(
           ...object.seats.map((seat, i) => ({
             ...placeOf({ ...seat, section: object.section }, 'seat', object.id),
@@ -169,8 +182,10 @@ export function upgradeV2<S extends string>(plan: SeatPlanV2<S>): SeatPlan<S> {
             capacity: 1,
           })),
         )
+
         if (object.label !== undefined) {
           const ends = rowLabelAnchorsOf(object)
+
           for (const [i, point] of [ends.start, ends.end].entries()) {
             const s = object.seatSize
             objects.push({
@@ -184,14 +199,17 @@ export function upgradeV2<S extends string>(plan: SeatPlanV2<S>): SeatPlan<S> {
             } satisfies GroupLabel)
           }
         }
+
         break
       }
+
       case 'table': {
         const group = fresh(`${object.id}-g`)
         const shape = object.shape === 'round' ? 'ellipse' : 'rect'
         const top = { x: object.x, y: object.y, w: object.w, h: object.h }
         const seats = layout.around({ table: top, shape, count: object.seats.length, size: object.seatSize })
         const boxes = uncrowded(seats.map(unturned), object.seatSize, shape === 'ellipse')
+
         if (object.wholeBooking) {
           groups.push({ id: group, role: 'table' })
           objects.push(
@@ -206,7 +224,10 @@ export function upgradeV2<S extends string>(plan: SeatPlanV2<S>): SeatPlan<S> {
             { ...placeOf(object, 'table', group), ...top, shape, capacity: object.seats.length },
           )
         } else {
-          groups.push({ id: group, role: 'table', ...(object.label === undefined ? {} : { label: object.label }) })
+          const table: Group = { id: group, role: 'table' }
+
+          if (object.label !== undefined) table.label = object.label
+          groups.push(table)
           objects.push(
             { kind: 'fixture', id: object.id, shape, role: 'table', group, ...top },
             ...object.seats.map((seat, i) => ({
@@ -217,8 +238,10 @@ export function upgradeV2<S extends string>(plan: SeatPlanV2<S>): SeatPlan<S> {
             })),
           )
         }
+
         break
       }
+
       case 'booth':
         objects.push({ ...placeOf(object, 'booth'), ...rectOf(object), shape: 'rect', capacity: 1 })
         break
@@ -243,22 +266,23 @@ export function upgradeV2<S extends string>(plan: SeatPlanV2<S>): SeatPlan<S> {
   }
 }
 
-// The document fields of a place, without its box.
-function placeOf<S extends string>(
-  item: BookableV2 & { section: S },
-  role: string,
-  group?: string,
-): Omit<Place<S>, 'x' | 'y' | 'w' | 'h' | 'shape' | 'capacity'> {
-  return {
-    kind: 'place',
-    id: item.id,
-    section: item.section,
-    ...(item.label === undefined ? {} : { label: item.label }),
-    ...(group === undefined ? {} : { group }),
-    role,
-    ...(item.category === undefined ? {} : { category: item.category }),
-    ...(item.tags === undefined ? {} : { tags: item.tags }),
-  }
+type PlaceFields<S extends string> = Omit<Place<S>, 'x' | 'y' | 'w' | 'h' | 'shape' | 'capacity'>
+
+// The document fields of a place, without its box — set one by one in the order upgrades have always written them,
+// so an upgraded document serializes the same.
+function placeOf<S extends string>(item: BookableV2 & { section: S }, role: string, group?: string): PlaceFields<S> {
+  const place: PlaceFields<S> = { kind: 'place', id: item.id, section: item.section }
+
+  if (item.label !== undefined) place.label = item.label
+
+  if (group !== undefined) place.group = group
+  place.role = role
+
+  if (item.category !== undefined) place.category = item.category
+
+  if (item.tags !== undefined) place.tags = item.tags
+
+  return place
 }
 
 // Round seats need no turn.
@@ -271,41 +295,55 @@ function unturned({ x, y, w, h }: PlanRect): PlanRect {
 function uncrowded(boxes: PlanRect[], size: number, closed: boolean): PlanRect[] {
   const centers = boxes.map(centerOfBox)
   const at = (s: number) => centers.map((c) => ({ x: Math.round(c.x - s / 2), y: Math.round(c.y - s / 2), w: s, h: s }))
+
   for (let s = size; s > 1; s--) {
     const next = at(s)
+
     const crowded = next.some((box, i) => {
       const other = next[i + 1] ?? (closed && next.length > 2 ? next[0] : undefined)
+
       return other !== undefined && polygonsOverlap(outlineOf(box, 'ellipse', 0.5), outlineOf(other, 'ellipse', 0.5))
     })
+
     if (!crowded) return next
   }
+
   return at(1)
 }
+
+type RowEnds = { start: PlanPoint; end: PlanPoint }
 
 // Where v2 drew a row's label — one seat's width beyond the first and the last seat, along the row.
 function rowLabelAnchorsOf(
   row: Pick<Extract<PlanObjectV2, { kind: 'row' }>, 'start' | 'end' | 'curve' | 'seats' | 'seatSize'>,
-): { start: PlanPoint; end: PlanPoint } {
+): RowEnds {
   const centers = arcPoints(row.start, row.end, row.curve, row.seats.length)
   const first = centers[0] ?? row.start
   const last = centers.at(-1) ?? row.end
+
   const outward = (from: PlanPoint, toward: PlanPoint | undefined, fallback: PlanPoint): PlanPoint => {
     const dx = toward ? from.x - toward.x : fallback.x
     const dy = toward ? from.y - toward.y : fallback.y
     const length = Math.hypot(dx, dy)
+
     if (length === 0) return { x: from.x, y: from.y }
+
     return { x: from.x + (dx / length) * row.seatSize, y: from.y + (dy / length) * row.seatSize }
   }
+
   const along = { x: row.end.x - row.start.x || 1, y: row.end.y - row.start.y }
+
   return {
     start: outward(first, centers[1], { x: -along.x, y: -along.y }),
     end: outward(last, centers.at(-2), along),
   }
 }
 
+type DeskFurniture = { desk: PlanRect; chair: PlanRect }
+
 // How v2 drew a desk — the chair in a band on its chair side, the desk top in the rest (local coordinates, whole
 // units). The chair lies with its long edge along the desk.
-function furnitureOf(desk: { w: number; h: number; chairSide: ChairSide }): { desk: PlanRect; chair: PlanRect } {
+function furnitureOf(desk: { w: number; h: number; chairSide: ChairSide }): DeskFurniture {
   const sideways = desk.chairSide === 'left' || desk.chairSide === 'right'
   const depth = sideways ? desk.w : desk.h
   const span = sideways ? desk.h : desk.w
@@ -315,6 +353,7 @@ function furnitureOf(desk: { w: number; h: number; chairSide: ChairSide }): { de
   const thickness = Math.max(1, band - gap - inset)
   const length = Math.max(1, Math.min(CHAIR_LENGTH, span - 8))
   const along = Math.round((span - length) / 2)
+
   switch (desk.chairSide) {
     case 'up':
       return {
@@ -341,6 +380,7 @@ function furnitureOf(desk: { w: number; h: number; chairSide: ChairSide }): { de
 
 // A desk's chair band and chair length, as v2 drew them.
 const CHAIR_BAND = 28
+
 const CHAIR_LENGTH = 38
 
 function offset(rect: PlanRect, origin: PlanPoint): PlanRect {

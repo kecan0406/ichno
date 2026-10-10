@@ -71,6 +71,12 @@ type History<S extends string> = { past: SeatPlan<S>[]; present: SeatPlan<S>; fu
 // A new group made while adding — its props, or the id of one that exists.
 type GroupChoice = string | Omit<Group, 'id'>
 
+// The plan to add into and the group what is added joins — `made` when that group is new.
+type Grouped<S extends string> = { plan: SeatPlan<S>; group: string | undefined; made?: string }
+
+// The plan with a drag applied, and the guides it lined up on.
+type Dragged<S extends string> = { plan: SeatPlan<S>; guides: PlanGuide[] }
+
 // A plan → plan change (null: nothing to change) — what `edit` commits and `preview` shows.
 type Edit<S extends string> = (current: SeatPlan<S>) => SeatPlan<S> | null
 
@@ -92,16 +98,25 @@ type Press = { kind: 'stroke' | 'drag' | 'marquee'; cancelled: boolean }
 // How close (screen pixels) a tap comes to a polygon's first or last corner to close it — a little past the marker
 // on the first one.
 const CLOSE_PX = 10
+
 // Undo depth — plenty for an editing session, bounded so a long one does not hold every version.
 const HISTORY_LIMIT = 100
+
 // How far each paste lands from what was copied when the pointer is not over the plan — two cells, like duplicate.
 const PASTE_STEP = GRID_CELL * 2
+
 const NO_KEYS = {}
+
 const NO_FRAMES: PlanPoint[][] = []
+
 const NO_HANDLE_SETS: readonly EditorHandles<never>[] = []
+
 const NO_GUIDES: PlanGuide[] = []
+
 const NONE: ReadonlySet<string> = new Set()
+
 const NO_IDS: string[] = []
+
 // How close (screen pixels) a move, a corner or a stroke comes to a guide to snap to it.
 const GUIDE_PX = 6
 
@@ -123,10 +138,12 @@ export function useSeatPlanEditor<S extends string>({
   handles: handleSets = NO_HANDLE_SETS,
   guides = false,
 }: Options<S>) {
-  const [start] = useState(() => ({
-    saved: { plan: initialPlan, json: JSON.stringify(initialPlan) },
-    history: { past: [], present: initialPlan, future: [], dirty: false } as History<S>,
-  }))
+  const [start] = useState(() => {
+    const history: History<S> = { past: [], present: initialPlan, future: [], dirty: false }
+
+    return { saved: { plan: initialPlan, json: JSON.stringify(initialPlan) }, history }
+  })
+
   const [history, setHistory] = useState<History<S>>(start.history)
   // What `dirty` compares against and `reset` goes back to — the plan as opened, or as last saved (`markSaved`).
   const savedRef = useRef(start.saved)
@@ -174,19 +191,23 @@ export function useSeatPlanEditor<S extends string>({
   const selectedObjects = selected.selectedObjects
   const selectedGroups = selected.selectedGroups
   const selectedPlaceIds = selected.selectedPlaceIds
+
   // What the selection covers — objects by their turned bounds, walls by their band's, sections by their outline's
   // box. Frame it with a view's zoomTo (useSeatMapView, ichno/react).
   const selectionBounds: PlanRect[] = [
     ...selectedObjects.map(seatPlan.boundsOf),
     ...selectedWallIds.flatMap((id) => {
       const wall = seatPlan.wallOf(plan, id)
+
       return wall ? [seatPlan.wallBoundsOf(wall)] : []
     }),
     ...selectedSectionIds.flatMap((id) => {
       const section = seatPlan.sectionOf(plan, id)
+
       return section ? [seatPlan.sectionBoundsOf(section)] : []
     }),
   ]
+
   // What a drag or the arrow keys move — the selected objects and groups, and the walls.
   const movableIds = selectedWallIds.length === 0 ? selectedIds : [...selectedIds, ...selectedWallIds]
   // The plan as drawn — the edit being previewed, the drag in progress with the snapping it will commit with, and
@@ -196,12 +217,14 @@ export function useSeatPlanEditor<S extends string>({
   // the press moves; for a wall being drawn, the corners of the other walls alone, so walls stay on the grid rather than
   // lining up with furniture or another wall's faces. Gathered once a drag starts or a tool is picked, not on every move.
   const guideSource = hidden.size === 0 ? shown : withoutHidden(shown, hidden)
+
   const guideTargets =
     guides && (drag !== null || tool !== null)
       ? tool?.draw === 'path'
         ? planGuides.wallTargetsOf(guideSource, NONE)
         : planGuides.targetsOf(guideSource, movingOf(shown, drag?.target ?? null))
       : null
+
   const dragResult = drag === null ? null : dragged(shown, drag)
   const moved = dragResult?.plan ?? shown
   const displayPlan = hidden.size === 0 ? moved : withoutHidden(moved, hidden)
@@ -220,6 +243,7 @@ export function useSeatPlanEditor<S extends string>({
   // What the tool would make — while a stroke is drawn, or for a tap under the pointer — and the plan with it. A
   // polygon or path tool's stroke is a rectangle while one is dragged out (see `handleDraw`).
   const cornered = tool !== null && isCornered(tool)
+
   const toolStroke =
     tool === null
       ? null
@@ -228,20 +252,24 @@ export function useSeatPlanEditor<S extends string>({
           ? polygonStroke(corners, pointer)
           : rectangleOf(stroke)
         : (stroke ?? (pointer === null ? null : { start: pointer, end: pointer }))
+
   // The stroke as drawn over the plan — a dragged rectangle closed.
   const drawnStroke = cornered
     ? toolStroke && stroke !== null
       ? { ...toolStroke, points: [...(toolStroke.points ?? []), toolStroke.start] }
       : toolStroke
     : stroke
+
   const created = tool === null || toolStroke === null ? null : tool.create(plan, toolStroke)
   // Only the new objects (and the groups they belong to), as a plan without sections — draw it over the plan,
   // e.g. half transparent. null when the tool would make nothing there.
   const draft = created === null ? null : addedPart(plan, created)
   // The guides through where a tool would draw — what the pointer or the stroke's end lines up with.
   const strokeEnd = tool === null ? null : (toolStroke?.end ?? null)
+
   const strokeGuides =
     guideTargets !== null && strokeEnd !== null ? planGuides.snapPoint(strokeEnd, guideTargets, 0).guides : NO_GUIDES
+
   // Places that overlap on the plan as drawn, the draft included. The schema refuses to save them; pass them to
   // <SeatMap.Content invalid> to mark them while arranging. While objects move, the still ones' overlaps are found
   // once and only the moving ones are checked each frame; the list keeps its identity while it says the same.
@@ -251,13 +279,16 @@ export function useSeatPlanEditor<S extends string>({
       : still.overlaps === null || movingPart === null
         ? idsKey(seatPlan.conflictsOf(moved).flat())
         : idsKey([...still.overlaps.ids, ...overlapsWith(movingPart, still.overlaps)])
+
   const conflictIds = useKeyedIds(conflictKey)
+
   // While the selection's knob turns several items, the box and the knob turn with the pointer rather than being
   // drawn round what they turned.
   const turning =
     drag !== null && drag.target.kind === 'handle' && drag.target.owner.kind === 'selection'
       ? planHandles.selectionTurn(shown, selection, drag.total, grid !== null || drag.constrain === true)
       : null
+
   // Handles for a single selected item (or the knob for several), placed on the plan as drawn so they follow a
   // drag. None while a tool is active — every press draws then.
   const handles: PlanHandle<S>[] =
@@ -267,24 +298,30 @@ export function useSeatPlanEditor<S extends string>({
           ...ownHandlesOf(displayPlan, selection),
         ]
       : []
+
   // The outline those handles belong to (the box around several items) — pass it to <SeatMap.Handles frame>.
   const frame =
     tool === null ? planHandles.frame(turning === null ? displayPlan : shown, selection, turning ?? 0) : null
+
   // The outline of every selected object and group — draw them (<SeatMap.Outline>) when more than one item is
   // selected, so fixtures and groups show they are in the selection too.
   const frames = planHandles.frames(displayPlan, selection)
+
   // The outline of what a tap would select under the pointer — none while dragging, drawing, or over the selection.
   const hoverFrame =
     tool === null && drag === null && hovered !== null && !selection.some((item) => sameSelection(item, hovered))
       ? planHandles.frame(displayPlan, [hovered])
       : null
+
   // The rubber band being dragged, in plan units — draw it with <SeatMap.Marquee>.
   const [marquee, setMarquee] = useState<PlanRect | null>(null)
 
   // Your handles for the one selected item, named `<set>:<name>`.
   function ownHandlesOf(current: SeatPlan<S>, items: readonly EditorSelection<S>[]): PlanHandle<S>[] {
     const [item] = items
+
     if (items.length !== 1 || item === undefined) return []
+
     return handleSets.flatMap((set) =>
       set.of(current, item).map((handle) => ({ ...handle, owner: item, name: `${set.id}:${handle.name}` })),
     )
@@ -294,46 +331,62 @@ export function useSeatPlanEditor<S extends string>({
   // handle's owner. Nothing for a section or a tool.
   function movingOf(current: SeatPlan<S>, target: PlanTarget<S> | null): ReadonlySet<string> {
     if (target === null || target.kind === 'section') return NONE
+
     if (target.kind === 'handle') {
       return target.owner.kind === 'selection' ? new Set(selectedIds) : new Set([target.owner.id])
     }
+
     if (target.kind === 'wall') return new Set(selectedWallIds.includes(target.id) ? movableIds : [target.id])
     const object = seatPlan.objectById(current, target.id)
+
     if (!object) return NONE
+
     const covered =
       selectedIds.includes(object.id) || (object.group !== undefined && selectedIds.includes(object.group))
+
     return new Set(covered ? movableIds : [object.group ?? object.id])
   }
 
   // The plan with a drag applied, and the guides it lines up on — one of your handles by its set, anything else by
   // `planEdits.applyDrag`, a move or a level object's corner snapped to the guides first.
-  function dragged(current: SeatPlan<S>, next: PlanDrag<S>): { plan: SeatPlan<S>; guides: PlanGuide[] } {
+  function dragged(current: SeatPlan<S>, next: PlanDrag<S>): Dragged<S> {
     const { target } = next
     const tolerance = GUIDE_PX * (next.pixel ?? 1)
     const targets = next.free ? null : guideTargets
+
     if (target.kind === 'handle') {
       const colon = target.name.indexOf(':')
+
       if (colon >= 0) {
         const set = handleSets.find((candidate) => candidate.id === target.name.slice(0, colon))
+
         if (!set || target.owner.kind === 'selection') return { plan: current, guides: NO_GUIDES }
         const handle = { owner: target.owner, name: target.name.slice(colon + 1) }
         const info = { total: next.total, constrain: next.constrain ?? false, snap: grid, pixel: next.pixel }
+
         return { plan: set.drag(current, handle, info) ?? current, guides: NO_GUIDES }
       }
+
       const object = target.owner.kind === 'object' ? seatPlan.objectById(current, target.owner.id) : undefined
       const corner = object && !object.rotation && !next.constrain ? cornerOf(object, target.name) : null
+
       if (targets && corner) {
         const snapped = planGuides.snapPoint(add(corner, next.total), targets, tolerance)
+
         if (snapped.exact.x || snapped.exact.y) {
           const total = { x: snapped.point.x - corner.x, y: snapped.point.y - corner.y }
           const plan = planHandles.drag(current, target.owner, target.name, total, null, false, next.pixel)
+
           return { plan, guides: snapped.guides }
         }
       }
+
       return { plan: planEdits.applyDrag(current, next, movableIds, grid), guides: NO_GUIDES }
     }
+
     // A move that takes walls along is left to the grid — lined up with what stands round it, its walls would leave it.
     const moving = targets && target.kind !== 'section' && target.kind !== 'wall' ? movingOf(current, target) : NONE
+
     if (targets && moving.size > 0 && !selectedWallIds.some((id) => moving.has(id))) {
       const extent = unionBounds(
         current.objects.flatMap((o) =>
@@ -342,14 +395,17 @@ export function useSeatPlanEditor<S extends string>({
             : [],
         ),
       )
+
       if (extent) {
         const total = next.constrain ? alongAxis(next.total) : next.total
         const axes = next.constrain ? { x: total.x !== 0, y: total.y !== 0 } : { x: true, y: true }
         const snapped = planGuides.snapMove(extent, total, targets, tolerance, axes)
         const guided = { ...next, total: snapped.delta, constrain: false }
+
         return { plan: planEdits.applyDrag(current, guided, movableIds, grid, snapped.exact), guides: snapped.guides }
       }
     }
+
     return { plan: planEdits.applyDrag(current, next, movableIds, grid), guides: NO_GUIDES }
   }
 
@@ -358,11 +414,15 @@ export function useSeatPlanEditor<S extends string>({
   // walls' corners (see `guideTargets`).
   function guided(point: PlanPoint, pixel: number | undefined, free = false): PlanPoint {
     if (free || tool?.snap === false) return point
+
     if (tool?.draw === 'path') {
       const onWall = onWalls(historyRef.current.present, point, GUIDE_PX * (pixel ?? 1))
+
       if (onWall) return onWall
     }
+
     if (guideTargets === null) return point
+
     return planGuides.snapPoint(point, guideTargets, GUIDE_PX * (pixel ?? 1)).point
   }
 
@@ -379,20 +439,24 @@ export function useSeatPlanEditor<S extends string>({
     setPreviewing(null)
     const h = historyRef.current
     const next = update(h.present)
+
     if (next === null || next === h.present || JSON.stringify(next) === JSON.stringify(h.present)) return false
     commit({ past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [] })
+
     return true
   }
 
   function undo() {
     const h = historyRef.current
     const previous = h.past.at(-1)
+
     if (previous) commit({ past: h.past.slice(0, -1), present: previous, future: [h.present, ...h.future] })
   }
 
   function redo() {
     const h = historyRef.current
     const [next, ...future] = h.future
+
     if (next) commit({ past: [...h.past, h.present], present: next, future })
   }
 
@@ -400,11 +464,14 @@ export function useSeatPlanEditor<S extends string>({
   // then the object itself; a group label always selects its group.
   function selectionOf(target: PlanTarget<S> | EditorSelection<S>, current: readonly EditorSelection<S>[]) {
     if (target.kind === 'handle') return target.owner.kind === 'selection' ? null : target.owner
+
     if (target.kind === 'section' || target.kind === 'group' || target.kind === 'wall') return target
     const object = seatPlan.objectById(historyRef.current.present, target.id)
     const group = object?.group
+
     if (group === undefined) return { kind: 'object' as const, id: target.id }
     const opened = current.some((item) => item.kind === 'group' && item.id === group)
+
     return object?.kind !== 'label' && opened
       ? { kind: 'object' as const, id: target.id }
       : { kind: 'group' as const, id: group }
@@ -414,10 +481,13 @@ export function useSeatPlanEditor<S extends string>({
   // replaces the selection. null clears it.
   function select(target: PlanTarget<S> | EditorSelection<S> | null, additive?: boolean) {
     const item = target === null ? null : selectionOf(target, selection)
+
     if (!additive) {
       setChosen(item ? [item] : [])
+
       return
     }
+
     if (!item) return
     setChosen((current) =>
       current.some((other) => sameSelection(other, item))
@@ -445,8 +515,10 @@ export function useSeatPlanEditor<S extends string>({
   // A target on the plan, or null when it points at something that cannot be picked there.
   function pickableTarget<T extends PlanTarget<S>>(target: T | null): T | null {
     if (target?.kind === 'wall') return unpickable.has(target.id) ? null : target
+
     if (target === null || (target.kind !== 'place' && target.kind !== 'object')) return target
     const object = seatPlan.objectById(historyRef.current.present, target.id)
+
     return object && !pickable(object) ? null : target
   }
 
@@ -461,6 +533,7 @@ export function useSeatPlanEditor<S extends string>({
         if (seen.has(keyOf(item))) return false
         seen.add(keyOf(item))
         const group = item.kind === 'object' ? seatPlan.objectById(current, item.id)?.group : undefined
+
         return group === undefined || !groups.has(group)
       }),
     )
@@ -493,6 +566,7 @@ export function useSeatPlanEditor<S extends string>({
           : [item],
       ),
     )
+
     return true
   }
 
@@ -500,15 +574,19 @@ export function useSeatPlanEditor<S extends string>({
   // is in a group.
   function selectGroups(): boolean {
     const current = historyRef.current.present
+
     const groupOf = (item: EditorSelection<S>) =>
       item.kind === 'object' ? seatPlan.objectById(current, item.id)?.group : undefined
+
     if (!selection.some((item) => groupOf(item) !== undefined)) return false
     setSelection(
       selection.map((item) => {
         const group = groupOf(item)
+
         return group === undefined ? item : { kind: 'group' as const, id: group }
       }),
     )
+
     return true
   }
 
@@ -522,6 +600,7 @@ export function useSeatPlanEditor<S extends string>({
   // something frozen does.
   function canDrag(target: PlanTarget<S>): boolean {
     if (target.kind !== 'section') return pickableTarget(target) !== null
+
     return selection.some((item) => item.kind === 'section' && item.id === target.id)
   }
 
@@ -530,7 +609,9 @@ export function useSeatPlanEditor<S extends string>({
   function pressing(kind: Press['kind'], phase: 'start' | 'move' | 'end'): boolean {
     if (phase === 'start') pressRef.current = { kind, cancelled: false }
     const press = pressRef.current
+
     if (phase === 'end') pressRef.current = null
+
     return press === null || !press.cancelled
   }
 
@@ -538,38 +619,51 @@ export function useSeatPlanEditor<S extends string>({
   // band. `additive` adds to the selection.
   function handleMarquee(rect: PlanRect, info: { phase: 'start' | 'move' | 'end'; additive: boolean }) {
     if (!pressing('marquee', info.phase)) return
+
     if (info.phase !== 'end') {
       setMarquee(rect)
+
       return
     }
+
     setMarquee(null)
     const current = historyRef.current.present
     const inside = new Set(seatPlan.objectsInRect(current, rect))
+
     const picked = [
       ...unitsOf(current.objects.filter((object) => inside.has(object.id) && pickable(object))),
       ...wallsOf(seatPlan.wallsInRect(current, rect)),
     ]
+
     setChosen((existing) => {
       if (!info.additive) return picked
       const held = new Set(existing.map(keyOf))
+
       return [...existing, ...picked.filter((item) => !held.has(keyOf(item)))]
     })
   }
 
   function handleDrag(next: PlanDrag<S>) {
     if (!pressing('drag', next.phase)) return
+
     if (next.phase === 'start' && next.target.kind !== 'handle') {
       const item = selectionOf(next.target, selection)
+
       // Dragging something outside the selection selects it alone; dragging a selected object moves the group.
       if (item && !covers(historyRef.current.present, selection, item)) setChosen([item])
     }
+
     if (next.phase !== 'end') {
       setDrag(next)
+
       return
     }
+
     setDrag(null)
     const before = historyRef.current.present
+
     if (!apply((current) => dragged(current, next).plan)) return
+
     // A copying drag selects the copies, as a duplicate does.
     if (next.copy && next.target.kind !== 'handle' && next.target.kind !== 'section') {
       setChosen(addedSelection(before, historyRef.current.present))
@@ -580,18 +674,23 @@ export function useSeatPlanEditor<S extends string>({
   // itself to whole units.
   function stepOf(current: EditorTool<S> | null): number | undefined {
     if (current?.snap === false) return 1
+
     return current?.draw === 'path' && grid !== null ? wallStepOf(grid) : undefined
   }
 
   // The pointer over the plan — the tool previews a tap there; otherwise it outlines what a tap would select.
   function handleHover(point: PlanPoint | null, target: PlanTarget<S> | null, info?: { pixel: number }) {
     pointerRef.current = point
+
     if (tool !== null) {
       const at =
         point === null ? null : guided(strokeOf(tool.draw, point, point, NO_KEYS, grid, stepOf(tool)).end, info?.pixel)
+
       setPointer((current) => (samePoint(current, at) ? current : at))
+
       return
     }
+
     const at = pickableTarget(target)
     const item = at === null || at.kind === 'handle' || at.kind === 'section' ? null : selectionOf(at, selection)
     setHovered((current) => (current === item || (current && item && sameSelection(current, item)) ? current : item))
@@ -601,6 +700,7 @@ export function useSeatPlanEditor<S extends string>({
   // step from the last corner.
   function cornerAt(point: PlanPoint, constrain: boolean): PlanPoint {
     const last = cornersRef.current?.at(-1)
+
     return last && constrain
       ? strokeOf('line', last, point, { constrain }, grid, stepOf(tool)).end
       : strokeOf('polygon', point, point, NO_KEYS, grid, stepOf(tool)).end
@@ -615,16 +715,20 @@ export function useSeatPlanEditor<S extends string>({
   // first one. false when there are too few corners for it.
   function finishShape(closed: boolean): boolean {
     const placed = cornersRef.current
+
     if (tool === null || !isCornered(tool) || placed === null || placed.length < (closed ? 3 : 2)) return false
     setCorners(null)
     setPointer(null)
     const before = historyRef.current.present
     const shape = { start: placed[0]!, end: placed.at(-1)!, points: placed }
     const next = tool.create(before, tool.draw === 'path' ? { ...shape, closed } : shape)
+
     if (next !== null && apply(() => next)) {
       setChosen(addedSelection(before, next))
+
       if (!tool.keep) setToolState(null)
     }
+
     return true
   }
 
@@ -639,17 +743,23 @@ export function useSeatPlanEditor<S extends string>({
   // snapped right onto it. A path closes on its first corner and ends open on its last.
   function addCorner(at: PlanPoint, tapped: PlanPoint, pixel: number) {
     const placed = cornersRef.current ?? []
+
     const near = (corner: PlanPoint | undefined) =>
       corner !== undefined &&
       (samePoint(corner, at) || Math.hypot(corner.x - tapped.x, corner.y - tapped.y) <= CLOSE_PX * pixel)
+
     if (placed.length >= 3 && near(placed[0])) {
       finishShape(true)
+
       return
     }
+
     if (placed.length >= (tool?.draw === 'path' ? 2 : 3) && near(placed.at(-1))) {
       finishShape(false)
+
       return
     }
+
     if (samePoint(placed.at(-1) ?? null, at)) return
     setCorners([...placed, at])
   }
@@ -657,8 +767,10 @@ export function useSeatPlanEditor<S extends string>({
   // Takes back the last corner of the polygon being drawn (Backspace). false when there is none.
   function removePoint(): boolean {
     const placed = cornersRef.current
+
     if (placed === null || placed.length === 0) return false
     setCorners(placed.length > 1 ? placed.slice(0, -1) : null)
+
     return true
   }
 
@@ -667,6 +779,7 @@ export function useSeatPlanEditor<S extends string>({
   function addPoint(point: PlanPoint): boolean {
     if (tool === null || !isCornered(tool)) return false
     addCorner(point, point, 0)
+
     return true
   }
 
@@ -675,24 +788,33 @@ export function useSeatPlanEditor<S extends string>({
   // draws a rectangle (Shift: a square), made with its four corners (a path closed).
   function handleDraw(raw: PlanStroke, info: DrawInfo) {
     if (tool === null) return
+
     if (info.phase === 'cancel') {
       pressRef.current = null
       setStroke(null)
+
       return
     }
+
     // A tap is a stroke with no `start` — only its end is reported — so a press that started is a drag.
     const rectangle =
       isCornered(tool) && cornersRef.current === null && (info.phase === 'start' || pressRef.current?.kind === 'stroke')
+
     if (!pressing('stroke', info.phase)) return
+
     if (isCornered(tool) && !rectangle) {
       const corner = cornerAt(raw.end, info.constrain)
       const at = info.constrain ? corner : guided(corner, info.pixel, info.free)
+
       if (info.phase === 'end') addCorner(at, raw.end, info.pixel ?? 0)
       else setPointer(at)
+
       return
     }
+
     // Unconstrained ends line up with the guides; a box or line drawn from its centre keeps its start where it is.
     const drawn = strokeOf(rectangle ? 'box' : tool.draw, raw.start, raw.end, info, grid, stepOf(tool))
+
     const shaped =
       info.constrain || guideTargets === null || info.free || tool.snap === false
         ? drawn
@@ -700,22 +822,30 @@ export function useSeatPlanEditor<S extends string>({
             start: info.fromCenter ? drawn.start : guided(drawn.start, info.pixel),
             end: guided(drawn.end, info.pixel),
           }
+
     if (info.phase !== 'end') {
       setStroke(shaped)
+
       return
     }
+
     setStroke(null)
     // The pointer is still where the tap was — no preview of the next one on top of what was just made.
     setPointer(null)
+
     // A rectangle with no width or height is a corner where it was let go, as a tap places one.
     if (rectangle && (shaped.start.x === shaped.end.x || shaped.start.y === shaped.end.y)) {
       addCorner(info.constrain ? shaped.end : guided(shaped.end, info.pixel, info.free), raw.end, info.pixel ?? 0)
+
       return
     }
+
     const before = historyRef.current.present
     const next = tool.create(before, rectangle ? rectangleOf(shaped, tool.draw === 'path') : shaped)
+
     if (next === null || !apply(() => next)) return
     setChosen(addedSelection(before, next))
+
     if (!tool.keep) setToolState(null)
   }
 
@@ -723,6 +853,7 @@ export function useSeatPlanEditor<S extends string>({
   // another tool its end is ignored when it comes; with none, it never comes (the viewport stops drawing).
   function setTool(next: EditorTool<S> | null) {
     const press = pressRef.current
+
     if (press?.kind === 'stroke') pressRef.current = next === null ? null : { ...press, cancelled: true }
     setCorners(null)
     setStroke(null)
@@ -740,12 +871,15 @@ export function useSeatPlanEditor<S extends string>({
     const press = pressRef.current
     const pressed = press !== null && !press.cancelled
     const drawing = cornersRef.current !== null
+
     if (!pressed && !drawing) return false
+
     if (pressed) pressRef.current = { ...press, cancelled: true }
     setCorners(null)
     setStroke(null)
     setDrag(null)
     setMarquee(null)
+
     return true
   }
 
@@ -754,14 +888,16 @@ export function useSeatPlanEditor<S extends string>({
     if (!result || result.ids.length === 0) return []
     apply(() => result.plan)
     setChosen(pick)
+
     return result.ids
   }
 
   // The group to add into — an existing id, or a new group made in the same step.
-  function withGroup(current: SeatPlan<S>, choice: GroupChoice | undefined) {
-    if (choice === undefined || typeof choice === 'string') return { plan: current, group: choice }
+  function withGroup(current: SeatPlan<S>, choice: GroupChoice | undefined): Grouped<S> {
+    if (choice === undefined || isGroupId(choice)) return { plan: current, group: choice }
     const made = planEdits.addGroup(current, choice)
-    return { plan: made.plan, group: made.id as string | undefined, made: made.id }
+
+    return { plan: made.plan, group: made.id, made: made.id }
   }
 
   // Places on the given boxes (see `layout`) — selected afterwards, as their new group when one was made.
@@ -772,9 +908,11 @@ export function useSeatPlanEditor<S extends string>({
   ): string[] {
     const { plan: base, group, made } = withGroup(historyRef.current.present, options.group)
     const result = planEdits.addPlaces(base, section, boxes, { ...options, group })
+
     const pick: EditorSelection<S>[] = made
       ? [{ kind: 'group', id: made }]
       : (result?.ids ?? []).map((id) => ({ kind: 'object' as const, id }))
+
     return added(result, pick)
   }
 
@@ -785,9 +923,11 @@ export function useSeatPlanEditor<S extends string>({
   ): string[] {
     const { plan: base, group, made } = withGroup(historyRef.current.present, options.group)
     const result = planEdits.addFixtures(base, boxes, { ...options, group })
+
     const pick: EditorSelection<S>[] = made
       ? [{ kind: 'group', id: made }]
       : result.ids.map((id) => ({ kind: 'object' as const, id }))
+
     return added(result, pick)
   }
 
@@ -795,8 +935,10 @@ export function useSeatPlanEditor<S extends string>({
   function insert(template: PlanTemplate, at: PlanPoint, options: { section?: S } = {}): string[] {
     const before = historyRef.current.present
     const result = planEdits.insertTemplate(before, template, at, options)
+
     if (!result || !apply(() => result.plan)) return []
     setChosen(addedSelection(before, result.plan))
+
     return result.ids
   }
 
@@ -805,6 +947,7 @@ export function useSeatPlanEditor<S extends string>({
     const { plan: next, refused } = planEdits.remove(historyRef.current.present, ids, locked)
     apply(() => next)
     setChosen((current) => current.filter((item) => item.kind === 'section' || refused.includes(item.id)))
+
     return refused
   }
 
@@ -813,37 +956,46 @@ export function useSeatPlanEditor<S extends string>({
   function removeSelected(): string[] {
     const objects = planEdits.remove(historyRef.current.present, movableIds, locked)
     const refused = [...objects.refused]
+
     const next = selectedSectionIds.reduce((current, id) => {
       const section = planEdits.removeSection(current, id, locked)
       refused.push(...section.refused)
+
       return section.plan
     }, objects.plan)
+
     apply(() => next)
+
     return refused
   }
 
   // Changes an id — an object's or a group's. false when it is locked, taken, missing or would not save.
   function renameObject(id: string, nextId: string): boolean {
     const next = planEdits.rename(historyRef.current.present, id, nextId, locked)
+
     if (!next) return false
     apply(() => next)
     setChosen((current) =>
       current.map((item) => (item.kind !== 'section' && item.id === id ? { ...item, id: nextId } : item)),
     )
+
     return true
   }
 
   // Copies the selection to the editor's clipboard, as a template. null when nothing is selected.
   function copySelected(): PlanTemplate | null {
     const made = planEdits.templateOf(historyRef.current.present, selectedIds)
+
     if (!made) return null
     setClipboard({ template: made.template, at: made.at, pastes: 0 })
+
     return made.template
   }
 
   // Copies the selection, then removes it. Returns the ids refused because they are locked — those stay.
   function cutSelected(): string[] {
     if (copySelected() === null) return []
+
     return removeObjects(selectedIds)
   }
 
@@ -853,14 +1005,18 @@ export function useSeatPlanEditor<S extends string>({
     if (clipboard === null) return []
     const step = PASTE_STEP * (clipboard.pastes + 1)
     const pointed = pointerRef.current
+
     const target =
       at ??
       (pointed === null
         ? { x: clipboard.at.x + step, y: clipboard.at.y + step }
         : strokeOf('point', pointed, pointed, NO_KEYS, grid).end)
+
     const ids = insert(clipboard.template, target)
+
     if (ids.length > 0 && at === undefined && pointed === null)
       setClipboard({ ...clipboard, pastes: clipboard.pastes + 1 })
+
     return ids
   }
 
@@ -873,6 +1029,7 @@ export function useSeatPlanEditor<S extends string>({
     const again = last !== null && here !== null && sameIds(last.ids, movableIds)
     const offset = again ? { x: here.x - last.from.x, y: here.y - last.from.y } : undefined
     const result = planEdits.duplicate(current, movableIds, offset)
+
     if (result.ids.length === 0) return []
     apply(() => result.plan)
     setChosen(
@@ -885,15 +1042,18 @@ export function useSeatPlanEditor<S extends string>({
       ),
     )
     duplicateRef.current = here === null ? null : { from: here, ids: result.ids }
+
     return result.ids
   }
 
   // Puts the selection in a new group and selects it.
   function groupSelected(props: Omit<Group, 'id'> = {}): string | null {
     const result = planEdits.group(historyRef.current.present, selectedIds, props)
+
     if (!result) return null
     apply(() => result.plan)
     setChosen([{ kind: 'group', id: result.id }])
+
     return result.id
   }
 
@@ -906,6 +1066,7 @@ export function useSeatPlanEditor<S extends string>({
   // Dissolves every selected group in one step; their members take their place in the selection.
   function ungroupSelected() {
     const groups = selection.flatMap((item) => (item.kind === 'group' ? [item.id] : []))
+
     if (groups.length === 0) return
     const current = historyRef.current.present
     const members = groups.flatMap((id) => seatPlan.membersOf(current, id).filter((o) => o.kind !== 'label'))
@@ -1043,9 +1204,11 @@ export function useSeatPlanEditor<S extends string>({
     moveSelected: (delta: PlanPoint) =>
       apply((current) => {
         const carried = new Set(selectedSectionIds.flatMap((id) => sectionContents(current, id)))
+
         const own = movableIds.filter(
           (id) => !carried.has(id) && !carried.has(seatPlan.objectById(current, id)?.group ?? ''),
         )
+
         return planEdits.move(moveSections(current, selectedSectionIds, delta, grid), own, delta, grid)
       }),
     moveSection: (id: S, delta: PlanPoint) => apply((current) => planEdits.moveSection(current, id, delta, grid)),
@@ -1053,6 +1216,7 @@ export function useSeatPlanEditor<S extends string>({
     addSection: (section: Section<S>) => {
       if (!apply((current) => planEdits.addSection(current, section))) return false
       setChosen([{ kind: 'section', id: section.id }])
+
       return true
     },
     reshapeSection: (id: S, points: PlanPoint[]) =>
@@ -1060,8 +1224,10 @@ export function useSeatPlanEditor<S extends string>({
     // Adds a wall (see `planEdits.addWall`) and selects it. Returns its id, or null when it has too few points.
     addWall: (wall: Omit<Wall, 'id'>) => {
       const result = planEdits.addWall(historyRef.current.present, wall)
+
       if (!result || !apply(() => result.plan)) return null
       setChosen([{ kind: 'wall', id: result.ids[0]! }])
+
       return result.ids[0]!
     },
     // Changes a wall — its thickness, whether it is closed, its openings. Its id stays.
@@ -1085,6 +1251,7 @@ export function useSeatPlanEditor<S extends string>({
     removeSection: (id: S) => {
       const { plan: next, refused } = planEdits.removeSection(historyRef.current.present, id, locked)
       apply(() => next)
+
       return refused
     },
 
@@ -1123,20 +1290,26 @@ export function useSeatPlanEditor<S extends string>({
 function useSelected<S extends string>(plan: SeatPlan<S>, chosen: readonly EditorSelection<S>[]) {
   'use memo'
   const inPlan = new Set(seatPlan.idsOf(plan))
+
   const selection = chosen.filter((item) =>
     item.kind === 'section' ? seatPlan.sectionOf(plan, item.id) !== undefined : inPlan.has(item.id),
   )
+
   const selectedIds = selection.flatMap((item) => (item.kind === 'object' || item.kind === 'group' ? [item.id] : []))
   const selectedSectionIds = selection.flatMap((item) => (item.kind === 'section' ? [item.id] : []))
   const selectedWallIds = selection.flatMap((item) => (item.kind === 'wall' ? [item.id] : []))
   const selectedIdSet = new Set(selectedIds)
+
   const selectedObjects = plan.objects.filter(
     (object) => selectedIdSet.has(object.id) || (object.group !== undefined && selectedIdSet.has(object.group)),
   )
+
   const selectedGroups = selection.flatMap((item) =>
     item.kind === 'group' ? (seatPlan.groupById(plan, item.id) ?? []) : [],
   )
+
   const selectedPlaceIds = selectedObjects.flatMap((object) => (object.kind === 'place' ? [object.id] : []))
+
   return {
     selection,
     selectedIds,
@@ -1157,6 +1330,7 @@ function useSelected<S extends string>(plan: SeatPlan<S>, chosen: readonly Edito
 function useStillPart<S extends string>(plan: SeatPlan<S>, key: string | null) {
   'use memo'
   const part = key ? withoutIds(plan, key) : null
+
   return { part, overlaps: part === null ? null : overlapsOf(part) }
 }
 
@@ -1164,12 +1338,14 @@ function useStillPart<S extends string>(plan: SeatPlan<S>, key: string | null) {
 function useShownPlan<S extends string>(plan: SeatPlan<S>, hiddenIds: Iterable<string> | undefined): SeatPlan<S> {
   'use memo'
   const hidden = new Set(hiddenIds)
+
   return hidden.size === 0 ? plan : withoutHidden(plan, hidden)
 }
 
 // Ids from a key (`KEY_SEPARATOR`-joined) as a list that keeps its identity while the key is the same.
 function useKeyedIds(key: string): string[] {
   'use memo'
+
   return key === '' ? NO_IDS : key.split(KEY_SEPARATOR)
 }
 
@@ -1196,91 +1372,126 @@ export function useSeatPlanEditorShortcuts<S extends string>(
 ) {
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
     if (e.defaultPrevented) return
+
     if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]')) return
     const command = e.metaKey || e.ctrlKey
+
     // Physical keys — with a non-Latin input method active `e.key` is not a Latin letter.
     if (command && e.code === 'KeyZ') {
       e.preventDefault()
+
       if (e.shiftKey) editor.redo()
       else editor.undo()
+
       return
     }
+
     if (command && e.code === 'KeyY') {
       e.preventDefault()
       editor.redo()
+
       return
     }
+
     if (command && e.code === 'KeyD') {
       e.preventDefault()
       editor.duplicateSelected()
+
       return
     }
+
     // With nothing selected ⌘[ and ⌘] stay the browser's (back and forward).
     if (command && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
       if (editor.selectedIds.length === 0) return
       e.preventDefault()
       const up = e.code === 'BracketRight'
       editor.reorderSelected(e.altKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward')
+
       return
     }
+
     if (command && e.code === 'KeyG') {
       e.preventDefault()
+
       if (e.shiftKey) editor.ungroupSelected()
       else editor.groupSelected()
+
       return
     }
+
     if (command && e.code === 'KeyA') {
       e.preventDefault()
       editor.selectAll()
+
       return
     }
+
     // Text the page has selected is the browser's to copy.
     if (command && (e.code === 'KeyC' || e.code === 'KeyX')) {
       if (editor.selectedIds.length === 0 || hasTextSelection()) return
       e.preventDefault()
+
       if (e.code === 'KeyC') editor.copySelected()
       else editor.cutSelected()
+
       return
     }
+
     if (command && e.code === 'KeyV') {
       if (editor.clipboard === null) return
       e.preventDefault()
       editor.paste()
+
       return
     }
+
     if (command || e.altKey) return
     const view = options.view
     const zoom = view ? zoomOf(e) : null
+
     if (view && zoom) {
       e.preventDefault()
+
       if (zoom === 'fit') view.fit()
       else if (zoom === 'selection') view.zoomTo(editor.selectionBounds)
       else if (zoom === 'in') view.zoomIn()
       else view.zoomOut()
+
       return
     }
+
     if (e.key === 'Escape') {
       if (editor.cancel()) return
+
       if (editor.tool !== null) editor.setTool(null)
       else if (editor.selection.length > 0) editor.select(null)
+
       return
     }
+
     if (e.key === 'Enter' && !answersEnter(e.target)) {
       if (editor.closePolygon() || (e.shiftKey ? editor.selectGroups() : editor.selectMembers())) e.preventDefault()
+
       return
     }
-    const arrow = ARROWS[e.key]
+
+    const arrow = ARROWS.get(e.key)
+
     if (arrow) {
       if (editor.selection.length === 0) return
       e.preventDefault()
       const step = editor.snap ? (e.shiftKey ? editor.snap.cell : editor.snap.cell / 2) : e.shiftKey ? 10 : 1
       editor.moveSelected({ x: arrow.x * step, y: arrow.y * step })
+
       return
     }
+
     if (e.code === 'KeyR') {
       editor.rotateSelected(e.shiftKey ? -90 : 90)
+
       return
     }
+
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (!editor.removePoint()) editor.removeSelected()
     }
@@ -1289,29 +1500,35 @@ export function useSeatPlanEditorShortcuts<S extends string>(
   useEffect(() => {
     const listener = (e: KeyboardEvent) => onKeyDown(e)
     window.addEventListener('keydown', listener)
+
     return () => window.removeEventListener('keydown', listener)
   }, [])
 }
 
-const ARROWS: Partial<Record<string, PlanPoint>> = {
-  ArrowLeft: { x: -1, y: 0 },
-  ArrowRight: { x: 1, y: 0 },
-  ArrowUp: { x: 0, y: -1 },
-  ArrowDown: { x: 0, y: 1 },
-}
+const ARROWS = new Map<string, PlanPoint>([
+  ['ArrowLeft', { x: -1, y: 0 }],
+  ['ArrowRight', { x: 1, y: 0 }],
+  ['ArrowUp', { x: 0, y: -1 }],
+  ['ArrowDown', { x: 0, y: 1 }],
+])
 
 // The zoom a key asks for — ⇧1 and ⇧2 by the physical key, since what Shift makes of a digit depends on the keyboard.
 function zoomOf(e: KeyboardEvent): 'fit' | 'selection' | 'in' | 'out' | null {
   if (e.shiftKey && e.code === 'Digit1') return 'fit'
+
   if (e.shiftKey && e.code === 'Digit2') return 'selection'
+
   if (e.key === '+' || e.key === '=') return 'in'
+
   if (e.key === '-' || e.key === '_') return 'out'
+
   return null
 }
 
 // Whether a range of page text is selected — ⌘C then copies it, not the plan's selection.
 function hasTextSelection(): boolean {
   const selected = window.getSelection()
+
   return selected !== null && !selected.isCollapsed && selected.toString().length > 0
 }
 
@@ -1323,6 +1540,11 @@ function answersEnter(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(ENTER_CONTROLS) !== null
 }
 
+// Whether a group choice is the id of a group that exists, rather than the props of a new one.
+function isGroupId(choice: GroupChoice): choice is string {
+  return typeof choice === 'string'
+}
+
 // Whether a selection already holds an item — itself, or the group of a grouped object.
 function covers<S extends string>(
   plan: SeatPlan<S>,
@@ -1330,8 +1552,10 @@ function covers<S extends string>(
   item: EditorSelection<S>,
 ): boolean {
   if (selection.some((other) => sameSelection(other, item))) return true
+
   if (item.kind !== 'object') return false
   const group = seatPlan.objectById(plan, item.id)?.group
+
   return group !== undefined && selection.some((other) => other.kind === 'group' && other.id === group)
 }
 
@@ -1339,13 +1563,16 @@ function covers<S extends string>(
 function unitsOf<S extends string>(objects: readonly PlanObject<S>[]): EditorSelection<S>[] {
   const seen = new Set<string>()
   const units: EditorSelection<S>[] = []
+
   for (const object of objects) {
     const item: EditorSelection<S> =
       object.group === undefined ? { kind: 'object', id: object.id } : { kind: 'group', id: object.group }
+
     if (seen.has(keyOf(item))) continue
     seen.add(keyOf(item))
     units.push(item)
   }
+
   return units
 }
 
@@ -1360,9 +1587,13 @@ function sameSelection<S extends string>(a: EditorSelection<S>, b: EditorSelecti
 // Where a level box's corner (`nw`, `ne`, `se`, `sw`) is — null for any other handle.
 function cornerOf(box: PlanRect, name: string): PlanPoint | null {
   if (name === 'nw') return { x: box.x, y: box.y }
+
   if (name === 'ne') return { x: box.x + box.w, y: box.y }
+
   if (name === 'se') return { x: box.x + box.w, y: box.y + box.h }
+
   if (name === 'sw') return { x: box.x, y: box.y + box.h }
+
   return null
 }
 
@@ -1380,6 +1611,7 @@ function isCornered(tool: EditorTool<string>): boolean {
 function polygonStroke(corners: readonly PlanPoint[] | null, pointer: PlanPoint | null): PlanStroke | null {
   const points = [...(corners ?? []), ...(pointer === null ? [] : [pointer])]
   const [start] = points
+
   return start === undefined ? null : { start, end: points.at(-1)!, points }
 }
 
@@ -1387,6 +1619,7 @@ function polygonStroke(corners: readonly PlanPoint[] | null, pointer: PlanPoint 
 // path's `closed`.
 function rectangleOf({ start, end }: PlanStroke, closed = false): PlanStroke {
   const points = [start, { x: end.x, y: start.y }, end, { x: start.x, y: end.y }]
+
   return closed ? { start, end, points, closed } : { start, end, points }
 }
 
@@ -1401,6 +1634,7 @@ function addedPart<S extends string>(before: SeatPlan<S>, after: SeatPlan<S>): S
   const objects = after.objects.filter((o) => !known.has(o.id))
   const groups = new Set(objects.flatMap((o) => (o.group === undefined ? [] : [o.group])))
   const walls = after.walls.filter((w) => !before.walls.includes(w))
+
   return { ...after, sections: [], walls, groups: after.groups.filter((g) => groups.has(g.id)), objects }
 }
 
@@ -1408,6 +1642,7 @@ function addedPart<S extends string>(before: SeatPlan<S>, after: SeatPlan<S>): S
 // The middle of what ids cover, or null when they cover nothing.
 function centerOfIds(plan: SeatPlan<string>, ids: readonly string[]): PlanPoint | null {
   const extent = unionBounds(seatPlan.boundsOfIds(plan, ids))
+
   return extent ? seatPlan.centerOf(extent) : null
 }
 
@@ -1429,9 +1664,11 @@ function addedSelection<S extends string>(before: SeatPlan<S>, after: SeatPlan<S
   const sections = after.sections.flatMap((section) =>
     seatPlan.sectionOf(before, section.id) ? [] : [{ kind: 'section' as const, id: section.id }],
   )
+
   const known = new Set(seatPlan.idsOf(before))
   const groups = after.groups.filter((g) => !known.has(g.id)).map((g) => g.id)
   const fresh = new Set(groups)
+
   return [
     ...sections,
     ...after.walls.flatMap((w) => (known.has(w.id) ? [] : [{ kind: 'wall' as const, id: w.id }])),

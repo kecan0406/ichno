@@ -39,6 +39,7 @@ export function EditorOverlay({
   ...rest
 }: EditorOverlayProps) {
   const guide = stroke && draw !== 'point' ? stroke : null
+
   return (
     <g data-part="editor-overlay" {...rest}>
       {frames.length > 0 && (
@@ -94,16 +95,20 @@ export function EditorOverlay({
 function Guide({ guide }: { guide: PlanGuide }) {
   const point = (along: number, across: number) =>
     guide.axis === 'x' ? { x: along, y: across } : { x: across, y: along }
+
   if (guide.kind === 'line') {
     const a = guide.axis === 'x' ? { x: guide.at, y: guide.from } : { x: guide.from, y: guide.at }
     const b = guide.axis === 'x' ? { x: guide.at, y: guide.to } : { x: guide.to, y: guide.at }
+
     return <line data-part="guide" x1={round(a.x)} y1={round(a.y)} x2={round(b.x)} y2={round(b.y)} {...GUIDE_LINE} />
   }
+
   return (
     <g data-part="gap">
       {guide.gaps.map((gap, i) => {
         const a = point(gap.from, guide.at)
         const b = point(gap.to, guide.at)
+
         return (
           <g key={i}>
             <line x1={round(a.x)} y1={round(a.y)} x2={round(b.x)} y2={round(b.y)} {...GUIDE_LINE} />
@@ -125,8 +130,10 @@ function Guide({ guide }: { guide: PlanGuide }) {
 // and that corner marked: tapping it closes the shape.
 function PolygonGuide({ points, closing }: { points: readonly PlanPoint[]; closing: boolean }) {
   const [first] = points
+
   if (!first) return null
   const last = points.at(-1)!
+
   return (
     <>
       <polyline points={points.map((p) => `${round(p.x)},${round(p.y)}`).join(' ')} {...GUIDE} />
@@ -157,16 +164,22 @@ function round(value: number): number {
 }
 
 const NO_FRAMES: readonly (readonly PlanPoint[])[] = []
+
 const NO_HANDLES: readonly PlanHandle[] = []
+
 const NO_GUIDES: readonly PlanGuide[] = []
+
 const GUIDE_LINE = {
   stroke: cssVar('guide'),
   strokeWidth: 1,
   vectorEffect: 'non-scaling-stroke' as const,
 }
+
 const HOVER_OPACITY = 0.6
+
 // The first corner of a polygon being drawn, in screen pixels.
 const CORNER_PX = 8
+
 // A stroke guide is a dashed accent line, 1px on screen at any zoom (vector-effect is not inherited — it goes on the
 // shape itself).
 const GUIDE = {

@@ -7,7 +7,9 @@ import { transformSync } from '@babel/core'
 const DIRS = ['src/editor', 'src/react/client'] // keep in step with the babel `include` in tsdown.config.ts
 
 const failures = []
+
 let compiled = 0
+
 for (const dir of DIRS) {
   for (const name of readdirSync(dir)) {
     if (!/\.tsx?$/.test(name) || name.includes('.test.')) continue
@@ -25,6 +27,7 @@ for (const dir of DIRS) {
             logger: {
               logEvent(_file, event) {
                 if (event.kind === 'CompileSuccess') compiled++
+
                 if (event.kind === 'CompileError' || event.kind === 'PipelineError') {
                   const detail = event.detail?.reason ?? event.detail?.options?.reason ?? event.data ?? event.detail
                   failures.push(`${file}${event.fnName ? ` (${event.fnName})` : ''}: ${String(detail)}`)
@@ -44,4 +47,5 @@ if (failures.length > 0) {
   )
   process.exit(1)
 }
+
 console.log(`React Compiler: ${compiled} components/hooks compiled, no bailouts.`)

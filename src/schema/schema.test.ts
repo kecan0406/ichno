@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SeatPlan } from '../index'
+import type { Fixture, Place, SeatPlan, Wall } from '../index'
 import { createSeatPlanSchema, seatPlanIssueOf } from './index'
 
 const { SeatPlan: Schema } = createSeatPlanSchema({ sectionIds: ['A', 'B'] })
@@ -13,8 +13,8 @@ const base = {
     { id: 'A', points: rect(0, 0, 500, 800) },
     { id: 'B', points: rect(500, 0, 500, 800) },
   ],
-  categories: [] as { key: string }[],
-  groups: [] as { id: string }[],
+  categories: [],
+  groups: [],
 }
 
 function rect(x: number, y: number, w: number, h: number) {
@@ -26,20 +26,20 @@ function rect(x: number, y: number, w: number, h: number) {
   ]
 }
 
-function place(id: string, section: string, x: number, y: number, extra: object = {}) {
+function place(id: string, section: string, x: number, y: number, extra: Partial<Place> = {}) {
   return { kind: 'place', id, section, x, y, w: 80, h: 80, shape: 'rect', capacity: 1, ...extra }
 }
 
-function fixture(id: string, x: number, y: number, w: number, h: number, extra: object = {}) {
+function fixture(id: string, x: number, y: number, w: number, h: number, extra: Partial<Fixture> = {}) {
   return { kind: 'fixture', id, shape: 'rect', x, y, w, h, ...extra }
 }
 
-function planWith(objects: unknown[], extra: object = {}) {
+function planWith(objects: unknown[], extra: Partial<SeatPlan> = {}) {
   return { ...base, ...extra, objects }
 }
 
-function issuesOf(input: unknown) {
-  const result = Schema.safeParse(input)
+// The plan-level issues of a parse — none when it succeeded.
+function issuesOf(result: ReturnType<typeof Schema.safeParse>) {
   return result.success ? [] : result.error.issues.map(seatPlanIssueOf)
 }
 
@@ -56,6 +56,7 @@ describe('SeatPlan schema (editor save guard)', () => {
         { groups: [{ id: 'row-1', label: 'A', role: 'row' }] },
       ),
     )
+
     expect(plan.objects).toHaveLength(4)
   })
 
@@ -65,18 +66,20 @@ describe('SeatPlan schema (editor save guard)', () => {
   })
 
   it('rejects duplicate ids across objects and groups (records point at them)', () => {
-    expect(issuesOf(planWith([place('A1', 'A', 20, 20), place('A1', 'A', 200, 20)]))).toContainEqual({
+    expect(issuesOf(Schema.safeParse(planWith([place('A1', 'A', 20, 20), place('A1', 'A', 200, 20)])))).toContainEqual({
       code: 'duplicate_id',
       id: 'A1',
     })
-    expect(issuesOf(planWith([place('A1', 'A', 20, 20)], { groups: [{ id: 'A1' }] }))).toContainEqual({
-      code: 'duplicate_id',
-      id: 'A1',
-    })
+    expect(issuesOf(Schema.safeParse(planWith([place('A1', 'A', 20, 20)], { groups: [{ id: 'A1' }] })))).toContainEqual(
+      {
+        code: 'duplicate_id',
+        id: 'A1',
+      },
+    )
   })
 
   it('rejects objects in a group the plan does not define', () => {
-    expect(issuesOf(planWith([place('A1', 'A', 20, 20, { group: 'row-1' })]))).toContainEqual({
+    expect(issuesOf(Schema.safeParse(planWith([place('A1', 'A', 20, 20, { group: 'row-1' })])))).toContainEqual({
       code: 'unknown_group',
       id: 'A1',
       group: 'row-1',
@@ -88,7 +91,7 @@ describe('SeatPlan schema (editor save guard)', () => {
   })
 
   it('rejects overlapping places but allows touching edges', () => {
-    expect(issuesOf(planWith([place('A1', 'A', 20, 20), place('A2', 'A', 60, 60)]))).toContainEqual({
+    expect(issuesOf(Schema.safeParse(planWith([place('A1', 'A', 20, 20), place('A2', 'A', 60, 60)])))).toContainEqual({
       code: 'overlap',
       ids: ['A1', 'A2'],
     })
@@ -100,7 +103,10 @@ describe('SeatPlan schema (editor save guard)', () => {
     const bar = place('A1', 'A', 100, 190, { w: 200, h: 20 })
     const below = place('A2', 'A', 180, 220)
     expect(Schema.safeParse(planWith([bar, below])).success).toBe(true)
-    expect(issuesOf(planWith([{ ...bar, rotation: 90 }, below]))).toContainEqual({ code: 'overlap', ids: ['A1', 'A2'] })
+    expect(issuesOf(Schema.safeParse(planWith([{ ...bar, rotation: 90 }, below])))).toContainEqual({
+      code: 'overlap',
+      ids: ['A1', 'A2'],
+    })
   })
 
   it('lets fixtures overlap places and each other — a chair at its desk, a TV on a wall', () => {
@@ -110,10 +116,13 @@ describe('SeatPlan schema (editor save guard)', () => {
   })
 
   it('rejects places and fixtures outside the plan, turned corners included; labels may sit in the margin', () => {
-    expect(issuesOf(planWith([place('A1', 'A', 960, 20)]))).toContainEqual({ code: 'out_of_bounds', id: 'A1' })
+    expect(issuesOf(Schema.safeParse(planWith([place('A1', 'A', 960, 20)])))).toContainEqual({
+      code: 'out_of_bounds',
+      id: 'A1',
+    })
     // Flush with the top edge until it is turned.
     expect(Schema.safeParse(planWith([place('A1', 'A', 20, 0)])).success).toBe(true)
-    expect(issuesOf(planWith([place('A1', 'A', 20, 0, { rotation: 45 })]))).toContainEqual({
+    expect(issuesOf(Schema.safeParse(planWith([place('A1', 'A', 20, 0, { rotation: 45 })])))).toContainEqual({
       code: 'out_of_bounds',
       id: 'A1',
     })
@@ -130,7 +139,11 @@ describe('SeatPlan schema (editor save guard)', () => {
 
   it('rejects categories the plan does not define', () => {
     const tagged = place('A1', 'A', 20, 20, { category: 'vip' })
-    expect(issuesOf(planWith([tagged]))).toContainEqual({ code: 'unknown_category', id: 'A1', category: 'vip' })
+    expect(issuesOf(Schema.safeParse(planWith([tagged])))).toContainEqual({
+      code: 'unknown_category',
+      id: 'A1',
+      category: 'vip',
+    })
     expect(Schema.safeParse(planWith([tagged], { categories: [{ key: 'vip' }] })).success).toBe(true)
   })
 
@@ -143,48 +156,57 @@ describe('SeatPlan schema (editor save guard)', () => {
   })
 
   it('checks walls: ids shared with objects, the centre line on the plan, openings that fit their edge', () => {
-    const wall = (id: string, extra: object = {}) => ({
+    const wall = (id: string, extra: Partial<Wall> = {}) => ({
       id,
       points: rect(0, 0, 400, 300),
       thickness: 12,
       closed: true,
       ...extra,
     })
-    expect(issuesOf(planWith([], { walls: [wall('w1', { openings: [{ edge: 3, at: 100, width: 92 }] })] }))).toEqual([])
+
+    expect(
+      issuesOf(
+        Schema.safeParse(planWith([], { walls: [wall('w1', { openings: [{ edge: 3, at: 100, width: 92 }] })] })),
+      ),
+    ).toEqual([])
     // Corners keep a hundredth of a unit — a turned metre of wall.
     expect(
       issuesOf(
-        planWith([], {
-          walls: [
-            wall('w2', {
-              points: [
-                { x: 0, y: 0 },
-                { x: 98.48, y: 17.36 },
-              ],
-              closed: false,
-            }),
-          ],
-        }),
+        Schema.safeParse(
+          planWith([], {
+            walls: [
+              wall('w2', {
+                points: [
+                  { x: 0, y: 0 },
+                  { x: 98.48, y: 17.36 },
+                ],
+                closed: false,
+              }),
+            ],
+          }),
+        ),
       ),
     ).toEqual([])
-    expect(issuesOf(planWith([fixture('w1', 600, 20, 40, 40)], { walls: [wall('w1')] }))).toEqual([
+    expect(issuesOf(Schema.safeParse(planWith([fixture('w1', 600, 20, 40, 40)], { walls: [wall('w1')] })))).toEqual([
       { code: 'duplicate_id', id: 'w1' },
     ])
-    expect(issuesOf(planWith([], { walls: [wall('w1', { points: rect(800, 0, 400, 300) })] }))).toEqual([
-      { code: 'out_of_bounds', id: 'w1' },
-    ])
+    expect(
+      issuesOf(Schema.safeParse(planWith([], { walls: [wall('w1', { points: rect(800, 0, 400, 300) })] }))),
+    ).toEqual([{ code: 'out_of_bounds', id: 'w1' }])
     expect(
       issuesOf(
-        planWith([], {
-          walls: [
-            wall('w1', {
-              openings: [
-                { edge: 0, at: 350, width: 92 },
-                { edge: 4, at: 0, width: 92 },
-              ],
-            }),
-          ],
-        }),
+        Schema.safeParse(
+          planWith([], {
+            walls: [
+              wall('w1', {
+                openings: [
+                  { edge: 0, at: 350, width: 92 },
+                  { edge: 4, at: 0, width: 92 },
+                ],
+              }),
+            ],
+          }),
+        ),
       ),
     ).toEqual([
       { code: 'opening_off_wall', id: 'w1', opening: 0 },
@@ -201,6 +223,7 @@ describe('SeatPlan schema (editor save guard)', () => {
 
 describe('Template schema (saved objects)', () => {
   const { Template } = createSeatPlanSchema({ sectionIds: ['A'] })
+
   const template = {
     version: 3,
     groups: [{ id: 'row-1', role: 'row' }],
@@ -219,6 +242,7 @@ describe('Template schema (saved objects)', () => {
       ...template,
       objects: [...template.objects, fixture('A1', 0, 0, 10, 10, { group: 'row-9' })],
     })
+
     expect(broken.success ? [] : broken.error.issues.map(seatPlanIssueOf)).toEqual([
       { code: 'duplicate_id', id: 'A1' },
       { code: 'unknown_group', id: 'A1', group: 'row-9' },
@@ -240,7 +264,7 @@ describe('SeatPlan schema — documents stored by ichno 0.2', () => {
   }
 
   it('upgrades them while parsing and applies the current rules to the result', () => {
-    expect(issuesOf(v2)).toEqual([{ code: 'duplicate_id', id: 'A1' }])
+    expect(issuesOf(Schema.safeParse(v2))).toEqual([{ code: 'duplicate_id', id: 'A1' }])
     const plan = Schema.parse({ ...v2, objects: v2.objects.slice(0, 1) })
     expect(plan.version).toBe(3)
     expect(plan.objects).toEqual([
@@ -292,7 +316,7 @@ describe('SeatPlan schema — documents stored by ichno 0.1', () => {
 
   it('applies the current rules to the upgraded document', () => {
     const clash = { ...v1, seats: [v1.seats[0], { ...v1.seats[0], x: 300 }] }
-    expect(issuesOf(clash)).toContainEqual({ code: 'duplicate_id', id: 'A1' })
+    expect(issuesOf(Schema.safeParse(clash))).toContainEqual({ code: 'duplicate_id', id: 'A1' })
   })
 
   it('reports a broken v1 structure on v1 paths', () => {
