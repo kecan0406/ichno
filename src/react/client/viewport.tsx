@@ -65,7 +65,7 @@ type ViewportProps<S extends string> = Omit<
   onPlaceClick?(place: Place<S>): void
   // Pointer entering and leaving places.
   onPlaceHover?(place: Place<S> | null): void
-  // Any tap — a place, a non-place object, a section, or empty floor (null) — with the plan point and whether
+  // Any tap — a place, a non-place object, a wall, a section, or empty floor (null) — with the plan point and whether
   // shift, ⌘ or Ctrl was held (additive selection). The editor selects with it.
   onTap?(target: PlanTarget<S> | null, info: { point: PlanPoint | null; additive: boolean }): void
   // The pointer moving while nothing is pressed — the plan point under it and what it is over; nulls when it
@@ -720,7 +720,7 @@ export function Viewport<S extends string>({
   )
 }
 
-// The handle, place, object or section an element belongs to — the nearest part with an ichno data attribute.
+// The handle, place, object, wall or section an element belongs to — the nearest part with an ichno data attribute.
 function targetOf<S extends string>(element: EventTarget | null): PlanTarget<S> | null {
   if (!(element instanceof Element)) return null
   const handle = element.closest('[data-ichno-handle]')
@@ -732,13 +732,15 @@ function targetOf<S extends string>(element: EventTarget | null): PlanTarget<S> 
         ? { kind: 'selection' }
         : kind === 'section'
           ? { kind: 'section', id: id as S }
-          : { kind: kind === 'group' ? 'group' : 'object', id }
+          : { kind: kind === 'group' ? 'group' : kind === 'wall' ? 'wall' : 'object', id }
     return { kind: 'handle', owner, name: handle.getAttribute('data-ichno-handle')! }
   }
   const place = element.closest('[data-ichno-id]')
   if (place) return { kind: 'place', id: place.getAttribute('data-ichno-id')! }
   const object = element.closest('[data-ichno-object]')
   if (object) return { kind: 'object', id: object.getAttribute('data-ichno-object')! }
+  const wall = element.closest('[data-ichno-wall]')
+  if (wall) return { kind: 'wall', id: wall.getAttribute('data-ichno-wall')! }
   const section = element.closest('[data-ichno-section]')
   if (section) return { kind: 'section', id: section.getAttribute('data-ichno-section') as S }
   return null

@@ -34,8 +34,10 @@ UI: ichno owns the document, the geometry and the behaviour; the consumer owns t
 | Grouping         | flat: items point at a `group` id; `groups` holds the label and role                                                                                                                                                                                                                                                                                                             | nested group trees; tags only                                                                     |
 | Geometry         | integer `x, y, w, h` of the unrotated box, `shape: 'rect' \| 'ellipse'`, optional `rotation` in degrees about the box centre                                                                                                                                                                                                                                                     | centre coordinates; float coordinates; polygons and lines for fixtures (later, if needed)         |
 | Group turning    | a group stores the way it faces (`rotation`) and turns about the centre of its frame — the box around its members in that direction — so the centre stays put turn after turn; positions round half to even                                                                                                                                                                      | turning about the level extent's centre (it wanders with every turn); float coordinates           |
-| Grid             | an editor snap option (`snap: { cell: 46 }`), not a document rule                                                                                                                                                                                                                                                                                                                | grid as a validation rule                                                                         |
+| Grid             | an editor snap option (`snap: { cell: 50 }`), not a document rule                                                                                                                                                                                                                                                                                                                | grid as a validation rule                                                                         |
+| Units            | plan units have no size, but ichno's defaults read them as centimetres (decided 2026-10-10): `GRID_CELL` is 50, half a metre, so snapping lands on 25 cm and lengths read round; walls keep a step of their own (`Snap.wall`), a metre in the playground                                                                                                                         | a unit stored in the document; the 46-unit desk cell of 0.1                                       |
 | Sections         | a place stores its `section`; containment is checked by validation                                                                                                                                                                                                                                                                                                               | deriving membership from position                                                                 |
+| Walls            | the building, beside the sections: a centre line through points (closed or open), a thickness and openings along its edges; rooms are found where walls meet and never stored (phase 10)                                                                                                                                                                                         | walls as fixtures ichno cannot read; a wall graph of shared corners; a `wall` object kind         |
 | Row labels       | a `label` item placed in the document that draws its group's label                                                                                                                                                                                                                                                                                                               | stored text; positions computed at render time                                                    |
 | Overlap          | a schema error between places only; fixtures overlap freely (`fixture_overlap` goes)                                                                                                                                                                                                                                                                                             | all overlap as lint; place–fixture overlap errors                                                 |
 | Naming           | today's `zones` become `sections` (Seats.io and industry vocabulary); the array stays `objects`, non-bookable items stay `fixture`                                                                                                                                                                                                                                               | `items` / `shape`                                                                                 |
@@ -67,6 +69,7 @@ type SeatPlan<S extends string = string> = {
   width: number
   height: number
   sections: { id: S; points: PlanPoint[] }[]
+  walls: { id: string; points: PlanPoint[]; thickness: number; closed?: boolean; openings?: Opening[] }[]
   categories: { key: string; accessible?: boolean }[]
   groups: { id: string; label?: string; role?: string; rotation?: number }[] // rotation: the way it faces
   objects: PlanObject<S>[] // drawing order
@@ -79,13 +82,18 @@ type PlanObject<S> =
   | (Box & { kind: 'place'; id; section: S; capacity; label?; group?; role?; category?; tags? })
   | (Box & { kind: 'fixture'; id; group?; role? }) // never capacity
   | (Box & { kind: 'label'; id; group: string }) // draws the group's label (or its id)
+
+// A gap `width` long in edge `edge` of its wall (from point `edge` to the next), starting `at` along it.
+type Opening = { edge: number; at: number; width: number; role?: string } // a door, a window — the consumer's word
 ```
 
 - **Places** are what can be booked, exactly as stored — no flattening. A desk, a row seat, a booth and a standing
   area differ only in shape, capacity and the consumer's `role`.
 - **Roles** are the consumer's words (`desk`, `row`, `table`, `stage`, `chair`, …); ichno never reads them. Parts
   expose them as `data-role`.
-- **Ids** share one namespace across places, fixtures, labels and groups. Place ids are 1–8 characters.
+- **Ids** share one namespace across places, fixtures, labels, groups and walls. Place ids are 1–8 characters.
+- **Walls** are the building; the rooms they close are found from them (`seatPlan.roomsOf`). A room is not a section:
+  a section is what a place belongs to for booking, and one that is the whole plan serves most venues.
 - **Status is not in the document.** Renderers take it as a `Record<id, string>` prop, like Seats.io's event.
 
 The v2 → v3 upgrade keeps every place id and coordinate:
@@ -105,7 +113,7 @@ overlap another place upgrades into one the schema refuses with `overlap`; `upgr
 the editor opens it with the pair marked.
 
 Schema errors keep a stored document well-formed (duplicate ids, unknown sections, groups or categories, out of
-bounds, overlapping places). Softer rules come from `lint(plan, severities)` as warnings the consumer can turn up or
+bounds, overlapping places, openings that do not fit their wall). Softer rules come from `lint(plan, severities)` as warnings the consumer can turn up or
 off (duplicate labels, places outside their section, places without a category, empty sections).
 
 ## Components
@@ -233,17 +241,41 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
    precision, design and CAD tools (SketchUp's typed lengths and live dimensions). The scope and the wall handle were
    decided with the maintainer on 2026-10-09; the rest are calls made building it:
 
-   | Topic     | Decision                                                                                                                                                                                                    | Rejected                                                                   |
-   | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-   | Rooms     | a section is the room: a `polygon` tool's drag before the first corner draws a rectangle; moving a section moves what stands in it (what removing it takes), the outline held whole inside the plan         | a room primitive; moving the outline alone, each vertex clamped on its own |
-   | Walls     | the middle of an edge pushes that wall straight out or in (both corners, onto cell lines when snapping, a step short of the far side) and carries the loose fixtures standing against it; Alt adds a vertex | phase 8's edge handle adding a vertex; pushing behind Alt                  |
-   | Precision | `addPoint(point)` places a polygon corner exactly — the consumer turns a typed length into a point, as units are its own                                                                                    | typed lengths and units in ichno                                           |
+   | Topic     | Decision                                                                                                                                                                                                                                             | Rejected                                                                   |
+   | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+   | Rooms     | a section is the room (superseded by phase 10 — rooms come from walls): a `polygon` tool's drag before the first corner draws a rectangle; moving a section moves what stands in it (what removing it takes), the outline held whole inside the plan | a room primitive; moving the outline alone, each vertex clamped on its own |
+   | Walls     | the middle of an edge pushes that wall straight out or in (both corners, onto cell lines when snapping, a step short of the far side) and carries the loose fixtures standing against it; Alt adds a vertex                                          | phase 8's edge handle adding a vertex; pushing behind Alt                  |
+   | Precision | `addPoint(point)` places a polygon corner exactly — the consumer turns a typed length into a point, as units are its own                                                                                                                             | typed lengths and units in ichno                                           |
 
    The playground builds the rest on that, as an app would: a door snaps into the nearest wall (a section's edge or a
    wall fixture) and the wall is left open there in 2D and 3D; a tool shows what it cannot make where the pointer is
    in the colour of what cannot be had, with the reason; places a drag takes outside their section are marked like
    overlaps; lengths are written in metres while drawing and on what is selected (2D), a section's edges take typed
    lengths, and Design shows a section's floor area and how many it holds. 3D stays the basic mode — no handles.
+
+10. ✅ **Walls** — decided with the maintainer on 2026-10-10. Phase 9 made the section the room, so a place could
+    not go anywhere until a section was drawn, and two things on the plan looked like walls (a section's edge and a
+    wall fixture) while only one of them made a room. Game housing builds the other way round — walls first, the
+    rooms are where they close — and the playground's visitors never need to see a section at all.
+
+    | Topic    | Decision                                                                                                                                                                                                                                                                                                                      | Rejected                                                                                                                |
+    | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+    | Walls    | a `walls` list beside `sections` (default `[]`): a centre line through `points`, `closed` or open, `thickness` across; ids in the shared namespace; the centre line stays on the plan, the band may reach past it                                                                                                             | walls as fixtures (`role: 'wall'`), which ichno never reads; a graph of shared corners; a `wall` kind among the boxes   |
+    | Rooms    | found where walls meet (`seatPlan.roomsOf`): a closed wall, walls meeting end to end, a partition across one; an open wall's end within half a thickness of another meets it; never stored                                                                                                                                    | stored rooms; a room primitive                                                                                          |
+    | Sections | stay the booking zone a place stores; separate from rooms. The playground keeps one that is the whole plan and never shows it                                                                                                                                                                                                 | sections found from rooms (ids would change with the walls; a stadium's blocks have no walls); `place.section` optional |
+    | Openings | stored on their wall — `edge`, `at`, `width`, the consumer's `role`; kept within an edge that changes, dropped from one shorter than they are wide; the renderer leaves the gap                                                                                                                                               | door fixtures whose gaps the consumer works out                                                                         |
+    | Editing  | walls select, drag and copy like objects; a closed wall carries what stands in it; vertex and edge handles as a section's, the walls joined to one following; a `path` draw mode whose corners land on nearby walls and line up with other walls' corners only — never furniture or a wall's faces, so walls stay on the grid | moving the walls of a room found from several walls (which walls would move is not clear)                               |
+
+    Building walls, decided with the maintainer the same day after the playground's first tool (corners tapped or a
+    rectangle dragged) left lengths like 0.95 m: walls keep their own step (`Snap.wall`, a metre in the playground),
+    and the playground puts a wall up the way housing games do — a metre piece at a click, under the pointer (hinged
+    on a wall's end the pointer is beside, else on the grid line under it, or centred on it when turned), carrying
+    that wall on (`planEdits.buildWall`), the wheel or R turning the next piece 15° (⇧ 5°), back at its start closing
+    a room. The piece tool takes the pointer unsnapped (`EditorTool.snap: false`) and places itself. A rectangle room
+    is the playground's Room asset, a door its Door asset.
+
+    Not yet: templates (the clipboard, saved objects) carry no walls, turning leaves walls where they are, and a
+    section still draws its outer wall — whether a section draws as a zone now that walls are their own is open.
 
 ## Out of scope
 
@@ -252,7 +284,7 @@ Booking flow (holds, sessions, channels, seasons, best available), prices and ti
 both belong to the consumer.
 
 A 3D view is a renderer the consumer adds over the same document. The playground's 3D preview shows the shape:
-three.js in the site, loaded only when opened, reading places, fixtures, groups and roles as stored and supplying
+three.js in the site, loaded only when opened, reading places, fixtures, groups, walls and roles as stored and supplying
 what the document does not hold — a scale for plan units, heights, which way seating faces, where a guest's eyes
 are — as its own reading of its roles (`site/app/playground/_lib/scene.ts`). Nothing in ichno changed for it.
 

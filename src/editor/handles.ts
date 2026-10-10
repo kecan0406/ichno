@@ -13,17 +13,19 @@ import type {
 import type { EditorSelection } from './selection'
 import type { Snap } from './operations'
 import { boxOf, turnObjects, withGroupRotation } from './turn'
+import { dragWallHandle, wallFrameOf, wallHandlesOf } from './walls'
 
 // Editing handles — which ones a selection shows and what dragging one does. Pure, like the other operations:
 // the editor hook shows `handlesOf` and commits `dragHandle` with the snapping its preview used.
 //
 // An object resizes from its corners (the opposite corner staying put, in the object's own turned frame) and
 // turns from the knob above its top edge. A group turns as one from the knob above its frame — the box around its
-// members in the direction it faces — so the knob, the frame and the centre turn with it. A section's vertices move
-// one at a time, and a vertex dropped on its neighbour merges with it; the middle of an edge pushes that wall straight
-// out or in, or with Alt adds a vertex there. Several selected items show one knob above the box around them, turning
-// them together about the middle of their centres (as `planEdits.rotate` does); otherwise handles show for a single
-// selected item. `frames` outlines any number of them.
+// members in the direction it faces — so the knob, the frame and the centre turn with it. A section's or a wall's
+// vertices move one at a time, and a vertex dropped on its neighbour merges with it; the middle of an edge pushes it
+// straight out or in, or with Alt adds a vertex there (see ./walls.ts for what a wall's joints do). Several selected
+// objects and groups show one knob above the box around them, turning them together about the middle of their centres
+// (as `planEdits.rotate` does); otherwise handles show for a single selected item. `frames` outlines any number of
+// them.
 
 // Handles of your own on a selected item — a row's end to drag it longer, the middle of its arc to bend it, a table's
 // edge to seat more. Like a creation tool, the set says what they are, and ichno draws them with its own
@@ -80,6 +82,10 @@ function handlesOf<S extends string>(
   }
   if (selection.length !== 1) return []
   const [item] = selection as [EditorSelection<S>]
+  if (item.kind === 'wall') {
+    const wall = seatPlan.wallOf(plan, item.id)
+    return wall ? wallHandlesOf<S>(wall) : []
+  }
   if (item.kind === 'section') {
     const section = seatPlan.sectionOf(plan, item.id)
     if (!section) return []
@@ -106,22 +112,27 @@ function handlesOf<S extends string>(
   ]
 }
 
-// The outline of the single selected object or group — its turned box, or the group's frame (nw, ne, se, sw) — or
-// the box around several. Draw it with the handles so a turned group shows the box it turns about. null for a
-// section or nothing.
+// The outline of the single selected object, group or wall — its turned box, the group's frame (nw, ne, se, sw), the
+// wall's band — or the box around several. Draw it with the handles so a turned group shows the box it turns about.
+// null for a section or nothing.
 function frameOf<S extends string>(
   plan: SeatPlan<S>,
   selection: readonly EditorSelection<S>[],
   turn = 0,
 ): PlanPoint[] | null {
   if (selection.length > 1) return selectionKnobOf(plan, selection, turn)?.frame ?? null
-  if (selection.length !== 1 || selection[0]!.kind === 'section') return null
-  const box = boxOf(plan, selection[0]!.id)
+  const [item] = selection
+  if (selection.length !== 1 || !item || item.kind === 'section') return null
+  if (item.kind === 'wall') {
+    const wall = seatPlan.wallOf(plan, item.id)
+    return wall ? wallFrameOf(wall) : null
+  }
+  const box = boxOf(plan, item.id)
   return box ? outlineOf(box, 'rect') : null
 }
 
-// The outline of every selected object and group, the way `frame` outlines one — in one pass over the plan, so a
-// selection of thousands stays cheap. Sections have none.
+// The outline of every selected object, group and wall, the way `frame` outlines one — in one pass over the plan, so
+// a selection of thousands stays cheap. Sections have none.
 function framesOf<S extends string>(plan: SeatPlan<S>, selection: readonly EditorSelection<S>[]): PlanPoint[][] {
   const groups = new Map(plan.groups.map((group) => [group.id, group]))
   const objects = new Map(plan.objects.map((object) => [object.id, object]))
@@ -134,6 +145,11 @@ function framesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edito
   }
   return selection.flatMap((item) => {
     if (item.kind === 'section') return []
+    if (item.kind === 'wall') {
+      const wall = seatPlan.wallOf(plan, item.id)
+      const frame = wall ? wallFrameOf(wall) : null
+      return frame ? [frame] : []
+    }
     const group = item.kind === 'group' ? groups.get(item.id) : undefined
     const box = group
       ? seatPlan.frameOf(members.get(group.id) ?? [], group.rotation ?? 0)
@@ -143,14 +159,15 @@ function framesOf<S extends string>(plan: SeatPlan<S>, selection: readonly Edito
 }
 
 // The box around several selected objects and groups, the knob above it and what they turn about — the middle of
-// their centres, a group's being its frame's. `turn` turns the box and the knob about it. Sections take no part.
+// their centres, a group's being its frame's. `turn` turns the box and the knob about it. Sections and walls take no
+// part.
 // null for fewer than two objects and groups. One pass over the plan, so a selection of thousands stays cheap.
 function selectionKnobOf<S extends string>(
   plan: SeatPlan<S>,
   selection: readonly EditorSelection<S>[],
   turn = 0,
 ): { frame: PlanPoint[]; knob: PlanPoint; pivot: PlanPoint } | null {
-  const ids = new Set(selection.flatMap((item) => (item.kind === 'section' ? [] : [item.id])))
+  const ids = new Set(selection.flatMap((item) => (item.kind === 'object' || item.kind === 'group' ? [item.id] : [])))
   if (ids.size < 2) return null
   const bounds: PlanRect[] = []
   const centers: PlanPoint[] = []
@@ -198,8 +215,8 @@ function selectionTurnOf<S extends string>(
 // The plan with a handle dragged by `total` plan units. Unknown handles leave the plan as it is. `constrain`
 // (Shift) turns in 15° steps, keeps a resized object's proportions and moves a vertex straight along one axis.
 // `pixel` (plan units per screen pixel) sizes how close a vertex comes to its neighbour to merge with it — without
-// it, only one dropped right on it merges. `alt` (Alt held) adds a vertex at the middle of a section's edge instead
-// of pushing the edge.
+// it, only one dropped right on it merges. `alt` (Alt held) adds a vertex at the middle of a section's or a wall's
+// edge instead of pushing the edge.
 function dragHandle<S extends string>(
   plan: SeatPlan<S>,
   owner: HandleOwner<S>,
@@ -212,6 +229,7 @@ function dragHandle<S extends string>(
 ): SeatPlan<S> {
   // The selection's knob turns what is selected — `planEdits.applyDrag` knows what that is.
   if (owner.kind === 'selection') return plan
+  if (owner.kind === 'wall') return dragWallHandle(plan, owner.id, name, total, snap, constrain, pixel, alt)
   if (owner.kind === 'section') {
     const section = seatPlan.sectionOf(plan, owner.id)
     if (!section) return plan

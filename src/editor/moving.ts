@@ -9,10 +9,11 @@ import type { SeatPlan } from '../core/types'
 export const KEY_SEPARATOR = '\u0000'
 
 // The ids of the objects that differ between two plans — changed, added or gone — as one string, so what is built
-// from it keeps its identity while the same objects move; '' when none do, null when sections changed as well.
+// from it keeps its identity while the same objects move; '' when none do, null when sections or walls changed as
+// well.
 export function changedKey(before: SeatPlan<string>, after: SeatPlan<string>): string | null {
   if (before === after) return ''
-  if (before.sections !== after.sections) return null
+  if (before.sections !== after.sections || before.walls !== after.walls) return null
   const gone = new Map(before.objects.map((o) => [o.id, o]))
   const ids: string[] = []
   for (const object of after.objects) {
@@ -29,7 +30,7 @@ export function withoutIds<S extends string>(plan: SeatPlan<S>, key: string): Se
 
 export function onlyIds<S extends string>(plan: SeatPlan<S>, key: string): SeatPlan<S> {
   const ids = new Set(key.split(KEY_SEPARATOR))
-  return { ...plan, sections: [], objects: plan.objects.filter((o) => ids.has(o.id)) }
+  return { ...plan, sections: [], walls: [], objects: plan.objects.filter((o) => ids.has(o.id)) }
 }
 
 // The places of a plan that overlap one another, and an index of all of them to check others against.

@@ -19,12 +19,16 @@ export {
   type PlanStroke,
   type PlanTarget,
   type PlanTemplate,
+  type Room,
   type SeatPlan,
   type Section,
   type SectionPlan,
   type Shape,
   type TemplateObject,
+  type Wall,
+  type WallOpening,
 } from './core/types'
+export type { OpeningShape, WallEdge } from './core/walls'
 export { upgradeSeatPlan, type PlanObjectV2, type SeatPlanV1, type SeatPlanV2 } from './core/legacy'
 export { GRID_CELL } from './core/grid'
 export {

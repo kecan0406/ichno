@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { OBJECT_ID_MAX, PLACE_ID_MAX, seatPlan } from '../core/geometry'
 import { upgradeV1, upgradeV2, type SeatPlanV2 } from '../core/legacy'
 import { SHAPES, type PlanRect } from '../core/types'
+import { wallEdgesOf } from '../core/walls'
 
 // Document validation — a separate entry so zod stays out of bundles that only draw.
 // It refuses what would corrupt a stored document (broken references, ids that collide, geometry that cannot be
@@ -16,6 +17,9 @@ export type SeatPlanIssue =
   | { code: 'unknown_group'; id: string; group: string }
   | { code: 'out_of_bounds'; id: string }
   | { code: 'overlap'; ids: [string, string] }
+  // An opening that does not fit its wall — its edge is not there, or it runs past the edge's end. `opening` is its
+  // index in the wall's `openings`.
+  | { code: 'opening_off_wall'; id: string; opening: number }
 
 // Plan-level rule violations carry this prefix as their message and the structured issue in `params`.
 // The library ships no copy — turn issues into text with `seatPlanIssueOf`. Field-level failures (types,
@@ -49,6 +53,19 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
   const Label = z.string().trim().min(1).max(LABEL_MAX)
 
   const Section = z.object({ id: SectionId, points: z.array(Point).min(3) })
+  const Opening = z.object({
+    edge: z.int().nonnegative(),
+    at: z.int().nonnegative(),
+    width: z.int().positive(),
+    role: Role.optional(),
+  })
+  const Wall = z.object({
+    id: ObjectId,
+    points: z.array(Point).min(2),
+    thickness: z.int().positive(),
+    closed: z.boolean().optional(),
+    openings: z.array(Opening).optional(),
+  })
   const Category = z.object({ key: z.string().trim().min(1).max(OBJECT_ID_MAX), accessible: z.boolean().optional() })
   const Group = z.object({ id: ObjectId, label: Label.optional(), role: Role.optional(), rotation: Rotation })
 
@@ -80,6 +97,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
       width: z.int().positive(),
       height: z.int().positive(),
       sections: z.array(Section),
+      walls: z.array(Wall).default([]),
       categories: z.array(Category).default([]),
       groups: z.array(Group).default([]),
       objects: z.array(PlanObject),
@@ -109,6 +127,19 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
         // A group label may sit in the margin beside its row; everything else stays on the plan.
         if (object.kind !== 'label' && !inside(seatPlan.boundsOf(object), plan))
           report(path, { code: 'out_of_bounds', id: object.id })
+      }
+
+      // A wall's centre line stays on the plan (its band may reach past the edge by half its thickness), and its
+      // openings fit the edges they are on.
+      for (const [i, wall] of plan.walls.entries()) {
+        if (!wall.points.every((p) => p.x >= 0 && p.y >= 0 && p.x <= plan.width && p.y <= plan.height))
+          report(['walls', i], { code: 'out_of_bounds', id: wall.id })
+        const edges = wallEdgesOf(wall)
+        for (const [k, opening] of (wall.openings ?? []).entries()) {
+          const edge = edges[opening.edge]
+          if (!edge || opening.at + opening.width > edge.length + 1e-6)
+            report(['walls', i, 'openings', k], { code: 'opening_off_wall', id: wall.id, opening: k })
+        }
       }
 
       // Places may touch but not overlap; fixtures and labels may overlap anything. The editor marks the same
@@ -235,7 +266,7 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
     return upgradeV2(parsed.data as SeatPlanV2)
   }, Document)
 
-  return { SeatPlan, Template, Section, Category, Group, PlanObject, Place, Fixture, GroupLabel }
+  return { SeatPlan, Template, Section, Wall, Opening, Category, Group, PlanObject, Place, Fixture, GroupLabel }
 }
 
 // The structured issue behind a plan-level violation, or null for any other zod issue.
@@ -250,9 +281,13 @@ function reporter(ctx: z.core.$RefinementCtx): Report {
   return (path, issue) => ctx.addIssue({ code: 'custom', path, message: `${ISSUE_PREFIX}${issue.code}`, params: issue })
 }
 
-// Ids are unique — objects and groups share one namespace — and objects point at groups that exist.
+// Ids are unique — objects, groups and walls share one namespace — and objects point at groups that exist.
 function referenceRules(
-  plan: { groups: readonly { id: string }[]; objects: readonly { id: string; group?: string }[] },
+  plan: {
+    groups: readonly { id: string }[]
+    objects: readonly { id: string; group?: string }[]
+    walls?: readonly { id: string }[]
+  },
   report: Report,
 ) {
   const ids = new Set<string>()
@@ -261,6 +296,7 @@ function referenceRules(
     ids.add(id)
   }
   for (const [i, group] of plan.groups.entries()) claim(['groups', i, 'id'], group.id)
+  for (const [i, wall] of (plan.walls ?? []).entries()) claim(['walls', i, 'id'], wall.id)
   const groupIds = new Set(plan.groups.map((group) => group.id))
   for (const [i, object] of plan.objects.entries()) {
     claim(['objects', i, 'id'], object.id)

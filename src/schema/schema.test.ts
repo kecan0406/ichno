@@ -139,6 +139,41 @@ describe('SeatPlan schema (editor save guard)', () => {
     const plan = Schema.parse(bare)
     expect(plan.categories).toEqual([])
     expect(plan.groups).toEqual([])
+    expect(plan.walls).toEqual([])
+  })
+
+  it('checks walls: ids shared with objects, the centre line on the plan, openings that fit their edge', () => {
+    const wall = (id: string, extra: object = {}) => ({
+      id,
+      points: rect(0, 0, 400, 300),
+      thickness: 12,
+      closed: true,
+      ...extra,
+    })
+    expect(issuesOf(planWith([], { walls: [wall('w1', { openings: [{ edge: 3, at: 100, width: 92 }] })] }))).toEqual([])
+    expect(issuesOf(planWith([fixture('w1', 600, 20, 40, 40)], { walls: [wall('w1')] }))).toEqual([
+      { code: 'duplicate_id', id: 'w1' },
+    ])
+    expect(issuesOf(planWith([], { walls: [wall('w1', { points: rect(800, 0, 400, 300) })] }))).toEqual([
+      { code: 'out_of_bounds', id: 'w1' },
+    ])
+    expect(
+      issuesOf(
+        planWith([], {
+          walls: [
+            wall('w1', {
+              openings: [
+                { edge: 0, at: 350, width: 92 },
+                { edge: 4, at: 0, width: 92 },
+              ],
+            }),
+          ],
+        }),
+      ),
+    ).toEqual([
+      { code: 'opening_off_wall', id: 'w1', opening: 0 },
+      { code: 'opening_off_wall', id: 'w1', opening: 1 },
+    ])
   })
 
   it('leaves field-level zod issues to the zod error map', () => {

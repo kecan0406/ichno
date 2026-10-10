@@ -1,12 +1,22 @@
 import { Fragment, memo, type ReactNode } from 'react'
 import { groupLabelFont, seatPlan } from '../core/geometry'
 import type { Fixture, Group, Place, PlanRect, SeatPlan, Section } from '../core/types'
-import { FixturePart, LabelPart, PlacePart, SectionPart, placeLabelFont, type PlaceProps } from './parts'
+import {
+  FixturePart,
+  LabelPart,
+  PlacePart,
+  RoomPart,
+  SectionPart,
+  WallPart,
+  placeLabelFont,
+  type PlaceProps,
+} from './parts'
 
 type ContentProps<S extends string> = {
   plan: SeatPlan<S>
   // Place id → the consumer's status word. Exposed as data-status.
   status?: Readonly<Record<string, string>>
+  // Places and walls drawn selected.
   selected?: readonly string[]
   highlighted?: readonly string[]
   dimmed?: readonly string[]
@@ -30,7 +40,8 @@ type ContentProps<S extends string> = {
   minLabelPx?: number
 }
 
-// The whole plan in drawing order — sections, then every object in document order. A convenience over the parts;
+// The whole plan in drawing order — sections, the floors of the rooms the walls close, the walls, then every object
+// in document order. A convenience over the parts;
 // compose them yourself when you need something else. It skips redrawing when its props are the ones it last drew
 // with (parts are not compiled, so this is the one `memo`): an editor's `stillPlan` keeps its identity through a
 // drag, and the layer drawing it stays put while only the moving part redraws.
@@ -70,6 +81,14 @@ function ContentOf<S extends string>({
           label={sectionLabel ? sectionLabel(section) : labeled ? section.id : null}
         />
       ))}
+      {seatPlan.roomsOf(plan).map((room, i) => (
+        <RoomPart key={i} room={room} />
+      ))}
+      {plan.walls.map((wall) =>
+        region && !intersects(seatPlan.wallBoundsOf(wall), region) ? null : (
+          <WallPart key={wall.id} wall={wall} selected={selectedSet.has(wall.id)} />
+        ),
+      )}
       {plan.objects.map((object) => {
         if (region && !intersects(seatPlan.boundsOf(object), region)) return null
         switch (object.kind) {

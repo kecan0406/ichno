@@ -13,8 +13,8 @@ export type SpatialIndex = {
   order: Map<string, number>
 }
 
-// Bucket edge in plan units — about two standard desks, so a typical item touches one to four buckets.
-const DEFAULT_CELL_SIZE = 184
+// Bucket edge in plan units — two metres, about two desks, so a typical item touches one to four buckets.
+const DEFAULT_CELL_SIZE = 200
 
 export const spatialIndex = {
   create,

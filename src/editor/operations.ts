@@ -1,7 +1,7 @@
 import { OBJECT_ID_MAX, PLACE_ID_MAX, seatPlan } from '../core/geometry'
 import { GRID_CELL } from '../core/grid'
 import type { LabelSequence } from '../core/labeling'
-import { boundsOfBox, centerOfBox, normalizeRotation, polygonContains, unionBounds } from '../core/math'
+import { boundsOfBox, boundsOfPoints, centerOfBox, normalizeRotation, polygonContains, unionBounds } from '../core/math'
 import type {
   Fixture,
   Group,
@@ -17,20 +17,24 @@ import type {
   Section,
   Shape,
   TemplateObject,
+  Wall,
 } from '../core/types'
 import { alongAxis, planHandles } from './handles'
 import { pivotOf, turnObjects, withGroupRotation } from './turn'
+import { addOpening, addWall, buildWall, removeOpening, reshapeWall, wallContents, wallStepOf } from './walls'
 
 // Editor operations as pure functions — plan in, plan out. The hook keeps history and selection around them;
 // keeping them pure makes each rule testable and lets consumers run them outside React (imports, scripts).
 // Ids other records reference (`locked`) are never deleted or renamed, and no operation creates an id the schema
 // would refuse (place ids stay within PLACE_ID_MAX); operations that would do either refuse and return null.
 //
-// Objects and groups share one id namespace, so operations that act on "ids" take either: a group id stands for
-// all of its members, which then move, turn, copy and go as one.
+// Objects, groups and walls share one id namespace, so operations that act on "ids" take any of them: a group id
+// stands for all of its members, which then move, turn, copy and go as one. Walls move, copy and go; a closed wall
+// carries what stands in the room it goes round.
 
-// Editor snapping — sections snap to cell corners, objects to half cells. Without it, to whole plan units.
-export type Snap = { cell: number }
+// Editor snapping — sections snap to cell corners, objects to half cells, walls to `wall` (half cells unless given — a
+// housing grid of whole metres is `{ cell: 50, wall: 100 }`). Without it, everything to whole plan units.
+export type Snap = { cell: number; wall?: number }
 
 export type AlignEdge = 'left' | 'right' | 'top' | 'bottom' | 'center-x' | 'center-y'
 // Where `reorder` moves objects in the drawing order.
@@ -64,6 +68,11 @@ export const planEdits = {
   rename,
   addSection,
   removeSection,
+  addWall,
+  buildWall,
+  reshapeWall,
+  addOpening,
+  removeOpening,
   rotate,
   move,
   moveSection,
@@ -380,9 +389,9 @@ function reorder<S extends string>(plan: SeatPlan<S>, ids: readonly string[], to
   return { ...plan, objects: [...kept.slice(0, at), ...moved, ...kept.slice(at)] }
 }
 
-// Copies objects and groups by `offset` with fresh ids (places continue their section numbering, labels are
-// copied; a copied group gets a new id and copies of all its members). Returns the copies' ids, a group copy by
-// its group id. A copy whose place ids would be too long is skipped.
+// Copies objects, groups and walls by `offset` with fresh ids (places continue their section numbering, labels are
+// copied; a copied group gets a new id and copies of all its members; a closed wall comes with what stands in it).
+// Returns the copies' ids, a group copy by its group id. A copy whose place ids would be too long is skipped.
 function duplicate<S extends string>(
   plan: SeatPlan<S>,
   ids: readonly string[],
@@ -390,7 +399,22 @@ function duplicate<S extends string>(
 ): { plan: SeatPlan<S>; ids: string[] } {
   let next = plan
   const created: string[] = []
-  for (const id of ids) {
+  // A closed wall comes with what stands in it — a room copied whole.
+  const contents = wallContents(plan, ids)
+  for (const id of contents.walls) {
+    const wall = seatPlan.wallOf(next, id) ?? seatPlan.wallOf(plan, id)!
+    const fresh = objectIds(next, 'wall', 1)[0]!
+    next = { ...next, walls: [...next.walls, movedWall({ ...wall, id: fresh }, offset)] }
+  }
+  const asked = new Set(ids)
+  for (const id of [...ids, ...contents.units]) {
+    const wall = seatPlan.wallOf(plan, id)
+    if (wall) {
+      const fresh = objectIds(next, 'wall', 1)[0]!
+      next = { ...next, walls: [...next.walls, movedWall({ ...wall, id: fresh }, offset)] }
+      if (asked.has(id)) created.push(fresh)
+      continue
+    }
     const source = seatPlan.groupById(plan, id)
     const unit = unitOf(plan, id)
     if (unit.length === 0) continue
@@ -425,9 +449,13 @@ function duplicate<S extends string>(
       continue
     }
     next = { ...next, objects: [...next.objects, ...copies] }
-    created.push(groupId ?? copies[0]!.id)
+    if (asked.has(id)) created.push(groupId ?? copies[0]!.id)
   }
   return { plan: next, ids: created }
+}
+
+function movedWall(wall: Wall, offset: PlanPoint): Wall {
+  return { ...wall, points: wall.points.map((p) => ({ x: p.x + offset.x, y: p.y + offset.y })) }
 }
 
 // A template of what `ids` hold, the way a selection holds them — a group with all its members and labels, an
@@ -543,7 +571,7 @@ function insertTemplate<S extends string>(
   return { plan: { ...next, objects: [...next.objects, ...objects] }, ids: [...groupIds.values(), ...loose] }
 }
 
-// Removes objects and groups, skipping any that hold a locked id. Groups left without members go too. Returns
+// Removes objects, groups and walls, skipping any that hold a locked id. Groups left without members go too. Returns
 // the plan and the ids it refused to remove.
 function remove<S extends string>(
   plan: SeatPlan<S>,
@@ -557,6 +585,7 @@ function remove<S extends string>(
   return {
     plan: pruneGroups({
       ...plan,
+      walls: plan.walls.some((w) => removed.has(w.id)) ? plan.walls.filter((w) => !removed.has(w.id)) : plan.walls,
       groups: plan.groups.filter((g) => !removed.has(g.id)),
       objects: plan.objects.filter((o) => !removed.has(o.id)),
     }),
@@ -564,7 +593,7 @@ function remove<S extends string>(
   }
 }
 
-// Changes an id — an object's or a group's (a group's members follow). For places it is the key other records
+// Changes an id — an object's, a group's (a group's members follow) or a wall's. For places it is the key other records
 // reference. null when the id does not exist, is locked, is taken, or would not save (blank, too long).
 function rename<S extends string>(
   plan: SeatPlan<S>,
@@ -580,6 +609,7 @@ function rename<S extends string>(
   if (nextId.length > (object?.kind === 'place' ? PLACE_ID_MAX : OBJECT_ID_MAX)) return null
   return {
     ...plan,
+    walls: plan.walls.map((w) => (w.id === id ? { ...w, id: nextId } : w)),
     groups: plan.groups.map((g) => (g.id === id ? { ...g, id: nextId } : g)),
     objects: plan.objects.map((o) => {
       if (o.id === id) return { ...o, id: nextId }
@@ -614,29 +644,41 @@ function rotate<S extends string>(plan: SeatPlan<S>, ids: readonly string[], deg
   }, plan)
 }
 
-// Moves objects and groups by `delta` — snapped to half cells, and held inside the plan by what they draw. A
-// single object snaps its own position instead, so it lands on the grid. Axes in `exact` (what a guide lined up)
-// stay off the grid.
+// Moves objects, groups and walls by `delta` — snapped to half cells (with walls, to the walls' step), and held inside
+// the plan by what they draw (a wall by its centre line). A single object snaps its own position instead, so it lands on the grid. Axes in `exact`
+// (what a guide lined up) stay off the grid. A closed wall carries what stands in it and the walls inside it, unless
+// `carry` is off (what it would carry is moving already, as copies).
 function move<S extends string>(
   plan: SeatPlan<S>,
   ids: readonly string[],
   delta: PlanPoint,
   snap: Snap | null = null,
   exact: { x?: boolean; y?: boolean } = {},
+  carry = true,
 ): SeatPlan<S> {
-  const moving = new Map(ids.flatMap((id) => unitOf(plan, id)).map((o) => [o.id, o]))
-  if (moving.size === 0) return plan
+  const walls = new Set(ids.filter((id) => seatPlan.wallOf(plan, id) !== undefined))
+  const carried = carry ? wallContents(plan, [...walls]) : { units: [], walls: [] }
+  for (const id of carried.walls) walls.add(id)
+  const units = [...ids.filter((id) => !walls.has(id)), ...carried.units]
+  const moving = new Map(units.flatMap((id) => unitOf(plan, id)).map((o) => [o.id, o]))
+  if (moving.size === 0 && walls.size === 0) return plan
   const objects = [...moving.values()]
-  const step = snap ? snap.cell / 2 : 1
-  const only = objects.length === 1 && ids.length === 1 && seatPlan.groupById(plan, ids[0]!) === undefined
+  // Walls keep to their own step, and what they carry moves with them.
+  const step = walls.size > 0 ? wallStepOf(snap) : snap ? snap.cell / 2 : 1
+  const only =
+    walls.size === 0 && objects.length === 1 && ids.length === 1 && seatPlan.groupById(plan, ids[0]!) === undefined
   const along = (axis: 'x' | 'y') => {
     if (exact[axis]) return Math.round(delta[axis])
     return only ? roundTo(objects[0]![axis] + delta[axis], step) - objects[0]![axis] : roundTo(delta[axis], step)
   }
   let d = { x: along('x'), y: along('y') }
-  // Labels may sit in the margin; everything else stays on the plan.
+  // Labels may sit in the margin; everything else stays on the plan — a wall by its centre line.
   const held = objects.filter((o) => o.kind !== 'label')
-  const extent = unionBounds(held.map((o) => seatPlan.translate(seatPlan.boundsOf(o), d.x, d.y)))
+  const lines = plan.walls.flatMap((w) => (walls.has(w.id) ? w.points : []))
+  const extent = unionBounds([
+    ...held.map((o) => seatPlan.translate(seatPlan.boundsOf(o), d.x, d.y)),
+    ...(lines.length > 0 ? [seatPlan.translate(boundsOfPoints(lines), d.x, d.y)] : []),
+  ])
   if (extent)
     d = {
       x: d.x + inward(extent.x, extent.w, plan.width, step),
@@ -645,6 +687,12 @@ function move<S extends string>(
   if (d.x === 0 && d.y === 0) return plan
   return {
     ...plan,
+    walls:
+      walls.size === 0
+        ? plan.walls
+        : plan.walls.map((w) =>
+            walls.has(w.id) ? { ...w, points: w.points.map((p) => ({ x: p.x + d.x, y: p.y + d.y })) } : w,
+          ),
     objects: plan.objects.map((o) => (moving.has(o.id) ? rehomed(plan, seatPlan.translate(o, d.x, d.y)) : o)),
   }
 }
@@ -765,7 +813,8 @@ function reshapeSection<S extends string>(
 }
 
 // The plan with a drag applied — a handle reshapes or turns its owner, a section moves by whole cells with what
-// stands in it, objects by the drag total. When the dragged object is part of `selected` (object and group ids), the whole selection
+// stands in it, objects and walls by the drag total. When the dragged object or wall is part of `selected` (object,
+// group and wall ids), the whole selection
 // moves; otherwise the object alone, or its group when it has one. A constrained move keeps to the axis it went
 // furthest along; a copying one (Alt) leaves them where they were and moves copies (see `duplicate`). The
 // selection's knob turns `selected` together. Axes in `exact` (what a guide lined up) stay off the grid.
@@ -789,13 +838,24 @@ function applyDrag<S extends string>(
   }
   const total = constrain ? alongAxis(drag.total) : drag.total
   if (target.kind === 'section') return moveSection(plan, target.id, total, snap)
-  const object = seatPlan.objectById(plan, target.id)
-  if (!object) return plan
-  const covered = selected.includes(object.id) || (object.group !== undefined && selected.includes(object.group))
-  const ids = covered ? selected : [object.group ?? object.id]
+  let ids: readonly string[]
+  if (target.kind === 'wall') {
+    if (!seatPlan.wallOf(plan, target.id)) return plan
+    ids = selected.includes(target.id) ? selected : [target.id]
+  } else {
+    const object = seatPlan.objectById(plan, target.id)
+    if (!object) return plan
+    const covered = selected.includes(object.id) || (object.group !== undefined && selected.includes(object.group))
+    ids = covered ? selected : [object.group ?? object.id]
+  }
   if (!drag.copy) return move(plan, ids, total, snap, exact)
+  // The copies move on their own — a copied room's furniture is among them, the original's stays.
   const copies = duplicate(plan, ids, ORIGIN)
-  return move(copies.plan, copies.ids, total, snap, exact)
+  const known = new Set(seatPlan.idsOf(plan))
+  const fresh = seatPlan
+    .idsOf(copies.plan)
+    .filter((id) => !known.has(id) && !seatPlan.objectById(copies.plan, id)?.group)
+  return move(copies.plan, fresh, total, snap, exact, false)
 }
 
 // Whether an object or group holds an id other records reference — its own, or one of its members'.

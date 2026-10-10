@@ -9,8 +9,10 @@ import type {
   PlanHandle,
   PlanPoint,
   PlanRect,
+  Room,
   SeatPlan,
   Section,
+  Wall,
 } from '../core/types'
 import { planView, type PlanView } from '../core/view'
 import { FONT_VAR, NUMBER_FONT_VAR, cssVar } from '../theme/vars'
@@ -24,7 +26,7 @@ import { FONT_VAR, NUMBER_FONT_VAR, cssVar } from '../theme/vars'
 type GProps = Omit<ComponentProps<'g'>, 'children'>
 
 type RootProps = Omit<ComponentProps<'svg'>, 'viewBox'> & {
-  plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>
+  plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pick<SeatPlan, 'walls'>>
   // The part of the plan to show (plan units). Defaults to the whole drawing.
   view?: PlanView
 }
@@ -76,6 +78,44 @@ export function SectionPart({ section, label, ...rest }: SectionProps) {
           {label}
         </text>
       )}
+    </g>
+  )
+}
+
+type WallProps = GProps & { wall: Wall; selected?: boolean }
+
+// One wall — its band in ink, broken where its openings are, each opening's box across the band (`data-part="opening"`,
+// its role as `data-role`) left unpainted so a class can draw a door or a window there. Tapping the band selects the
+// wall.
+export function WallPart({ wall, selected, ...rest }: WallProps) {
+  return (
+    <g
+      data-ichno-wall={wall.id}
+      data-kind="wall"
+      data-closed={wall.closed ? '' : undefined}
+      data-selected={selected ? '' : undefined}
+      {...rest}
+    >
+      <path data-part="shape" d={pathOf(seatPlan.wallOutlineOf(wall))} fill={cssVar('ink')} fillRule="nonzero" />
+      {seatPlan.openingsOf(wall).map((shape) => (
+        <polygon
+          key={shape.index}
+          data-part="opening"
+          data-role={shape.opening.role}
+          points={pointsOf(shape.points)}
+          fill="none"
+        />
+      ))}
+    </g>
+  )
+}
+
+// The floor of a room the walls close (`seatPlan.roomsOf`) — drawn under the walls and what stands in it. Rooms are
+// not stored, so it carries no id; it takes no part in picking.
+export function RoomPart({ room, ...rest }: Omit<GProps, 'points'> & { room: Room }) {
+  return (
+    <g data-part="room" pointerEvents="none" {...rest}>
+      <polygon data-part="floor" points={pointsOf(room.points)} fill={cssVar('surface')} />
     </g>
   )
 }
@@ -418,6 +458,14 @@ const TONES = {
 // and fail hydration.
 function pointsOf(points: readonly PlanPoint[]): string {
   return points.map((p) => `${round(p.x)},${round(p.y)}`).join(' ')
+}
+
+// Closed rings as one path — filled with the nonzero rule, a ring turning the other way leaves a hole.
+function pathOf(rings: readonly (readonly PlanPoint[])[]): string {
+  return rings
+    .filter((ring) => ring.length > 2)
+    .map((ring) => `M${ring.map((p) => `${round(p.x)} ${round(p.y)}`).join('L')}Z`)
+    .join('')
 }
 
 function round(value: number): number {

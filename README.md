@@ -2,9 +2,9 @@
 
 Seat plans for React — one JSON document, headless primitives around it.
 
-- **`ichno`** — zod-free core: the document types, geometry (turned shapes, overlap, section crops), layouts (rows
-  on an arc, seats around a table, blocks), soft lint rules, selection rules and a renderer-independent interaction
-  core (hit-testing, gestures, keyboard movement)
+- **`ichno`** — zod-free core: the document types, geometry (turned shapes, overlap, walls and the rooms they close,
+  section crops), layouts (rows on an arc, seats around a table, blocks), soft lint rules, selection rules and a
+  renderer-independent interaction core (hit-testing, gestures, keyboard movement)
 - **`ichno/schema`** — `createSeatPlanSchema({ sectionIds })`: zod validation with structured issue codes; upgrades
   documents stored by ichno 0.1 and 0.2
 - **`ichno/react`** — `SeatMap.*`: headless SVG components. The parts render as React Server Components; the
@@ -25,7 +25,8 @@ Compiler.
 ## The document
 
 The document holds primitives only — what is where, and what can be booked. A row, a table or a desk is not a kind
-ichno decides; it is a group of places and fixtures, and `role` carries your word for each.
+ichno decides; it is a group of places and fixtures, and `role` carries your word for each. Walls are the building
+around them; the rooms they close are found from them, not stored.
 
 ```ts
 type SeatPlan<S extends string> = {
@@ -33,6 +34,7 @@ type SeatPlan<S extends string> = {
   width: number
   height: number
   sections: { id: S; points: { x: number; y: number }[] }[] // venue sections — composition fixed by you
+  walls: Wall[] // the building — rooms close where walls meet
   categories: { key: string; accessible?: boolean }[] // names, colours and prices are yours
   groups: { id: string; label?: string; role?: string; rotation?: number }[] // a row, a table with its chairs, …
   objects: PlanObject<S>[] // drawing order
@@ -59,18 +61,36 @@ type PlanObject<S> =
     }
   | { kind: 'fixture'; id; shape: 'rect' | 'ellipse'; x; y; w; h; rotation?; group?; role? } // stage, wall, chair — never capacity
   | { kind: 'label'; id; group; x; y; w; h } // where a group's label is written (a row's ends)
+
+// A centre line through `points` (back to the first when `closed`), `thickness` across, with gaps cut in it.
+type Wall = {
+  id
+  points: { x: number; y: number }[]
+  thickness: number
+  closed?: boolean
+  openings?: { edge: number; at: number; width: number; role?: string }[] // a door, a window — `role` is yours
+}
 ```
 
 - **Ids are booking keys.** A place's `id` (1–8 characters) is what your other records (bookings, sessions) point
-  at — keep it stable. `label` is what people read and may change freely; it defaults to the id. Objects and groups
-  share one id namespace.
+  at — keep it stable. `label` is what people read and may change freely; it defaults to the id. Objects, groups and
+  walls share one id namespace.
 - **Places are stored as they are drawn.** A seat in a curved row is a place with its own box; `layout` (below)
   computes those boxes, and nothing about how they were made is kept. `capacity` is how many people a place holds —
   1 for a seat, more for a standing area or a table booked whole.
 - **Groups move as one.** A group's members are the objects pointing at it; the editor selects, moves, turns and
   copies them together, and selection rules read a group's places as a line.
+- **Walls make the rooms.** A wall is a centre line and a thickness; an opening is a stretch of one of its edges
+  (`edge`, from `at`, `width` long). `seatPlan.roomsOf(plan)` finds the rooms walls close — a closed wall round one,
+  a partition across it making two, rooms built side by side sharing their wall; an open wall's end within half a
+  thickness of another wall meets it there. `seatPlan.roomAt(plan, point)` is the innermost room around a point,
+  `seatPlan.openingAt(plan, point, width, reach)` where an opening of that width would go in the nearest wall, and
+  `seatPlan.wallOutlineOf(wall)` the band a wall paints. Rooms are not sections: a section is what a place belongs to
+  for booking; one that is the whole plan is enough for most venues.
 - **Status stays outside.** Taken, held or blocked are yours to keep; renderers take them as props.
 - **No grid in the document.** Coordinates are whole plan units; the editor snaps to a cell grid only when asked.
+  Plan units have no size, but ichno's defaults read them as centimetres: `GRID_CELL` is 50 (half a metre), so
+  snapping lands on 25 cm steps.
 
 `seatPlan.placesOf(plan)` lists the places; `seatPlan.membersOf(plan, groupId)` a group's objects;
 `seatPlan.boundsOf(object)`, `contains` and `overlaps` work on the turned shape. `seatPlan.boundsOfIds(plan, ids)` is
@@ -111,8 +131,10 @@ if (!result.success) {
 ```
 
 Plan-level issue codes: `duplicate_section`, `duplicate_category`, `duplicate_id`, `unknown_category`,
-`unknown_group`, `out_of_bounds` (places and fixtures; group labels may sit in the margin) and `overlap` (places
-only, on their turned shapes — touching, or crossing by less than `OVERLAP_TOLERANCE`, is fine). Callers holding a
+`unknown_group`, `out_of_bounds` (places and fixtures; group labels may sit in the margin; a wall's centre line — its
+band may reach past the edge by half its thickness), `overlap` (places only, on their turned shapes — touching, or
+crossing by less than `OVERLAP_TOLERANCE`, is fine) and `opening_off_wall` (an opening whose edge is not there or
+that runs past its end). Callers holding a
 trusted older document can use `upgradeSeatPlan`.
 
 The same factory returns `Template`, which checks a stored `PlanTemplate` (a saved object, see [Edit](#edit)) — its
@@ -188,16 +210,19 @@ const map = useSeatMapView(plan) // the view, and zoom controls for the buttons 
 <button onClick={map.zoomIn} disabled={!map.canZoomIn}>+</button>
 ```
 
-`SeatMap.Content` is a convenience; compose the parts yourself when you need something else —
-`SeatMap.Section`, `SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Label`, `SeatMap.Grid`, `SeatMap.Handles`,
-`SeatMap.Outline` and `SeatMap.Marquee`, fed by `plan.objects`; `SeatMap.EditorOverlay` layers the editing ones
-(see Edit). `renderPlace` swaps one place's drawing while keeping the rest. Turned places keep their label level.
+`SeatMap.Content` is a convenience — sections, the floors of the rooms the walls close, the walls, then the objects;
+compose the parts yourself when you need something else — `SeatMap.Section`, `SeatMap.Room`, `SeatMap.Wall`,
+`SeatMap.Place`, `SeatMap.Fixture`, `SeatMap.Label`, `SeatMap.Grid`, `SeatMap.Handles`, `SeatMap.Outline` and
+`SeatMap.Marquee`, fed by `plan.objects`, `plan.walls` and `seatPlan.roomsOf(plan)`; `SeatMap.EditorOverlay` layers
+the editing ones (see Edit). A wall paints its band in ink, broken at its openings; each opening's box across the band
+is a `data-part="opening"` with its `data-role`, unpainted, for a class to draw a door or a window. `renderPlace` swaps one place's drawing while keeping the rest. Turned places keep their label level.
 
 **Styling.** Parts paint with presentation attributes that read the theme variables, so any class overrides them.
-State is on the element: `data-kind` (`place`, `fixture`, `label`), `data-role`, `data-group`, `data-shape`,
+State is on the element: `data-kind` (`place`, `fixture`, `label`, `wall`), `data-role`, `data-group`, `data-shape`,
 `data-status`, `data-selected`, `data-disabled`, `data-highlighted`, `data-dimmed`, `data-invalid`,
-`data-category`; pieces are named by `data-part` (`shape`, `label`, `hit`, `floor`, `wall`, `handle`, `outline`,
-`marquee`, `focus-ring`, and `editor-overlay` with its `selection`, `hover` and `stroke`). Style your roles by
+`data-category`, `data-closed`; pieces are named by `data-part` (`shape`, `label`, `hit`, `floor`, `wall`, `room`,
+`opening`, `handle`, `outline`, `marquee`, `focus-ring`, and `editor-overlay` with its `selection`, `hover` and
+`stroke`). Style your roles by
 `data-role` — `[data-role='chair'] [data-part='shape']`.
 
 ```tsx
@@ -251,7 +276,7 @@ import { labeling, layout } from 'ichno'
 import { useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
 import { SeatMap, useSeatMapView } from 'ichno/react'
 
-const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 46 } })
+const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 50 } })
 const map = useSeatMapView(editor.plan)
 // arrows, Delete, R / ⇧R, Escape, Enter / ⇧Enter, ⌘A, ⌘C / ⌘X / ⌘V, ⌘D, ⌘G / ⇧⌘G, ⌘] / ⌘[, ⌘Z / ⇧⌘Z —
 // and with the view, + / − / ⇧1 / ⇧2
@@ -289,18 +314,21 @@ const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, c
 Tapping a grouped object selects its group; tapping it again selects the object alone (shift/⌘ adds to the
 selection). Dragging moves the selection with the snapping the commit will use — with Shift along one axis, with
 Alt a copy, leaving the original (`PlanDrag.copy`).
-Dragging empty floor draws a marquee that selects everything it touches; a selected section moves instead, with what
-stands in it — its places, every group holding one (whole) and the loose fixtures inside its outline — keeping its
-shape against the plan's edge. Space
+Dragging empty floor draws a marquee that selects everything it touches, walls included; a selected section moves
+instead, with what stands in it — its places, every group holding one (whole) and the loose fixtures inside its
+outline — keeping its shape against the plan's edge. A wall drags as soon as it is pressed; a closed one carries what
+stands in the room it goes round and the walls inside it, and an Alt-drag copies the room whole. Space
 and the middle mouse button pan. `cancel()` (Escape) drops the drag, marquee or stroke under way — what was
 dragged goes back and letting go changes nothing. Nothing stops you from dragging one place onto another; `conflictIds` lists the
 places that overlap (the same check the schema runs on save) so you can mark them while arranging. A single
 selected item shows handles: an object resizes from its corners (in its own turned frame; Shift keeps its
 proportions) and turns from the knob above it (Shift: 15° steps), a group turns as one about the centre of its
 frame — the box around its members in the direction the group faces (`group.rotation`), which turns with it, so the
-centre stays put turn after turn — and a section's handles reshape it: drag a vertex to move it (drop it on its
-neighbour to take it away), the middle of an edge to push that wall straight out or in — the loose fixtures standing
-against it, a door in its wall, go along — or the middle with Alt to add a vertex there. Several selected items show
+centre stays put turn after turn — and a section's or a wall's handles reshape it: drag a vertex to move it (drop it
+on its neighbour to take it away), the middle of an edge to push it straight out or in — the loose fixtures standing
+against it go along — or the middle with Alt to add a vertex there. A wall's openings keep their place along their
+edge (moved back within one that got shorter, dropped from one shorter than they are wide), and the corners and ends
+of other walls lying on a reshaped wall stay joined to it. Several selected items show
 one knob above the box around them that
 turns them together about the middle of their centres, as `rotateSelected` does (its owner is
 `{ kind: 'selection' }`). `frame` outlines the selected object or group, or the box around several; corner and edge
@@ -310,17 +338,21 @@ selected too. `SeatMap.EditorOverlay` draws all of it in order — the selection
 handles, the marquee and a tool's stroke — from `overlayProps`; draw the pieces yourself with `SeatMap.Outline`,
 `SeatMap.Handles` and `SeatMap.Marquee` when you want another order or look. `selectionBounds` is what the
 selection covers, for `map.zoomTo`. With `guides: true` a move snaps to the edges and centre lines of what stands
-around it — every unit (a group as one) and section — and to the spacing between its neighbours, and a level object's
-corner and a tool's stroke to those lines, within 6 screen pixels and ahead of the grid; ⌘ or Ctrl held lets go.
+around it — every unit (a group as one), section, and both faces of every wall edge — and to the spacing between its
+neighbours, and a level object's corner and a tool's stroke to those lines, within 6 screen pixels and ahead of the
+grid; ⌘ or Ctrl held lets go. A wall being drawn (a `path` tool) lines up with the corners of other walls only
+(`planGuides.wallTargetsOf`), and a move that takes walls along is left to the grid, so walls stay where the grid
+puts them. Walls keep a step of their own — `snap: { cell: 50, wall: 100 }` puts their corners on whole metres for a
+path tool's strokes, their vertex and edge handles and moves; it is half a cell unless given.
 `overlayProps.guides` are the lines and equal gaps to draw (`planGuides` is the math, for other renderers). `rotateSelected` turns one item about its own centre and several together about
 the middle of their centres. `displayPlan` is the plan with the drag in progress; `plan` is what you save. A
 selection never holds what an undo, a redo or an edit took away.
 
 **Large plans.** While a drag or a `preview` changes some objects, `stillPlan` is the plan without them and
-`movingPlan` only them (no sections; null while nothing moves). The still part keeps its identity for the whole drag,
+`movingPlan` only them (no sections or walls; null while nothing moves). The still part keeps its identity for the whole drag,
 and so do `selectedPlaceIds` and `conflictIds` while they say the same, so `SeatMap.Content` — which skips redrawing
 when its props are unchanged — draws it once per drag; only the moving part redraws each frame. Overlaps are checked
-for what moves only. A drag of a section, or of more than half the objects, is drawn as one layer (`stillPlan` is then
+for what moves only. A drag of a section or a wall, or of more than half the objects, is drawn as one layer (`stillPlan` is then
 `displayPlan`). With 20,000 seats a row drags at the idle frame rate zoomed in; drawing `displayPlan` in one layer
 redraws every place in view on every move.
 
@@ -363,15 +395,15 @@ step when it is let go, selects what it made and goes back to selecting (`keep: 
 import { layout, seatPlan } from 'ichno'
 import { planEdits, type EditorTool } from 'ichno/editor'
 
-// A row along the stroke, a seat for every 46 units of it — a tap drops a single seat.
+// A row along the stroke, a seat for every 50 units of it — a tap drops a single seat.
 const row: EditorTool<'hall'> = {
   id: 'row',
   draw: 'line',
   create(plan, { start, end }) {
     const section = seatPlan.sectionAt(plan, start)
     if (section === null) return null // every place belongs to a section
-    const count = Math.floor(Math.hypot(end.x - start.x, end.y - start.y) / 46) + 1
-    const seats = layout.line({ start, end, count, size: 40 })
+    const count = Math.floor(Math.hypot(end.x - start.x, end.y - start.y) / 50) + 1
+    const seats = layout.line({ start, end, count, size: 45 })
     return planEdits.addPlaces(plan, section, seats, { role: 'seat' })?.plan ?? null
   },
 }
@@ -380,19 +412,24 @@ const row: EditorTool<'hall'> = {
 ```
 
 `draw` is `box` (a rectangle between the press and the pointer; Shift keeps it square), `line` (Shift keeps it to
-15° steps), `point` (only where the pointer is — a stamp) or `polygon` (a corner at every tap, Shift keeping the edge
+15° steps, ending where the pointer falls on that direction — on the grid for a level or upright one), `point` (only where the pointer is — a stamp), `polygon` (a corner at every tap, Shift keeping the edge
 to 15° steps; tapping the first corner, or the last one again, or Enter closes it, Backspace takes a corner back,
 Escape drops it; a drag before the first corner draws a rectangle instead, Shift a square — `create` gets the corners
 in `stroke.points`, and `corners`, `closePolygon`, `removePoint` and `addPoint` (a corner exactly where you say, for
-a typed length) are on the editor); Alt draws a box or a line from its centre. Strokes snap
+a typed length) are on the editor) or `path` — a polygon that may stay open, for walls: tapping its first corner
+closes it (`stroke.closed`), tapping its last one again or Enter ends it open, a dragged rectangle comes closed, and a
+corner within 6 screen pixels of a wall lands on it, so the walls meet. Alt draws a box or a line from its centre. Strokes snap
 like everything else. A tap is a stroke with no length, so one tool both draws at any size and drops something of a
-standard size. `create` runs for every preview — keep it pure. `stroke` is the stroke being drawn (draw it as a
+standard size. `snap: false` on a tool hands it the pointer as it is, in whole units — no grid, no guides — for a tool
+that places what it makes itself. `create` runs for every preview — keep it pure. `stroke` is the stroke being drawn (draw it as a
 guide), `pointer` where a tap would draw — with `draft` null there, the tool can make nothing at that spot (say
 why). While a tool is active the handles hide; Escape drops the stroke, then the tool.
 
 The playground builds its own this way — one place or fixture each (seats, desks, booths, standing areas sized by
-their floor, tables, walls along a line, a door put in the nearest wall), sections dragged out or drawn corner by
-corner — and lays out a group it reads as a row or a table again while keeping its numbering:
+their floor, tables), a wall put up a metre at a time (a `point` tool whose `create` calls `planEdits.buildWall`, the
+wheel turning the next piece), a room dragged out on the metre grid (a `path` tool), a door put in the nearest wall
+(`seatPlan.openingAt` and `planEdits.addOpening`) — and lays out a group it reads as a row or a table again while
+keeping its numbering:
 [`site/app/playground/_lib/build.ts`](https://github.com/kecan0406/ichno/blob/main/site/app/playground/_lib/build.ts).
 Copy what fits; it is yours to change, not part of ichno.
 
@@ -451,7 +488,7 @@ is over the plan, otherwise beside what was copied. `insert(template, at)` adds 
 
 ### Operations
 
-Operations take object and group ids alike — a group acts as one.
+Operations take object and group ids alike — a group acts as one. Moving, copying and removing take wall ids too.
 
 - **Create:** `addPlaces(section, boxes, { shape, capacity, role, category, group })`, `addFixtures(boxes, …)`,
   `addLabels(groupId, boxes)`, `insert(template, at)`, `duplicateSelected` (duplicating the copies again repeats
@@ -460,27 +497,33 @@ Operations take object and group ids alike — a group acts as one.
   section numbering.
 - **Change:** `layoutGroup(groupId, boxes)` (grow, shrink or bend a row — members move onto the boxes, extra boxes
   get new places, surplus ones go from the end), `arrange(ids, boxes)`, `convert(ids, 'place' | 'fixture')` (book a
-  table whole), `rotateSelected(degrees)`, `moveSelected(delta)` (objects, groups and sections), `alignSelected`,
+  table whole), `rotateSelected(degrees)`, `moveSelected(delta)` (objects, groups, walls and sections), `alignSelected`,
   `distributeSelected`, `label(ids, sequence)` with `labeling.numbers`, `labeling.letters({ skip: ['I'] })` or
   `labeling.custom`, `assign(ids, props)` and `assignSelected(props)` (shape, capacity, role, category or tags on
   many objects in one step — a group through its members, `undefined` clears an optional one, values the schema
   would refuse are refused), `renameObject` (objects and groups), `updateObject`, `updateGroup`, `ungroup`,
   `ungroupSelected`, `addSection({ id, points })` (inside the plan; selects it), `moveSection` (with what stands in
-  it), `reshapeSection`,
+  it), `reshapeSection`, `addWall({ points, thickness, closed, openings })` (whole units on the plan; selects it and
+  returns its id), `updateWall`, `reshapeWall`, `addOpening(wallId, opening)`, `removeOpening(wallId, index)`,
+  `planEdits.buildWall(plan, { points, thickness })` (a wall put up a piece at a time, the way a housing game builds:
+  a run joined to the open walls its ends meet — carrying one on, a straight continuation lengthening its last edge,
+  linking two into one, or closing one round into a room — their openings kept where they were),
   `reorderSelected('front' | 'back' | 'forward' | 'backward')`.
 - **Compose:** `edit(plan => plan)` runs any combination of `planEdits` and `layout` as one undo step.
   `preview(plan => plan)` shows one without committing it — while a slider is dragged — applied to the plan as it is,
   until the next edit or `preview(null)`; `edit` the final value when the slider is let go.
 - **Select:** `select(target, additive)` (what a tap selects), `selectAll()`, `setSelection(items)` (exactly these
-  objects, groups and sections — for a layers panel), `selectIds(ids)` (exactly these object and group ids — for a
-  list of problems or a search), `selectMembers()` and `selectGroups()` (Enter and ⇧Enter).
+  objects, groups, walls and sections — for a layers panel), `selectIds(ids)` (exactly these object, group and wall
+  ids — for a list of problems or a search), `selectMembers()` and `selectGroups()` (Enter and ⇧Enter).
+  `selectedWallIds` and `selectedWall` are the walls in the selection; `selectedIds` stays objects and groups.
 
 `objects` is the drawing order, later on top. `reorderSelected` moves the selection to the front or back, or a step
 past the next unit — a group as one, or an object outside one. Units stand in the order of their highest member, so
 a group whose members are drawn apart (a table top under everything, its seats on top) is listed where its highest
 member is; list your layers that way and a step moves one row.
 
-- **Remove:** `removeObjects`, `removeSelected`, `removeSection(id)`, `cutSelected` — return the ids they refused.
+- **Remove:** `removeObjects` (walls too), `removeSelected`, `removeSection(id)`, `cutSelected` — return the ids they
+  refused.
   Groups left empty go too. A section goes with what stands in it — its places, every group holding one (whole), and
   the loose fixtures inside its outline — or, when any of that is locked, not at all.
 - **History:** `undo`, `redo`, `canUndo`, `canRedo`, `reset` (back to the plan as opened or last saved),
@@ -497,7 +540,7 @@ and keys a handler already took (`preventDefault`), so your own shortcuts can ru
 
 `lockedIds` are ids your other records point at: objects holding one cannot be removed, renamed or turned into a
 fixture, while labels stay free. `frozenIds` and `hiddenIds` are a layers panel's lock and eye — editor state, never
-in the document: frozen objects and groups are drawn but cannot be tapped, dragged, hovered, marqueed or caught by
+in the document: frozen objects, groups and walls are drawn but cannot be tapped, dragged, hovered, marqueed or caught by
 ⌘A (a drag starting on one draws a marquee); hidden ones are left out of `displayPlan` as well. `setSelection` and
 `selectIds` still select both, for the panel. Every operation is also available as a pure function in `planEdits` (plan in, plan
 out) for imports and scripts. After saving, `markSaved(saved)` makes the plan you stored the baseline `dirty`
@@ -511,7 +554,7 @@ defaults (`themeVars` lists them). Classes on parts override them outright.
 
 | Variable                    | Role                                            |
 | --------------------------- | ----------------------------------------------- |
-| `--ichno-surface`           | section floor, empty places                     |
+| `--ichno-surface`           | section and room floors, empty places           |
 | `--ichno-fixture`           | fixture faces                                   |
 | `--ichno-grid`              | editor grid                                     |
 | `--ichno-label`             | outlines, seat numbers, group and fixture names |

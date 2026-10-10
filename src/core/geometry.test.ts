@@ -30,7 +30,7 @@ function fixture(id: string, x: number, y: number, w: number, h: number, extra: 
 }
 
 function planOf(objects: PlanObject<S>[], groups: SeatPlan<S>['groups'] = []): SeatPlan<S> {
-  return { version: 3, width: 1000, height: 800, sections, categories: [], groups, objects }
+  return { version: 3, width: 1000, height: 800, sections, walls: [], categories: [], groups, objects }
 }
 
 const close = (value: number) => expect.closeTo(value, 6)
@@ -115,6 +115,14 @@ describe('arc layout (row seats)', () => {
     expect(boxes[1]!.rotation).toBeUndefined()
     expect(boxes[2]!.rotation).toBeGreaterThan(0)
     expect(boxes[2]!.rotation).toBeLessThan(90)
+  })
+
+  it('rounds a seat whose centre falls on a half the same way, whatever crumb the arithmetic leaves', () => {
+    // An odd seat on a whole centre sits on a half: 300 − 22.5. Engines differ in the last bits trigonometry leaves,
+    // so a server and a browser laying out the same row got 277 on one side and 278 on the other.
+    const row = (x: number) => layout.line({ start: { x, y: 350 }, end: { x: x + 450, y: 350 }, count: 10, size: 45 })
+    expect(row(300 - 6e-14).map((b) => b.x)).toEqual(row(300 + 6e-14).map((b) => b.x))
+    expect(row(300)[0]!.x).toBe(278)
   })
 
   it('reads the curve back from seat centres — the inverse of the arc', () => {

@@ -77,11 +77,51 @@ describe('planGuides', () => {
           ],
         },
       ],
+      walls: [],
       categories: [],
       groups: [{ id: 'r' }],
       objects: [seat('A1', 0, 'r'), seat('A2', 60, 'r'), seat('A3', 200)],
     }
     expect(planGuides.targetsOf(plan, new Set(['A3']))).toEqual([box(0, 0, 100, 40), box(0, 0, 500, 500)])
     expect(planGuides.targetsOf(plan, new Set(['r']))).toEqual([box(200, 0, 40, 40), box(0, 0, 500, 500)])
+  })
+
+  const walled: SeatPlan = {
+    version: 3,
+    width: 1000,
+    height: 1000,
+    sections: [],
+    walls: [
+      {
+        id: 'w1',
+        points: [
+          { x: 0, y: 0 },
+          { x: 400, y: 0 },
+          { x: 400, y: 400 },
+          { x: 0, y: 400 },
+        ],
+        thickness: 20,
+        closed: true,
+      },
+    ],
+    categories: [],
+    groups: [],
+    objects: [{ kind: 'fixture', id: 'desk', shape: 'rect', x: 530, y: 100, w: 120, h: 60 }],
+  }
+
+  it('lines things up with both faces of a wall, edge by edge — a bar flush against the inside of a room', () => {
+    const targets = planGuides.targetsOf(walled, new Set())
+    expect(planGuides.snapPoint({ x: 200, y: 14 }, targets, 6).point).toEqual({ x: 200, y: 10 })
+    expect(planGuides.snapPoint({ x: 386, y: 200 }, targets, 6).point).toEqual({ x: 390, y: 200 })
+  })
+
+  it('lines a wall being drawn up with the corners of the other walls only — not furniture, not the faces of walls', () => {
+    const targets = planGuides.wallTargetsOf(walled, new Set())
+    // The desk's left edge (530) and the wall's outer face (410) are no guides for a wall.
+    expect(planGuides.snapPoint({ x: 525, y: 300 }, targets, 6).point).toEqual({ x: 525, y: 300 })
+    expect(planGuides.snapPoint({ x: 415, y: 600 }, targets, 6).point).toEqual({ x: 415, y: 600 })
+    // Another wall's corner is.
+    expect(planGuides.snapPoint({ x: 404, y: 700 }, targets, 6).point).toEqual({ x: 400, y: 700 })
+    expect(planGuides.wallTargetsOf(walled, new Set(['w1']))).toEqual([])
   })
 })

@@ -187,6 +187,66 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   rate zoomed in (was about twice it). A drag of a section or of more than half the objects is drawn as one layer.
 - `ichno/react`: `SeatMap.Content` skips redrawing when its props are the ones it last drew with (`memo`), so the layer
   drawing an editor's `stillPlan` stays put while only the moving part redraws.
+- `ichno`: walls — the document gains `walls`: each a centre line through `points` (back to the first when
+  `closed`), `thickness` plan units across, with `openings` cut in it (`edge`, `at`, `width` and your `role` — a
+  door, a window). Documents saved without the field read as having none, and 0.1 and 0.2 documents upgrade to none.
+  Objects, groups and walls share one id namespace. Rooms are not stored: `seatPlan.roomsOf(plan)` finds the areas
+  walls close — a closed wall round one, a partition across it making two, rooms built side by side sharing their
+  wall, an open wall's end within half a thickness of another wall meeting it — and `roomAt` the innermost one round
+  a point. Also new: `wallOf`, `wallEdgesOf`, `wallOutlineOf` (the band a wall paints — mitred corners, broken at its
+  openings), `wallBoundsOf`, `wallsInRect`, `openingsOf`, `openingAt` (where an opening of a width goes for a point,
+  or why it cannot: `far`, `short`, `taken`) and `areaOf`. `drawingBoundsOf` and section crops take walls in. New
+  types `Wall`, `WallOpening`, `Room`, `WallEdge`, `OpeningShape`; `PlanTarget` and `HandleOwner` gain
+  `{ kind: 'wall' }`, `PlanStroke` gains `closed`.
+- `ichno/schema`: walls are checked — their ids against every other id (`duplicate_id`), their centre line on the
+  plan (`out_of_bounds`; the band may reach past the edge by half its thickness), and the new issue code
+  `opening_off_wall` for an opening whose edge is not there or that runs past its end. `createSeatPlanSchema` also
+  returns `Wall` and `Opening`.
+- `ichno/react`: `SeatMap.Wall` paints a wall's band in ink, broken at its openings, each opening's box across the
+  band a `data-part="opening"` with its `data-role`, unpainted for a class to draw a door or a window;
+  `SeatMap.Room` paints a room's floor. `SeatMap.Content` draws the rooms' floors and the walls between the sections
+  and the objects, and marks the walls in `selected`. The viewport reports a wall as a target (`data-ichno-wall`);
+  `SeatMap.EditorOverlay` draws a `path` stroke.
+- `ichno/editor`: walls are edited like objects — tapped, dragged, marqueed, caught by ⌘A, moved by the arrow keys,
+  deleted, duplicated, frozen and hidden (`EditorSelection` gains `{ kind: 'wall' }`; `selectedWallIds` and
+  `selectedWall` list them, `selectedIds` stays objects and groups). A closed wall carries what stands in the room it
+  goes round and the walls inside it; an Alt-drag or ⌘D copies the room whole. A selected wall shows a handle on
+  every vertex and in the middle of every edge, working as a section's do; the corners and ends of other walls lying
+  on it stay joined when it is reshaped, and its openings keep their place along their edge — moved back within one
+  that got shorter, dropped from one shorter than they are wide. New `draw: 'path'` for a tool: corners like a
+  polygon's, closed on the first corner (`stroke.closed`), ended open on the last one or with Enter, a dragged
+  rectangle closed, and a corner near a wall landing on it. New operations `planEdits.addWall`, `reshapeWall`,
+  `addOpening` and `removeOpening`, and on the editor `addWall`, `updateWall`, `reshapeWall`, `addOpening` and
+  `removeOpening`; `planEdits.move`, `remove`, `rename`, `duplicate` and `applyDrag` take wall ids (`move` takes
+  `carry`). Smart guides line up with walls. A drag that changes walls is drawn as one layer (`movingPlan` holds no
+  walls).
+- `ichno`: `GRID_CELL` is 50 (was 46, the desk cell ichno started with) — half a metre when a plan unit is a
+  centimetre, the scale ichno's defaults now read units at (they still have no size of their own); snapping lands on
+  25 cm steps. `SeatMap.Grid`, section crops, the editor's duplicate and paste offsets (two cells) and the margin
+  `zoomTo` leaves (two cells) follow it, and the spatial index's default bucket is 200. Plans laid out on the old cell
+  keep it with `snap: { cell: 46 }` and `<SeatMap.Grid cell={46}>`.
+- `ichno/editor`: walls stay on the grid while they are drawn. A `path` tool's corners line up with the corners of
+  other walls only (`planGuides.wallTargetsOf`) — before, smart guides pulled them onto furniture edges and the outer
+  faces of walls, up to 6 screen pixels away (more than half a grid step at the whole-plan zoom), so walls came out
+  0.95 m or 1.05 m long. A move that takes walls along is no longer lined up by the guides. `planGuides.targetsOf`
+  gives each wall edge's band (both faces and the centre line) instead of the box round the whole wall, so furniture
+  lines up flush with the inside of a room. A constrained (Shift) line ends where the pointer falls on its 15°
+  direction — level and upright ones on the grid — instead of keeping the pointer's distance, which stretched a
+  slightly slanted drag past the grid.
+- `ichno/editor`: walls keep a step of their own — `Snap.wall` (`snap: { cell: 50, wall: 100 }` for whole metres; half
+  a cell unless given). A path tool's strokes, a wall's vertex and edge handles, `reshapeWall` and moves that take
+  walls along land on it. New `planEdits.buildWall(plan, { points, thickness })` puts a wall up a piece at a time: the
+  run joins the open walls its ends meet — carrying one on (a straight continuation lengthens its last edge), linking
+  two into one (the second folded in, its openings kept where they were) or closing one round into a room — and is a
+  new wall where it meets none; null along a wall already there or off the plan. `EditorTool.snap: false` hands a
+  tool the pointer as it is, in whole units — neither the grid nor the guides move it — for one that places what it
+  makes itself (the playground's wall piece, hinged on a wall's end).
+- `ichno`: `layout` rounds a seat box that falls on a half the same way on every engine. An odd seat (45) on a whole
+  centre lands on a half, and sines and cosines differ in their last bits between engines, so a server and a browser
+  laying out the same row put a seat a unit apart — a hydration mismatch in a server-rendered plan.
+- `ichno/editor`: `planEdits.buildWall` carries a wall on in one edge when the run continues it within a unit of
+  straight — a slanted wall's corners sit on whole units, so they were never exactly in line, and its edges grew a
+  corner per piece.
 
 ## 0.2.1 — 2026-09-25
 

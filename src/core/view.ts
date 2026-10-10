@@ -31,7 +31,7 @@ export const planView = {
 
 // The view that shows the whole drawing — the default and the reset target. It covers the drawn extent, not
 // the document size (walls and the name band reach outside).
-function home(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>): PlanView {
+function home(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pick<SeatPlan, 'walls'>>): PlanView {
   return seatPlan.drawingBoundsOf(plan)
 }
 

@@ -10,7 +10,9 @@ import {
   OutlinePart,
   PlacePart,
   Root,
+  RoomPart,
   SectionPart,
+  WallPart,
 } from './parts'
 
 // Headless seat map components. Every part but `Viewport` renders as a React Server Component.
@@ -19,6 +21,8 @@ export const SeatMap = {
   Viewport,
   Content,
   Section: SectionPart,
+  Room: RoomPart,
+  Wall: WallPart,
   Place: PlacePart,
   Fixture: FixturePart,
   Label: LabelPart,

@@ -14,9 +14,10 @@ export type EditorOverlayProps = Omit<ComponentProps<'g'>, 'children' | 'stroke'
   frame?: readonly PlanPoint[] | null
   marquee?: PlanRect | null
   // The stroke a creation tool is drawing, and how the tool draws: a box is outlined, a line drawn along, a polygon
-  // drawn corner to corner (back to its first one, which is marked to close it on), a point left to the draft.
+  // drawn corner to corner (back to its first one, which is marked to close it on), a path the same without the way
+  // back, a point left to the draft.
   stroke?: PlanStroke | null
-  draw?: 'box' | 'line' | 'point' | 'polygon'
+  draw?: 'box' | 'line' | 'point' | 'polygon' | 'path'
   // Smart guides — the lines and equal gaps what is dragged or drawn lines up on.
   guides?: readonly PlanGuide[]
 }
@@ -64,8 +65,8 @@ export function EditorOverlay({
       <MarqueePart rect={marquee} />
       {guide && (
         <g data-part="stroke" pointerEvents="none">
-          {draw === 'polygon' ? (
-            <PolygonGuide points={guide.points ?? [guide.start, guide.end]} />
+          {draw === 'polygon' || draw === 'path' ? (
+            <PolygonGuide points={guide.points ?? [guide.start, guide.end]} closing={draw === 'polygon'} />
           ) : draw === 'line' ? (
             <line
               x1={round(guide.start.x)}
@@ -120,16 +121,16 @@ function Guide({ guide }: { guide: PlanGuide }) {
   )
 }
 
-// A polygon being drawn — its edges so far, a fainter one back to the first corner, and that corner marked: tapping
-// it closes the polygon.
-function PolygonGuide({ points }: { points: readonly PlanPoint[] }) {
+// A polygon or path being drawn — its edges so far, a fainter one back to the first corner for a polygon (`closing`),
+// and that corner marked: tapping it closes the shape.
+function PolygonGuide({ points, closing }: { points: readonly PlanPoint[]; closing: boolean }) {
   const [first] = points
   if (!first) return null
   const last = points.at(-1)!
   return (
     <>
       <polyline points={points.map((p) => `${round(p.x)},${round(p.y)}`).join(' ')} {...GUIDE} />
-      {points.length > 2 && (
+      {closing && points.length > 2 && (
         <line
           x1={round(last.x)}
           y1={round(last.y)}

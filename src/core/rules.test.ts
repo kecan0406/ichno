@@ -20,6 +20,7 @@ function planOf(objects: PlanObject[], extra: Partial<SeatPlan> = {}): SeatPlan 
       { id: 'A', points: square },
       { id: 'B', points: square.map((p) => ({ x: p.x + 500, y: p.y })) },
     ],
+    walls: [],
     categories: [],
     groups: [{ id: 'row-a' }, { id: 'row-b' }, { id: 'desk-1' }],
     objects,

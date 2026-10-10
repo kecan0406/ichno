@@ -23,6 +23,18 @@ export type PlanBox = PlanRect & { rotation?: number }
 // is a polygon.
 export type Section<S extends string = string> = { id: S; points: PlanPoint[] }
 
+// A wall — a centre line through `points` (back to the first when `closed`), `thickness` plan units across, with
+// `openings` cut in it. Walls that meet close rooms; rooms are found from them (`seatPlan.roomsOf`), never stored.
+export type Wall = { id: string; points: PlanPoint[]; thickness: number; closed?: boolean; openings?: WallOpening[] }
+
+// A gap in a wall — a door, a window, an arch (`role` is the consumer's word). It runs `width` plan units along edge
+// `edge` (from point `edge` to the next), starting `at` units from that edge's first point.
+export type WallOpening = { edge: number; at: number; width: number; role?: string }
+
+// An area walls close — found from them, not stored. `points` runs along the walls' centre lines; `walls` are the ids
+// of the walls around it.
+export type Room = { points: PlanPoint[]; walls: string[] }
+
 // A class of places (price level, accessible seating, …). Only the key lives in the document — names, colours
 // and prices are the consumer's.
 export type Category = { key: string; accessible?: boolean }
@@ -65,6 +77,7 @@ export type SeatPlan<S extends string = string> = {
   width: number
   height: number
   sections: Section<S>[]
+  walls: Wall[]
   categories: Category[]
   groups: Group[]
   // Drawing order — later objects are drawn on top.
@@ -74,21 +87,26 @@ export type SeatPlan<S extends string = string> = {
 // A plan cropped to one section — the same shape, translated so the crop's bounding box starts at the origin.
 export type SectionPlan<S extends string = string> = { id: S; plan: SeatPlan<S> }
 
-// What a pointer or key landed on — a place, another object (fixture, group label), a section outline, or an
-// editing handle. Viewports report it; the editor acts on it.
+// What a pointer or key landed on — a place, another object (fixture, group label), a wall, a section outline, or
+// an editing handle. Viewports report it; the editor acts on it.
 export type PlanTarget<S extends string = string> =
   | { kind: 'place'; id: string }
   | { kind: 'object'; id: string }
+  | { kind: 'wall'; id: string }
   | { kind: 'section'; id: S }
   | { kind: 'handle'; owner: HandleOwner<S>; name: string }
 
-// What an editing handle belongs to — one object, group or section, or the whole selection (the knob that turns
+// What an editing handle belongs to — one object, group, wall or section, or the whole selection (the knob that turns
 // several items together).
 export type HandleOwner<S extends string = string> =
-  { kind: 'object'; id: string } | { kind: 'group'; id: string } | { kind: 'section'; id: S } | { kind: 'selection' }
+  | { kind: 'object'; id: string }
+  | { kind: 'group'; id: string }
+  | { kind: 'wall'; id: string }
+  | { kind: 'section'; id: S }
+  | { kind: 'selection' }
 
-// An editing handle on the plan — a corner to resize, the knob to rotate, a section vertex, or the middle of a
-// section's edge (dragging it adds a vertex there). `name` is `nw` `ne` `se` `sw`, `rotate`, `vertex-<index>` or
+// An editing handle on the plan — a corner to resize, the knob to rotate, a vertex of a section or a wall, or the
+// middle of an edge (dragging it pushes the edge). `name` is `nw` `ne` `se` `sw`, `rotate`, `vertex-<index>` or
 // `edge-<index>` (the edge from that vertex to the next). `angle` is the direction a corner points from its owner's
 // centre (degrees clockwise from +x) — turned with the owner, so renderers can pick a matching resize cursor.
 export type PlanHandle<S extends string = string> = {
@@ -122,9 +140,9 @@ export type PlanGuide =
   | { kind: 'gap'; axis: 'x' | 'y'; at: number; size: number; gaps: { from: number; to: number }[] }
 
 // A stroke drawn with a creation tool — from where the press started to where the pointer is (or was let go), in
-// plan units. A tap is a stroke with no length. A polygon's stroke also lists its corners in order, from `start` to
-// `end` — while it is drawn, the pointer is the last.
-export type PlanStroke = { start: PlanPoint; end: PlanPoint; points?: PlanPoint[] }
+// plan units. A tap is a stroke with no length. A polygon's or a path's stroke also lists its corners in order, from
+// `start` to `end` — while it is drawn, the pointer is the last; `closed` says a path came back to its first corner.
+export type PlanStroke = { start: PlanPoint; end: PlanPoint; points?: PlanPoint[]; closed?: boolean }
 
 // A reusable piece of a plan — some objects and the groups they form, placed around its own centre (0, 0). The
 // editor makes one from a selection and adds it to any plan with fresh ids: a clipboard, or a library of objects

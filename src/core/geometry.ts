@@ -9,6 +9,7 @@ import {
   polygonContains,
   polygonsOverlap,
   rotatePoint,
+  signedArea,
   unionBounds,
 } from './math'
 import { spatialIndex } from './spatial'
@@ -21,11 +22,25 @@ import type {
   PlanObject,
   PlanPoint,
   PlanRect,
+  Room,
   SeatPlan,
   Section,
   SectionPlan,
   Shape,
+  Wall,
+  WallOpening,
 } from './types'
+import {
+  openingAt as openingAtOf,
+  openingShapesOf,
+  roomAt as roomAtOf,
+  roomsOf as roomsOfWalls,
+  wallBoundsOf,
+  wallEdgesOf,
+  wallOutlineOf,
+  wallsBoundsOf,
+  type OpeningShape,
+} from './walls'
 
 // Seat plan geometry — zod-free so client bundles (seat pickers, viewers) never pull the schema in.
 
@@ -66,6 +81,16 @@ export const seatPlan = {
   sectionOf,
   sectionBoundsOf,
   sectionWallOf,
+  wallOf,
+  wallEdgesOf,
+  wallOutlineOf,
+  wallBoundsOf,
+  wallsInRect,
+  openingsOf,
+  openingAt,
+  roomsOf,
+  roomAt,
+  areaOf,
   nextPlaceId,
   nextObjectId,
   fixtureLabelOf,
@@ -108,9 +133,13 @@ function membersOf<S extends string>(plan: Pick<SeatPlan<S>, 'objects'>, groupId
   return plan.objects.filter((object) => object.group === groupId)
 }
 
-// Every id in the document — objects and groups share one namespace.
-function idsOf(plan: Pick<SeatPlan, 'objects'> & Partial<Pick<SeatPlan, 'groups'>>): string[] {
-  return [...plan.objects.map((object) => object.id), ...(plan.groups ?? []).map((group) => group.id)]
+// Every id in the document — objects, groups and walls share one namespace.
+function idsOf(plan: Pick<SeatPlan, 'objects'> & Partial<Pick<SeatPlan, 'groups' | 'walls'>>): string[] {
+  return [
+    ...plan.objects.map((object) => object.id),
+    ...(plan.groups ?? []).map((group) => group.id),
+    ...(plan.walls ?? []).map((wall) => wall.id),
+  ]
 }
 
 // The section containing a point — the editor re-homes a moved place to the section its centre lands in.
@@ -132,17 +161,70 @@ function sectionWallOf(section: Pick<Section, 'points'>): PlanPoint[] {
   return offsetPolygon(section.points, WALL_THICKNESS / 2)
 }
 
+function wallOf(plan: Pick<SeatPlan, 'walls'>, id: string): Wall | undefined {
+  return plan.walls.find((wall) => wall.id === id)
+}
+
+// The walls whose band touches a rectangle — marquee selection.
+function wallsInRect(plan: Pick<SeatPlan, 'walls'>, rect: PlanRect): string[] {
+  const band = outlineOf(rect, 'rect')
+  return plan.walls
+    .filter((wall) => wallOutlineOf({ ...wall, openings: [] }).some((ring) => polygonsOverlap(ring, band, true)))
+    .map((wall) => wall.id)
+}
+
+// Where a wall's openings are drawn — the stretch of the centre line each takes (`from` → `to`, along the edge) and
+// the box across the band (`points`), with the opening and its index in the wall's list.
+function openingsOf(wall: Wall): OpeningShape[] {
+  return openingShapesOf(wall)
+}
+
+// Where an opening `width` wide would go for a point — in the nearest wall edge within `reach` plan units (plus the
+// wall's half thickness), centred where the point meets it, kept within the edge and on a whole unit: the wall's id
+// and the opening to add to it (`planEdits.addOpening`). `far` when no wall is that near, `short` when the edge is
+// shorter than the opening, `taken` when it would cut into an opening already there. The role is yours to add.
+function openingAt(
+  plan: Pick<SeatPlan, 'walls'>,
+  point: PlanPoint,
+  width: number,
+  reach: number,
+): { wall: string; opening: WallOpening } | 'far' | 'short' | 'taken' {
+  return openingAtOf(plan.walls, point, width, reach)
+}
+
+// The rooms the walls close (see `Room`) — found from the walls each time; nothing about them is stored. A partition
+// across a room makes two; an open wall's end within a wall's half thickness of another meets it.
+function roomsOf(plan: Pick<SeatPlan, 'walls'>): Room[] {
+  return roomsOfWalls(plan.walls)
+}
+
+// The innermost room around a point, or null outside every room. Pass the rooms when you have them already.
+function roomAt(plan: Pick<SeatPlan, 'walls'> | readonly Room[], point: PlanPoint): Room | null {
+  return roomAtOf(Array.isArray(plan) ? plan : roomsOfWalls((plan as Pick<SeatPlan, 'walls'>).walls), point)
+}
+
+// The area inside an outline (a room's, a section's) in square plan units.
+function areaOf(points: readonly PlanPoint[]): number {
+  return Math.abs(signedArea(points))
+}
+
 // Next place id — `<section><n>` with n = the highest number any id with that prefix carries + 1. Deleted numbers
 // are never reused, so "delete then add" in one editing session cannot silently reconnect to records that
 // referenced the old id.
-function nextPlaceId(plan: Pick<SeatPlan, 'objects' | 'groups'>, section: string): string {
+function nextPlaceId(
+  plan: Pick<SeatPlan, 'objects' | 'groups'> & Partial<Pick<SeatPlan, 'walls'>>,
+  section: string,
+): string {
   return `${section}${maxSuffix(plan, new RegExp(`^${escapeRegExp(section)}(\\d+)$`)) + 1}`
 }
 
 // Next id for anything but a place — `<prefix>-<n>` (fixtures, labels, groups), with the prefix shortened when
 // the id would pass OBJECT_ID_MAX. Callers check place ids against PLACE_ID_MAX themselves — a section id cannot
 // be shortened.
-function nextObjectId(plan: Pick<SeatPlan, 'objects' | 'groups'>, prefix: string): string {
+function nextObjectId(
+  plan: Pick<SeatPlan, 'objects' | 'groups'> & Partial<Pick<SeatPlan, 'walls'>>,
+  prefix: string,
+): string {
   const number = maxSuffix(plan, new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`)) + 1
   const room = OBJECT_ID_MAX - String(number).length - 1
   if (prefix.length <= room) return `${prefix}-${number}`
@@ -202,11 +284,16 @@ function sectionPlanOf<S extends string>(plan: SeatPlan<S>, id: S): SeatPlan<S> 
   const bounds = extentOf(objects) ?? sectionBoundsOf(section)
   const x0 = Math.floor((bounds.x - SECTION_PLAN_PADDING) / GRID_CELL) * GRID_CELL
   const y0 = Math.floor((bounds.y - SECTION_PLAN_PADDING) / GRID_CELL) * GRID_CELL
+  const width = Math.ceil((bounds.x + bounds.w + SECTION_PLAN_PADDING - x0) / GRID_CELL) * GRID_CELL
+  const height = Math.ceil((bounds.y + bounds.h + SECTION_PLAN_PADDING - y0) / GRID_CELL) * GRID_CELL
+  // The walls the crop shows some of — cut off by its frame like the rest.
+  const frame = { x: x0, y: y0, w: width, h: height }
   return {
     version: 3,
-    width: Math.ceil((bounds.x + bounds.w + SECTION_PLAN_PADDING - x0) / GRID_CELL) * GRID_CELL,
-    height: Math.ceil((bounds.y + bounds.h + SECTION_PLAN_PADDING - y0) / GRID_CELL) * GRID_CELL,
+    width,
+    height,
     sections: [{ ...section, points: section.points.map((p) => ({ x: p.x - x0, y: p.y - y0 })) }],
+    walls: plan.walls.filter((wall) => touches(wallBoundsOf(wall), frame)).map((wall) => moveWall(wall, -x0, -y0)),
     categories: plan.categories,
     groups: plan.groups.filter((group) => used.has(group.id)),
     objects: objects.map((object) => translate(object, -x0, -y0)),
@@ -234,6 +321,7 @@ function sectionPlansOf<S extends string>(plan: SeatPlan<S>): SectionPlan<S>[] {
         ...sectionPlan,
         width,
         sections: sectionPlan.sections.map((s) => ({ ...s, points: s.points.map((p) => ({ x: p.x + left, y: p.y })) })),
+        walls: sectionPlan.walls.map((wall) => moveWall(wall, left, 0)),
         objects: sectionPlan.objects.map((object) => translate(object, left, 0)),
       },
     }
@@ -363,14 +451,36 @@ function showsSectionLabels(plan: Pick<SeatPlan, 'sections'>): boolean {
   return plan.sections.length > 1
 }
 
-// The drawn extent — the outer wall reaches past the document size, and labelled plans gain the name band on
-// top. Fit views and the SVG viewBox use this; object coordinates are unchanged.
-function drawingBoundsOf(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>): PlanRect {
+// The drawn extent — the outer wall reaches past the document size, so do walls whose centre line runs along its
+// edge, and labelled plans gain the name band on top. Fit views and the SVG viewBox use this; object coordinates are
+// unchanged.
+function drawingBoundsOf(
+  plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pick<SeatPlan, 'walls'>>,
+): PlanRect {
   const top = showsSectionLabels(plan) ? SECTION_LABEL_BAND : DRAWING_MARGIN
-  return { x: -DRAWING_MARGIN, y: -top, w: plan.width + DRAWING_MARGIN * 2, h: plan.height + top + DRAWING_MARGIN }
+  const paper = {
+    x: -DRAWING_MARGIN,
+    y: -top,
+    w: plan.width + DRAWING_MARGIN * 2,
+    h: plan.height + top + DRAWING_MARGIN,
+  }
+  const walls = wallsBoundsOf(plan.walls ?? [])
+  return walls ? unionBounds([paper, walls])! : paper
 }
 
-function maxSuffix(plan: Pick<SeatPlan, 'objects' | 'groups'>, pattern: RegExp): number {
+// The same wall moved by (dx, dy).
+function moveWall(wall: Wall, dx: number, dy: number): Wall {
+  return { ...wall, points: wall.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) }
+}
+
+function touches(a: PlanRect, b: PlanRect): boolean {
+  return a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h
+}
+
+function maxSuffix(
+  plan: Pick<SeatPlan, 'objects' | 'groups'> & Partial<Pick<SeatPlan, 'walls'>>,
+  pattern: RegExp,
+): number {
   return idsOf(plan).reduce((acc, id) => {
     const match = pattern.exec(id)
     return match ? Math.max(acc, Number(match[1])) : acc

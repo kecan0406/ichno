@@ -16,6 +16,7 @@ function planOf(objects: PlanObject<S>[] = [], groups: SeatPlan<S>['groups'] = [
       { id: 'A', points: rect(0, 0, 506, 828) },
       { id: 'B', points: rect(506, 0, 506, 828) },
     ],
+    walls: [],
     categories: [],
     groups,
     objects,
@@ -287,7 +288,7 @@ describe('planEdits — arranging', () => {
   it('duplicates objects with fresh ids next to the original, and groups as a new group', () => {
     const copied = planEdits.duplicate(plan, ['A1'])
     expect(copied.ids).toEqual(['A4'])
-    expect(seatPlan.objectById(copied.plan, 'A4')).toMatchObject({ x: 94, y: 94 })
+    expect(seatPlan.objectById(copied.plan, 'A4')).toMatchObject({ x: 102, y: 102 })
     const { plan: rowed } = withRow()
     const copy = planEdits.duplicate(rowed, ['row-1'], { x: 0, y: 92 })
     expect(copy.ids).toEqual(['row-2'])

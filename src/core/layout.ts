@@ -1,4 +1,4 @@
-import { arcSteps, normalizeRotation, rotatePoint } from './math'
+import { arcSteps, normalizeRotation, rotatePoint, roundWhole } from './math'
 import type { PlanBox, PlanPoint, PlanSize, Shape } from './types'
 
 // Layouts — where the seats of a row, a table or a block of desks go. The document stores only the resulting
@@ -106,8 +106,8 @@ function grid({
 }): PlanBox[] {
   const { w, h } = sizeOf(size)
   return Array.from({ length: Math.max(0, rows) * Math.max(0, columns) }, (_, i) => ({
-    x: Math.round(origin.x + (i % columns) * (w + gap)),
-    y: Math.round(origin.y + Math.floor(i / columns) * (h + gap)),
+    x: roundWhole(origin.x + (i % columns) * (w + gap)),
+    y: roundWhole(origin.y + Math.floor(i / columns) * (h + gap)),
     w,
     h,
   }))
@@ -186,6 +186,6 @@ function sizeOf(size: SeatSize): PlanSize {
 // The integer box of `w × h` centred on `center`, turned by `rotation` (left out when it rounds to none).
 function boxAt(center: PlanPoint, w: number, h: number, rotation: number): PlanBox {
   const r = normalizeRotation(rotation)
-  const box = { x: Math.round(center.x - w / 2), y: Math.round(center.y - h / 2), w, h }
+  const box = { x: roundWhole(center.x - w / 2), y: roundWhole(center.y - h / 2), w, h }
   return r === 0 ? box : { ...box, rotation: r }
 }

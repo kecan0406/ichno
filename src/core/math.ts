@@ -97,6 +97,16 @@ function project(points: readonly PlanPoint[], axis: PlanPoint): [number, number
   return [min, max]
 }
 
+// Rounds to the nearest whole number, halves up — and a half that the arithmetic left a crumb short of or past counts as
+// a half. Seats laid out by trigonometry land on halves (an odd seat on a whole centre), and engines differ in the last
+// bits of sines and cosines: rounded plainly, a server and a browser laying out the same row disagreed by a unit.
+export function roundWhole(value: number): number {
+  return Math.floor(value + 0.5 + HALF_CRUMB)
+}
+
+// How far off a half still counts as one.
+const HALF_CRUMB = 1e-6
+
 // Rounds to the nearest whole number, halves to the even one — repeated turns land on halves often, and rounding
 // them all up would walk a turned group off in one direction.
 export function roundHalfEven(value: number): number {

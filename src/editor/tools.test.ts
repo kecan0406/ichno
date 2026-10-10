@@ -26,9 +26,21 @@ describe('strokeOf — what a creation tool gets from a press', () => {
     })
   })
 
-  it('keeps a constrained line to 15° steps, as long as it was drawn', () => {
-    expect(strokeOf('line', { x: 0, y: 0 }, { x: 100, y: 12 }, { constrain: true }, null).end).toEqual({ x: 101, y: 0 })
+  it('keeps a constrained line to 15° steps, ending where the pointer falls on that direction', () => {
+    expect(strokeOf('line', { x: 0, y: 0 }, { x: 100, y: 12 }, { constrain: true }, null).end).toEqual({ x: 100, y: 0 })
     expect(strokeOf('line', { x: 0, y: 0 }, { x: 70, y: 72 }, { constrain: true }, null).end).toEqual({ x: 71, y: 71 })
+  })
+
+  it('lands a constrained level or upright line on the grid, however far off it the pointer is', () => {
+    const cell = { cell: 50 }
+    expect(strokeOf('line', { x: 200, y: 900 }, { x: 500, y: 930 }, { constrain: true }, cell).end).toEqual({
+      x: 500,
+      y: 900,
+    })
+    expect(strokeOf('line', { x: 200, y: 900 }, { x: 180, y: 640 }, { constrain: true }, cell).end).toEqual({
+      x: 200,
+      y: 650,
+    })
   })
 
   it('gives a point tool the pointer alone, whatever the keys', () => {

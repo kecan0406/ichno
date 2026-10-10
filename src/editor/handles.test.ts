@@ -15,7 +15,16 @@ function planOf(objects: PlanObject<S>[], groups: SeatPlan<S>['groups'] = []): S
     { x: 920, y: 690 },
     { x: 0, y: 690 },
   ]
-  return { version: 3, width: 1012, height: 828, sections: [{ id: 'A', points }], categories: [], groups, objects }
+  return {
+    version: 3,
+    width: 1012,
+    height: 828,
+    sections: [{ id: 'A', points }],
+    walls: [],
+    categories: [],
+    groups,
+    objects,
+  }
 }
 
 const desk: Place<S> = { kind: 'place', id: 'A1', section: 'A', x: 94, y: 94, w: 88, h: 88, shape: 'rect', capacity: 1 }

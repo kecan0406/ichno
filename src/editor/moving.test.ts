@@ -31,6 +31,7 @@ const plan: SeatPlan = {
       ],
     },
   ],
+  walls: [],
   categories: [],
   groups: [{ id: 'r' }],
   // Two still seats already overlapping, a row of three, a seat apart.

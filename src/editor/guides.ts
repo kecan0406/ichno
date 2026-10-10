@@ -1,6 +1,7 @@
 import { seatPlan } from '../core/geometry'
 import { boundsOfPoints, unionBounds } from '../core/math'
 import type { PlanGuide, PlanPoint, PlanRect, SeatPlan } from '../core/types'
+import { wallEdgesOf, type WallEdge } from '../core/walls'
 
 // Smart guides — what is dragged or drawn snaps to the edges and centre lines of what stands around it, and a move
 // to the spacing already between its neighbours, the way design tools do it. Pure: the editor hook gathers what to
@@ -13,12 +14,14 @@ type Snapped<T> = { guides: PlanGuide[]; exact: Axes } & T
 
 export const planGuides = {
   targetsOf,
+  wallTargetsOf,
   snapMove,
   snapPoint,
 }
 
-// What can be lined up with: the box of every unit — a group as one, an object outside groups — and of every section,
-// but the objects and groups in `moving` (and their members). Group labels are left out.
+// What can be lined up with: the box of every unit — a group as one, an object outside groups — of every section and
+// of the band along every edge of a wall (both its faces and its centre line), but the objects, groups and walls in
+// `moving` (and their members). Group labels are left out.
 function targetsOf(plan: SeatPlan<string>, moving: ReadonlySet<string>): PlanRect[] {
   const units = new Map<string, PlanRect[]>()
   for (const object of plan.objects) {
@@ -30,7 +33,29 @@ function targetsOf(plan: SeatPlan<string>, moving: ReadonlySet<string>): PlanRec
   return [
     ...[...units.values()].flatMap((rects) => unionBounds(rects) ?? []),
     ...plan.sections.map((section) => boundsOfPoints(section.points)),
+    ...plan.walls.flatMap((wall) =>
+      moving.has(wall.id) ? [] : wallEdgesOf(wall).map((edge) => bandOf(edge, wall.thickness / 2)),
+    ),
   ]
+}
+
+// What a wall being drawn lines up with: the corners of the other walls (but those in `moving`), on both axes — so
+// rooms line up. Not furniture, and not the faces of walls: a wall's centre line stays where its corners are drawn.
+function wallTargetsOf(plan: Pick<SeatPlan, 'walls'>, moving: ReadonlySet<string>): PlanRect[] {
+  return plan.walls.flatMap((wall) =>
+    moving.has(wall.id) ? [] : wall.points.map((p) => ({ x: p.x, y: p.y, w: 0, h: 0 })),
+  )
+}
+
+// The box around the band along one edge of a wall.
+function bandOf(edge: WallEdge, half: number): PlanRect {
+  const n = { x: edge.along.y * half, y: -edge.along.x * half }
+  return boundsOfPoints([
+    { x: edge.a.x + n.x, y: edge.a.y + n.y },
+    { x: edge.a.x - n.x, y: edge.a.y - n.y },
+    { x: edge.b.x + n.x, y: edge.b.y + n.y },
+    { x: edge.b.x - n.x, y: edge.b.y - n.y },
+  ])
 }
 
 // A move of `rect` by `delta`, snapped on the `axes` it may take: an edge or the centre line onto one of the targets',

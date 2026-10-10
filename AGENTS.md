@@ -1,9 +1,10 @@
 # ichno — agent guide
 
-Seat plans for React: one JSON document (`SeatPlan`) of primitives — places, fixtures, group labels and the groups
-they belong to — a zod schema for it, geometry, layouts and rules, a renderer-independent interaction core, headless
-SVG components (server-safe parts plus a client viewport), and a headless editor hook. It is published to npm and
-consumed by apps that store the document in their own database — every rule below follows from that.
+Seat plans for React: one JSON document (`SeatPlan`) of primitives — places, fixtures, group labels, the groups they
+belong to and the walls around them — a zod schema for it, geometry, layouts and rules, a renderer-independent
+interaction core, headless SVG components (server-safe parts plus a client viewport), and a headless editor hook. It
+is published to npm and consumed by apps that store the document in their own database — every rule below follows
+from that.
 
 The long-term target (headless SVG primitives, a Seats.io-level document, no canvas dependency) and the decisions
 behind it are in [`docs/direction.md`](docs/direction.md). Read it before changing the document shape or a
@@ -62,8 +63,9 @@ stay out of the object.
   decide a meaning (a status is the consumer's word). The viewport delegates events through `data-ichno-*`.
 - **Sections are the consumer's.** Section ids flow through the `S` type parameter; roles and category keys are
   strings the consumer picks; never hard-code one.
-- **Primitives, not kinds.** The document knows places, fixtures, group labels and groups. A row, a table, a desk
-  is the consumer's `role`; ichno never reads a role. A new way to arrange seats is a `layout`, not a new kind.
+- **Primitives, not kinds.** The document knows places, fixtures, group labels, groups and walls. A row, a table, a
+  desk, a door is the consumer's `role`; ichno never reads a role. A new way to arrange seats is a `layout`, not a new
+  kind. Rooms are found from walls, never stored; a section is a booking zone, not a room.
 - **Stored documents must keep parsing.** Plans live in consumers' databases for years.
   - A new document field needs a `.default(...)` or an optional type so documents saved before it still parse
     (see `categories`, `groups`). A reshaped document needs a new `version` and an upgrade (see

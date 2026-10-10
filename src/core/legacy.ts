@@ -236,6 +236,7 @@ export function upgradeV2<S extends string>(plan: SeatPlanV2<S>): SeatPlan<S> {
     width: plan.width,
     height: plan.height,
     sections: plan.sections,
+    walls: [],
     categories: plan.categories,
     groups,
     objects,
