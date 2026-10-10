@@ -1,8 +1,9 @@
 import { layout, type Group, type PlanBox, type PlanObject, type PlanPoint, type SeatPlan, type Shape } from 'ichno'
 
 // Demo documents for the landing page and the playground — plain SeatPlan JSON, exactly what an app would store.
-// ichno stores primitives only: places, fixtures and group labels. Rows, tables and desks are this site's words
-// (`role`), laid out here with ichno's `layout` helpers. Sections run on 46-unit cell edges.
+// ichno stores primitives only: places, fixtures, group labels and walls. Rows, tables and desks are this site's words
+// (`role`), laid out here with ichno's `layout` helpers. A unit is a centimetre; sections and walls run on the 50-unit
+// (half-metre) cell edges.
 
 // Section ids are short on purpose: places added later continue the section's numbering (S17, H1, …).
 export type VenueSection = 'H' | 'L' | 'S'
@@ -29,7 +30,7 @@ type Built<S extends string> = { groups: Group[]; objects: PlanObject<S>[] }
 const ROW_LETTERS = 'ABCDEFG'
 
 // A labelled row of seats between two points — a group, one place per seat and the row's name at both ends. Seats
-// are 40-unit circles unless `size` and `shape` say otherwise.
+// are 45 cm circles unless `size` and `shape` say otherwise.
 export function row<S extends string>(options: {
   id: string
   label: string
@@ -41,11 +42,11 @@ export function row<S extends string>(options: {
   shape?: Shape
   seats: { id: string; label?: string; category?: string }[]
 }): Built<S> {
-  const { size = 40, shape = 'ellipse' } = options
+  const { size = 45, shape = 'ellipse' } = options
   const boxes = layout.arc({ ...options, count: options.seats.length, size })
   const ends = [
-    { x: options.start.x - 46, y: options.start.y },
-    { x: options.end.x + 46, y: options.end.y },
+    { x: options.start.x - 50, y: options.start.y },
+    { x: options.end.x + 50, y: options.end.y },
   ]
   return {
     groups: [{ id: options.id, label: options.label, role: 'row' }],
@@ -83,8 +84,8 @@ function roundTable<S extends string>(
 ): Built<S> {
   const group = `table-${n}`
   const id = `T${n}`
-  const top = { x: center.x - 46, y: center.y - 46, w: 92, h: 92 }
-  const seats = layout.around({ table: top, shape: 'ellipse', count: options.seats ?? 6, size: 36 })
+  const top = { x: center.x - 60, y: center.y - 60, w: 120, h: 120 }
+  const seats = layout.around({ table: top, shape: 'ellipse', count: options.seats ?? 6, size: 45 })
   const category = options.category === undefined ? {} : { category: options.category }
   if (options.whole) {
     return {
@@ -132,7 +133,8 @@ function roundTable<S extends string>(
   }
 }
 
-// A desk in a 2×2-cell spot: the top is the place, the chair a fixture on the side people sit.
+// A desk in a 2×2-cell spot, a metre square from `origin`: the top is the place, the chair a fixture on the side
+// people sit.
 export function desk<S extends string>(
   id: string,
   section: S,
@@ -141,8 +143,8 @@ export function desk<S extends string>(
   extra: { label?: string; category?: string } = {},
 ): Built<S> {
   const group = `${id}-desk`
-  const top: PlanBox = { x: origin.x, y: chair === 'up' ? origin.y + 28 : origin.y, w: 88, h: 60 }
-  const seat: PlanBox = { x: origin.x + 25, y: chair === 'up' ? origin.y + 4 : origin.y + 66, w: 38, h: 18 }
+  const top: PlanBox = { x: origin.x + 2, y: chair === 'up' ? origin.y + 43 : origin.y + 2, w: 96, h: 55 }
+  const seat: PlanBox = { x: origin.x + 28, y: chair === 'up' ? origin.y + 2 : origin.y + 58, w: 44, h: 40 }
   return {
     groups: [{ id: group, role: 'desk' }],
     objects: [
@@ -155,15 +157,15 @@ export function desk<S extends string>(
 // Seven rows bowing away from the stage, one seat longer each.
 function hallRows(): Built<VenueSection>[] {
   return [...ROW_LETTERS].map((letter, i) => {
-    const y = 322 + 92 * i
-    const half = 230 + 23 * i
+    const y = 350 + 100 * i
+    const half = 250 + 25 * i
     const count = 10 + i
     return row<VenueSection>({
       id: `row-${letter}`,
       label: letter,
       section: 'H',
-      start: { x: 506 - half, y },
-      end: { x: 506 + half, y },
+      start: { x: 550 - half, y },
+      end: { x: 550 + half, y },
       curve: -0.12,
       seats: Array.from({ length: count }, (_, n) => ({
         id: `${letter}${n + 1}`,
@@ -184,7 +186,7 @@ function studioDesks(): Built<VenueSection>[] {
   ]
   return rows.flatMap(([cellY, side], r) =>
     [25, 27, 29, 31].map((cellX, c) =>
-      desk<VenueSection>(`S${r * 4 + c + 1}`, 'S', { x: cellX * 46 + 2, y: cellY * 46 + 2 }, side, {
+      desk<VenueSection>(`S${r * 4 + c + 1}`, 'S', { x: cellX * 50, y: cellY * 50 }, side, {
         category: 'standard',
       }),
     ),
@@ -193,12 +195,13 @@ function studioDesks(): Built<VenueSection>[] {
 
 // One document from its pieces, in drawing order.
 function assemble<S extends string>(
-  base: Omit<SeatPlan<S>, 'version' | 'groups' | 'objects'>,
+  base: Omit<SeatPlan<S>, 'version' | 'groups' | 'objects' | 'walls'> & Partial<Pick<SeatPlan<S>, 'walls'>>,
   pieces: (Built<S> | PlanObject<S>)[],
 ): SeatPlan<S> {
   const built = pieces.map((piece) => ('kind' in piece ? { groups: [], objects: [piece] } : piece))
   return {
     version: 3,
+    walls: [],
     ...base,
     groups: built.flatMap((piece) => piece.groups),
     objects: built.flatMap((piece) => piece.objects),
@@ -207,17 +210,17 @@ function assemble<S extends string>(
 
 export const venuePlan: SeatPlan<VenueSection> = assemble(
   {
-    width: 1840,
-    height: 1104,
+    width: 2000,
+    height: 1200,
     sections: [
-      { id: 'H', points: rect(0, 0, 1012, 1104) },
-      { id: 'L', points: rect(1104, 0, 736, 460) },
-      { id: 'S', points: rect(1104, 552, 736, 552) },
+      { id: 'H', points: rect(0, 0, 1100, 1200) },
+      { id: 'L', points: rect(1200, 0, 800, 500) },
+      { id: 'S', points: rect(1200, 600, 800, 600) },
     ],
     categories: [{ key: 'premium' }, { key: 'standard' }, { key: 'access', accessible: true }],
   },
   [
-    { kind: 'fixture', id: 'stage', shape: 'rect', role: 'stage', x: 299, y: 69, w: 414, h: 115 },
+    { kind: 'fixture', id: 'stage', shape: 'rect', role: 'stage', x: 325, y: 75, w: 450, h: 125 },
     ...hallRows(),
     {
       kind: 'place',
@@ -225,22 +228,22 @@ export const venuePlan: SeatPlan<VenueSection> = assemble(
       section: 'H',
       role: 'area',
       shape: 'rect',
-      x: 253,
-      y: 989,
-      w: 506,
-      h: 69,
-      capacity: 60,
+      x: 275,
+      y: 1050,
+      w: 550,
+      h: 100,
+      capacity: 11,
       category: 'standard',
     },
-    roundTable(1, 'L', { x: 1242, y: 184 }, { category: 'premium' }),
-    roundTable(2, 'L', { x: 1472, y: 184 }, { category: 'premium' }),
-    roundTable(3, 'L', { x: 1702, y: 184 }, { category: 'premium', whole: true }),
-    { kind: 'fixture', id: 'bar', shape: 'rect', role: 'bar', x: 1173, y: 345, w: 598, h: 69 },
+    roundTable(1, 'L', { x: 1325, y: 200 }, { category: 'premium' }),
+    roundTable(2, 'L', { x: 1600, y: 200 }, { category: 'premium' }),
+    roundTable(3, 'L', { x: 1875, y: 200 }, { category: 'premium', whole: true }),
+    { kind: 'fixture', id: 'bar', shape: 'rect', role: 'bar', x: 1275, y: 375, w: 650, h: 75 },
     ...studioDesks(),
     ...[
-      { id: 'BT1', y: 598, h: 138 },
-      { id: 'BT2', y: 782, h: 138 },
-      { id: 'BT3', y: 966, h: 92 },
+      { id: 'BT1', y: 650, h: 150 },
+      { id: 'BT2', y: 850, h: 150 },
+      { id: 'BT3', y: 1050, h: 100 },
     ].map(({ id, y, h }, i): PlanObject<VenueSection> => ({
       kind: 'place',
       id,
@@ -250,9 +253,9 @@ export const venuePlan: SeatPlan<VenueSection> = assemble(
       category: 'premium',
       shape: 'rect',
       capacity: 1,
-      x: 1587,
+      x: 1725,
       y,
-      w: 184,
+      w: 200,
       h,
     })),
   ],
@@ -268,46 +271,57 @@ export const venueStatus: Record<string, string> = Object.fromEntries(
 type RoomSection = 'R'
 
 export const roomPlan: SeatPlan<RoomSection> = assemble<RoomSection>(
-  { width: 1196, height: 690, sections: [{ id: 'R', points: rect(0, 0, 1196, 690) }], categories: [] },
+  { width: 1300, height: 750, sections: [{ id: 'R', points: rect(0, 0, 1300, 750) }], categories: [] },
   [
-    { kind: 'fixture', id: 'screen', shape: 'rect', role: 'screen', x: 368, y: 46, w: 460, h: 46 },
+    { kind: 'fixture', id: 'screen', shape: 'rect', role: 'screen', x: 400, y: 50, w: 500, h: 20 },
     row<RoomSection>({
       id: 'row-1',
       label: 'A',
       section: 'R',
-      start: { x: 368, y: 207 },
-      end: { x: 828, y: 207 },
+      start: { x: 450, y: 225 },
+      end: { x: 850, y: 225 },
       curve: -0.1,
       seats: Array.from({ length: 9 }, (_, n) => ({ id: `R${n + 1}`, label: String(n + 1) })),
     }),
-    desk<RoomSection>('R10', 'R', { x: 94, y: 416 }, 'up', { label: 'D1' }),
-    desk<RoomSection>('R11', 'R', { x: 186, y: 416 }, 'up', { label: 'D2' }),
-    roundTable<RoomSection>(1, 'R', { x: 920, y: 483 }, { seats: 5 }),
+    desk<RoomSection>('R10', 'R', { x: 100, y: 450 }, 'up', { label: 'D1' }),
+    desk<RoomSection>('R11', 'R', { x: 200, y: 450 }, 'up', { label: 'D2' }),
+    roundTable<RoomSection>(1, 'R', { x: 1000, y: 525 }, { seats: 5 }),
   ],
 )
 
 type HallSection = 'H'
 
-// The playground's first document: a stage, six straight rows of fourteen facing it, a round table for six on
-// either side and a bar at the back. Every place is standard, so nothing is tinted until a category is assigned.
+// The playground's first document: an 18 × 13 m hall walled round with a door at the back, a stage, six straight rows
+// of fourteen facing it (45 cm seats, 50 cm apart, rows 90 cm apart), a round table for six on either side and a bar
+// against the back wall. Its one section is the whole plan — the playground never shows it. Every place is standard,
+// so nothing is tinted until a category is assigned.
 export const hallPlan: SeatPlan<HallSection> = assemble<HallSection>(
   {
-    width: 1400,
-    height: 1000,
-    sections: [{ id: 'H', points: rect(0, 0, 1400, 1000) }],
+    width: 1800,
+    height: 1300,
+    sections: [{ id: 'H', points: rect(0, 0, 1800, 1300) }],
+    walls: [
+      {
+        id: 'hall',
+        points: rect(0, 0, 1800, 1300),
+        thickness: 15,
+        closed: true,
+        openings: [{ edge: 2, at: 360, width: 90, role: 'door' }],
+      },
+    ],
     categories: [{ key: 'premium' }, { key: 'standard' }, { key: 'access', accessible: true }],
   },
   [
-    { kind: 'fixture', id: 'stage', shape: 'rect', role: 'stage', x: 450, y: 40, w: 500, h: 140 },
+    { kind: 'fixture', id: 'stage', shape: 'rect', role: 'stage', x: 600, y: 50, w: 600, h: 300 },
     ...[...ROW_LETTERS.slice(0, 6)].map((letter, i) =>
       row<HallSection>({
         id: `row-${letter}`,
         label: letter,
         section: 'H',
-        start: { x: 349, y: 278 + 66 * i },
-        end: { x: 1051, y: 278 + 66 * i },
+        start: { x: 575, y: 500 + 90 * i },
+        end: { x: 1225, y: 500 + 90 * i },
         curve: 0,
-        size: 36,
+        size: 45,
         shape: 'rect',
         seats: Array.from({ length: 14 }, (_, n) => ({
           id: `${letter}${n + 1}`,
@@ -316,19 +330,21 @@ export const hallPlan: SeatPlan<HallSection> = assemble<HallSection>(
         })),
       }),
     ),
-    roundTable(1, 'H', { x: 190, y: 820 }, { category: 'standard' }),
-    roundTable(2, 'H', { x: 1210, y: 820 }, { category: 'standard' }),
-    { kind: 'fixture', id: 'bar', shape: 'rect', role: 'bar', x: 540, y: 900, w: 320, h: 50 },
+    roundTable(1, 'H', { x: 250, y: 700 }, { category: 'standard' }),
+    roundTable(2, 'H', { x: 1550, y: 700 }, { category: 'standard' }),
+    { kind: 'fixture', id: 'bar', shape: 'rect', role: 'bar', x: 700, y: 1230, w: 400, h: 60 },
   ],
 )
 
-// The playground's empty document: no section and nothing in it — sections are drawn first, then what goes in them.
-// The categories are listed because the playground has no way to add one.
+// The playground's empty document: nothing on it yet — walls are built first, and places go anywhere on the plan.
+// Its one section is the whole plan, which the playground never shows. The categories are listed because the
+// playground has no way to add one.
 export const emptyPlan: SeatPlan<string> = {
   version: 3,
-  width: 1380,
-  height: 828,
-  sections: [],
+  width: 2000,
+  height: 1200,
+  sections: [{ id: 'P', points: rect(0, 0, 2000, 1200) }],
+  walls: [],
   categories: [{ key: 'premium' }, { key: 'standard' }, { key: 'access', accessible: true }],
   groups: [],
   objects: [],

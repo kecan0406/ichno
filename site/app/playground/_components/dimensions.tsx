@@ -1,18 +1,18 @@
-import type { PlanPoint, PlanStroke } from 'ichno'
+import { seatPlan, type PlanPoint, type PlanStroke, type Wall } from 'ichno'
 import { metres } from '../_lib/units'
 import styles from './marks.module.css'
 
 type Props = {
   // What a creation tool is drawing, and how it draws.
   stroke: PlanStroke | null
-  draw: 'box' | 'line' | 'point' | 'polygon' | undefined
-  // A polygon's corners so far, where the next would go, and a length typed for it (metres, as typed).
+  draw: 'box' | 'line' | 'point' | 'polygon' | 'path' | undefined
+  // A wall's corners so far, where the next would go, and a length typed for it (metres, as typed).
   corners: readonly PlanPoint[] | null
   pointer: PlanPoint | null
   typed: string
-  // The selection's outline — one item's turned box, or the box round several — or the one selected section's.
+  // The selection's outline — one item's turned box, or the box round several — or the one selected wall.
   frame: readonly PlanPoint[] | null
-  section: readonly PlanPoint[] | null
+  wall: Wall | null
   // Screen pixels a plan unit spans — the lengths are written the same size at any zoom.
   scale: number
 }
@@ -22,18 +22,19 @@ const TEXT_PX = 11
 const OFF_PX = 16
 
 // Lengths written where they are measured, the way a drawing's dimensions are: what a tool is drawing (a box's width
-// and height, a line's length, a section's edges — the next as it is typed), the size of what is selected, and a
-// selected section's edges. What is being drawn is written in the guides' colour; what stands, in the labels'.
-export function Dimensions({ stroke, draw, corners, pointer, typed, frame, section, scale }: Props) {
+// and height, a line's length, a wall's edges — the next as it is typed), the size of what is selected, and a
+// selected wall's edges, outside a room. What is being drawn is written in the guides' colour; what stands, in the
+// labels'.
+export function Dimensions({ stroke, draw, corners, pointer, typed, frame, wall, scale }: Props) {
   const off = OFF_PX / scale
   const labels: { at: PlanPoint; text: string; angle?: number; live?: boolean }[] = []
 
   if (draw === 'box' && stroke) labels.push({ ...boxSize(outlineOf(stroke), off), live: true })
   else if (draw === 'line' && stroke) labels.push({ ...along(stroke.start, stroke.end, off, 1), live: true })
-  else if (draw === 'polygon' && corners === null && stroke?.points?.length === 5) {
+  else if ((draw === 'polygon' || draw === 'path') && corners === null && stroke?.points?.length === 5) {
     // A rectangle being dragged out.
     labels.push({ ...boxSize(stroke.points.slice(0, 4), off), live: true })
-  } else if (draw === 'polygon' && corners) {
+  } else if ((draw === 'polygon' || draw === 'path') && corners) {
     corners.slice(1).forEach((b, i) => labels.push(along(corners[i]!, b, off, 1)))
     const last = corners.at(-1)!
     if (pointer && (typed !== '' || pointer.x !== last.x || pointer.y !== last.y)) {
@@ -42,9 +43,10 @@ export function Dimensions({ stroke, draw, corners, pointer, typed, frame, secti
     }
   }
   if (frame && frame.length === 4) labels.push(boxSize(frame, off))
-  if (section) {
-    const outward = Math.sign(signedArea(section)) || 1
-    section.forEach((a, i) => labels.push(along(a, section[(i + 1) % section.length]!, off, outward)))
+  if (wall) {
+    const outward = wall.closed ? Math.sign(signedArea(wall.points)) || 1 : 1
+    const clear = off + wall.thickness / 2
+    for (const edge of seatPlan.wallEdgesOf(wall)) labels.push(along(edge.a, edge.b, clear, outward))
   }
   if (labels.length === 0) return null
 

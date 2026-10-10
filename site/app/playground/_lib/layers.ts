@@ -31,7 +31,7 @@ export function layersOf(plan: SeatPlan<string>): Layer[] {
   return layers
 }
 
-// One key per selectable item — objects and groups share one id namespace, sections have their own.
+// One key per selectable item — objects, groups and walls share one id namespace, sections have their own.
 export function keyOf(item: EditorSelection<string>): string {
   return `${item.kind}:${item.id}`
 }

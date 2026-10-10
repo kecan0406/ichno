@@ -66,7 +66,7 @@ const GLYPHS = {
   // Layers
   group: <rect x={2.5} y={2.5} width={11} height={11} rx={1.5} strokeDasharray="2.2 1.8" />,
   label: <path d="M3.5 3.5h9M8 3.5v9" />,
-  section: <path d="M2.5 5l5.5-2.5L13.5 5v6.5L8 13.5l-5.5-2z" />,
+  wall: <path d="M2.5 13.5v-11h11M5.5 13.5v-8h8" />,
   rect: <rect x={2.5} y={3.5} width={11} height={9} rx={1} />,
   ellipse: <circle cx={8} cy={8} r={5.5} />,
   lock: (

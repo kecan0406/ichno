@@ -114,7 +114,6 @@ export type Build3DProps = {
   // The first frame with the scene in it is drawn (or WebGL failed) — a 2D view left underneath can go.
   onShown(): void
   onViewChange(view: BuildView): void
-  sectionName(id: string): string
   fixtureName(fixture: Fixture): string | null
 }
 
@@ -211,7 +210,7 @@ export default function Build3D(props: Build3DProps) {
     return hit ? { x: hit.x, y: hit.z } : null
   }
 
-  // What is drawn nearest under a point of the view — a place, a fixture, or a section's floor.
+  // What is drawn nearest under a point of the view — a place, a fixture or a wall.
   function targetAt(at: ScreenPoint): PlanTarget<string> | null {
     if (!aimRay(at)) return null
     for (const hit of RAY.intersectObjects([...picks.keys()], false)) {
@@ -221,13 +220,14 @@ export default function Build3D(props: Build3DProps) {
     return null
   }
 
-  // The objects a box on the screen touches as they stand — each footprint raised to its height and seen from the
-  // camera, a group's label where its sign stands — the way the 2D marquee takes what its rubber band touches.
+  // The objects and walls a box on the screen touches as they stand — each footprint raised to its height and seen
+  // from the camera, a group's label where its sign stands, a wall cut down — the way the 2D marquee takes what its
+  // rubber band touches.
   function touchedBy(box: PlanRect): string[] {
     const state = stage()
     if (!state) return []
     const heights = new Map(piecesOf(plan).map((piece) => [piece.id, HEIGHT[piece.model]]))
-    return plan.objects.flatMap((object) => {
+    const objects = plan.objects.flatMap((object) => {
       const levels =
         object.kind === 'label'
           ? [SIGN_HEIGHT]
@@ -235,6 +235,14 @@ export default function Build3D(props: Build3DProps) {
       const seen = seatPlan.outlineOf(object).flatMap((point) => levels.map((y) => screenOf(point, y, state)))
       return overlapsBox(hullOf(seen), box) ? [object.id] : []
     })
+    const walls = plan.walls.flatMap((wall) => {
+      const touched = wallsOf({ ...plan, walls: [wall] }).some((stretch) => {
+        const seen = cornersOfStretch(stretch).flatMap((point) => [0, WALL_CUT].map((y) => screenOf(point, y, state)))
+        return overlapsBox(hullOf(seen), box)
+      })
+      return touched ? [wall.id] : []
+    })
+    return [...objects, ...walls]
   }
 
   // The zoom that shows the whole drawing from the corner the view is turning to.
@@ -850,9 +858,9 @@ type SceneProps = Build3DProps & { palette: Palette; picks: Picks; hoveredPlace:
 
 function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }: SceneProps) {
   const pieces = piecesOf(plan)
-  // A door the tool would put in a wall opens it already.
-  const doors = draft?.objects.filter((o) => o.kind === 'fixture' && o.role === 'door') ?? []
-  const walls = wallsOf(doors.length === 0 ? plan : { ...plan, objects: [...plan.objects, ...doors] })
+  // A door the tool would put in a wall opens it already — the draft holds that wall with the opening.
+  const opened = new Map((draft?.walls ?? []).map((wall) => [wall.id, wall]))
+  const walls = wallsOf(opened.size === 0 ? plan : { ...plan, walls: plan.walls.map((w) => opened.get(w.id) ?? w) })
   const selected = new Set(props.selected)
   const conflicts = new Set(props.conflicts)
   const reach = Math.hypot(plan.width, plan.height)
@@ -877,17 +885,9 @@ function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }:
         id: piece.id,
       }),
     ),
-    // A wall fixture's band is the ink in 2D.
-    ...walls.flatMap((wall) =>
-      wall.id === undefined ? [] : [wallOf(wall, lookOf(wall.id, null, palette.ink), { kind: 'object', id: wall.id })],
-    ),
+    // Cut down so the rooms show; in hairlines, as the 2D drawing draws a wall's band.
+    ...walls.map((wall, i) => wallOf(wall, i, lookOf(wall.id, null), { kind: 'wall', id: wall.id })),
   ]
-  // A section's walls are guides, dashed as in 2D, cut down so the rooms show.
-  const sectionWalls = walls.flatMap((wall) =>
-    wall.id === undefined
-      ? [wallOf(wall, { fill: palette.surface, line: 'label', dash: true, flat: palette.ground })]
-      : [],
-  )
   const ghostLook = (id: string): Look =>
     conflicts.has(id)
       ? { fill: palette.warningFill, line: 'warning', dash: true }
@@ -898,13 +898,16 @@ function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }:
       ? []
       : [
           ...piecesOf(draft).map((piece) => solidOf(piece, ghostLook(piece.id))),
-          ...wallsOf(draft).map((wall) => wallOf(wall, ghostLook(wall.id ?? ''))),
+          // A new wall — not one the draft only opens.
+          ...wallsOf({ ...draft, walls: draft.walls.filter((w) => !seatPlan.wallOf(plan, w.id)) }).map((wall, i) =>
+            wallOf(wall, i, ghostLook(wall.id)),
+          ),
         ]),
     ...(refused === null
       ? []
       : [
           ...piecesOf(refused).map((piece) => solidOf(piece, refusedLook)),
-          ...wallsOf(refused).map((wall) => wallOf(wall, refusedLook)),
+          ...wallsOf(refused).map((wall, i) => wallOf(wall, i, refusedLook)),
         ]),
   ]
 
@@ -917,22 +920,14 @@ function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }:
         <planeGeometry args={[reach * 12, reach * 12]} />
         <meshBasicMaterial color={palette.ground} />
       </mesh>
-      {plan.sections.map((section) => (
-        <Floor
-          key={section.id}
-          id={section.id}
-          points={section.points}
-          color={palette.surface}
-          flat={palette.ground}
-          picks={picks}
-        />
+      {seatPlan.roomsOf(plan).map((room, i) => (
+        <Floor key={i} points={room.points} color={palette.surface} flat={palette.ground} />
       ))}
       {props.grid !== null && <Grid plan={plan} cell={props.grid} palette={palette} />}
-      <Solids solids={sectionWalls} palette={palette} />
       <Solids solids={solids} palette={palette} picks={picks} />
       <Solids solids={ghosts} palette={palette} ghost />
       <Overlay overlay={props.overlay} palette={palette} />
-      {writingOf(plan, pieces, props.sectionName, props.fixtureName).map((writing, i) => (
+      {writingOf(plan, pieces, props.fixtureName).map((writing, i) => (
         <Text
           key={i}
           writing={writing}
@@ -959,9 +954,10 @@ function solidOf(piece: Piece, look: Look, target?: PlanTarget<string>): Solid {
   }
 }
 
-function wallOf(wall: Wall, look: Look, target?: PlanTarget<string>): Solid {
+// One stretch of a wall — the `index`th of the walls drawn.
+function wallOf(wall: Wall, index: number, look: Look, target?: PlanTarget<string>): Solid {
   return {
-    id: wall.id ?? `wall:${wall.x}:${wall.z}`,
+    id: `${wall.id}:${index}`,
     model: 'wall',
     round: false,
     x: wall.x,
@@ -988,7 +984,7 @@ function Overlay({ overlay, palette }: { overlay: Editor['overlayProps']; palett
   const line =
     overlay.stroke && overlay.draw === 'line'
       ? [[overlay.stroke.start, overlay.stroke.end]]
-      : overlay.stroke && overlay.draw === 'polygon'
+      : overlay.stroke && (overlay.draw === 'polygon' || overlay.draw === 'path')
         ? [overlay.stroke.points ?? []]
         : []
   return (
@@ -1183,6 +1179,21 @@ function spanOf(points: readonly ScreenPoint[], axis: ScreenPoint): { min: numbe
     max = Math.max(max, d)
   }
   return { min, max }
+}
+
+// The corners of a stretch of wall on the floor — `w` along its yaw, `d` across.
+function cornersOfStretch(stretch: Wall): PlanPoint[] {
+  const along = { x: Math.cos(stretch.yaw), y: -Math.sin(stretch.yaw) }
+  const across = { x: -along.y, y: along.x }
+  return [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ].map(([u, v]) => ({
+    x: stretch.x + (along.x * stretch.w * u! + across.x * stretch.d * v!) / 2,
+    y: stretch.z + (along.y * stretch.w * u! + across.y * stretch.d * v!) / 2,
+  }))
 }
 
 function cornersOf(rect: PlanRect): PlanPoint[] {

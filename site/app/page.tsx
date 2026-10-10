@@ -126,15 +126,15 @@ validateSelection(plan, { selected, unavailable }, { max: 8, consecutive: true, 
     code: `import { layout } from 'ichno'
 import { planEdits, useSeatPlanEditor, type EditorTool } from 'ichno/editor'
 
-const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 46 } })
+const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 50 } })
 
-// Your tool: a drag draws a row, a seat every 46 units.
+// Your tool: a drag draws a row, a seat every 50 units.
 const row: EditorTool<'hall'> = {
   draw: 'line',
   create: (plan, { start, end }) => {
-    const count = Math.floor(Math.hypot(end.x - start.x, end.y - start.y) / 46) + 1
+    const count = Math.floor(Math.hypot(end.x - start.x, end.y - start.y) / 50) + 1
     const { plan: grouped, id } = planEdits.addGroup(plan, { role: 'row' })
-    return planEdits.addPlaces(grouped, 'hall', layout.line({ start, end, count, size: 40 }), { group: id })?.plan ?? null
+    return planEdits.addPlaces(grouped, 'hall', layout.line({ start, end, count, size: 45 }), { group: id })?.plan ?? null
   },
 }
 

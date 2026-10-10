@@ -211,17 +211,23 @@
   cursor: grab;
 }
 
-/* The grid sits under the drawing — let it show through the section floor. */
-.canvas [data-part='floor'] {
-  fill: transparent;
+/* The playground's section is the whole plan — there before anything is drawn, and never shown. */
+.canvas [data-ichno-section] {
+  display: none;
 }
 
-.canvas [data-ichno-id]:not([data-disabled]) {
+/* The grid sits under the drawing — let it show through a room's floor, which only darkens it a shade: walls that
+   meet close a room, and the floor shows it. */
+.canvas [data-part='room'] [data-part='floor'] {
+  fill: color-mix(in srgb, var(--ichno-ink) 4%, transparent);
+}
+
+.canvas :is([data-ichno-id]:not([data-disabled]), [data-ichno-wall]) {
   cursor: pointer;
 }
 
-/* A tool draws wherever it is pressed — over places too. */
-.canvas:not([data-tool='select']) [data-ichno-id] {
+/* A tool draws wherever it is pressed — over places and walls too. */
+.canvas:not([data-tool='select']) :is([data-ichno-id], [data-ichno-wall]) {
   cursor: inherit;
 }
 

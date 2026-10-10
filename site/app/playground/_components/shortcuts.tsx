@@ -9,7 +9,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     keys: [
       ['V', 'Select'],
       ['H', 'Hand — drag to pan'],
-      ['P  F  S', 'Draw a place, a fixture, a section — ichno’s primitives'],
+      ['P  F  W', 'Draw a place, a fixture, a wall — ichno’s primitives'],
       ['1 – 5', 'Seat, desk, sofa, booth, standing area — the playground’s assets'],
       ['⇧I', 'Assets'],
       ['Q', 'Keep the tool after placing'],
@@ -26,14 +26,15 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     ],
   },
   {
-    title: 'Sections',
+    title: 'Walls',
     keys: [
-      ['Drag', 'A rectangle — tap instead to place corners one by one'],
-      ['↵  ⌫', 'Close a section, take back its last corner'],
-      ['3.5 ↵', 'Type a length (m): the next corner goes that far toward the pointer'],
-      ['Drag an edge', 'Push that wall, with what stands against it'],
+      ['W, click', 'A metre of wall — beside a wall’s end it carries that wall on, back at its start it closes a room'],
+      ['Wheel  R  ⇧R', 'Turn the next piece 15° (⇧-wheel: 5°)'],
+      ['Room (Assets)', 'Drag a room on the metre grid, or tap its corners'],
+      ['3.5 ↵', 'Type a length (m): the room’s next corner goes that far toward the pointer'],
+      ['Drag an edge', 'Push that wall, with what stands against it and the walls that end on it'],
       ['Alt-drag an edge', 'Add a corner there'],
-      ['Drag a selected section', 'Move it with everything standing in it'],
+      ['Drag a room’s walls', 'Move them with everything standing in the room'],
     ],
   },
   {

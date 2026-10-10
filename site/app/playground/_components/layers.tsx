@@ -9,8 +9,8 @@ import { pressKeepingFocus } from './focus'
 import { Icon, type IconName } from './icons'
 import styles from './layers.module.css'
 
-// The layers panel — the document as ichno holds it: its sections, then its groups and the objects outside them, top
-// of the drawing first. A row picks exactly what it shows (a seat of a row, not the row), shift or ⌘ adds to the
+// The layers panel — the document as ichno holds it: its walls, then its groups and the objects outside them, top of
+// the drawing first. A row picks exactly what it shows (a seat of a row, not the row), shift or ⌘ adds to the
 // selection, hovering outlines it on the plan, and a double-click (or F2) renames what people read. Tab brings the
 // keyboard in: arrows move between rows and open groups, Enter or Space selects, Enter again steps into a group.
 // The lock and the eye beside a row freeze and hide it on the plan — ichno's `frozenIds` and `hiddenIds`.
@@ -38,7 +38,6 @@ type Row = {
 type Props = {
   plan: SeatPlan<string>
   selection: readonly Item[]
-  sectionNames: Record<string, string>
   isLocked(id: string): boolean
   onSelect(items: Item[]): void
   onHover(item: Item | null): void
@@ -53,27 +52,18 @@ type Props = {
 // What the lock and the eye show and change — objects and groups only.
 type Toggles = Pick<Props, 'frozen' | 'hidden' | 'onFreeze' | 'onHide'>
 
-export function LayersPanel({
-  plan,
-  selection,
-  sectionNames,
-  isLocked,
-  onSelect,
-  onHover,
-  onRename,
-  ...toggles
-}: Props) {
+export function LayersPanel({ plan, selection, isLocked, onSelect, onHover, onRename, ...toggles }: Props) {
   const selected = new Set(selection.map(keyOf))
   // Groups opened or closed by hand; the rest are open while they hold the selection.
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
 
-  const sections: Row[] = plan.sections.map((section) => ({
-    key: keyOf({ kind: 'section', id: section.id }),
-    item: { kind: 'section', id: section.id },
+  const walls: Row[] = plan.walls.map((wall) => ({
+    key: keyOf({ kind: 'wall', id: wall.id }),
+    item: { kind: 'wall', id: wall.id },
     level: 1,
-    icon: 'section',
-    name: sectionNames[section.id] ?? section.id,
-    meta: { text: section.id, mono: true },
+    icon: 'wall',
+    name: wall.closed ? 'Room walls' : 'Wall',
+    meta: { text: wall.id, mono: true },
     label: null,
   }))
 
@@ -110,19 +100,24 @@ export function LayersPanel({
   return (
     <div className={styles.panel} onPointerLeave={() => onHover(null)}>
       <h2 className={styles.heading}>
-        Sections <span>{sections.length}</span>
+        Walls <span>{walls.length}</span>
       </h2>
-      <Tree
-        label="Sections"
-        rows={sections}
-        selected={selected}
-        selection={selection}
-        isLocked={() => false}
-        onSelect={onSelect}
-        onHover={onHover}
-        onToggle={toggle}
-        onRename={onRename}
-      />
+      {walls.length === 0 ? (
+        <p className={styles.empty}>No walls yet — put some up with the Wall tool (W), or drag a Room from Assets.</p>
+      ) : (
+        <Tree
+          label="Walls"
+          rows={walls}
+          selected={selected}
+          selection={selection}
+          isLocked={() => false}
+          toggles={toggles}
+          onSelect={onSelect}
+          onHover={onHover}
+          onToggle={toggle}
+          onRename={onRename}
+        />
+      )}
       <h2 className={styles.heading}>
         Layers <span>{plan.objects.length}</span>
       </h2>
@@ -297,7 +292,7 @@ function Tree({
                 {row.meta.text}
               </span>
             )}
-            {row.item.kind !== 'section' && isLocked(row.item.id) && (
+            {(row.item.kind === 'object' || row.item.kind === 'group') && isLocked(row.item.id) && (
               <span className={styles.lock} title="Holds a booked place">
                 <Icon name="booked" size={12} />
               </span>

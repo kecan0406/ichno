@@ -12,12 +12,10 @@ import { createSeatPlanSchema, seatPlanIssueOf } from 'ichno/schema'
 import { emptyPlan, hallPlan } from '../../_demo/plans'
 import { lintIssueText, planIssueText } from '../../_demo/messages'
 
-// What the playground edits: a document with a name to show for it, the names it shows for its sections, and the
-// places marked booked.
+// What the playground edits: a document with a name to show for it, and the places marked booked.
 export type Workbench = {
   name: string
   plan: SeatPlan<string>
-  sectionNames: Record<string, string>
   booked: string[]
 }
 
@@ -25,12 +23,12 @@ export const PRESETS: { id: string; name: string; workbench: Workbench }[] = [
   {
     id: 'hall',
     name: 'Hall',
-    workbench: { name: 'Hall', plan: hallPlan, sectionNames: { H: 'Hall' }, booked: ['A5', 'A6'] },
+    workbench: { name: 'Hall', plan: hallPlan, booked: ['A5', 'A6'] },
   },
   {
     id: 'empty',
     name: 'Empty',
-    workbench: { name: 'Empty', plan: emptyPlan, sectionNames: {}, booked: [] },
+    workbench: { name: 'Empty', plan: emptyPlan, booked: [] },
   },
 ]
 
@@ -39,7 +37,8 @@ export const DEFAULT_LINT: Record<LintCode, LintSeverity> = {
   duplicate_label: 'off',
   outside_section: 'warning',
   missing_category: 'warning',
-  empty_section: 'warning',
+  // The playground's section is the whole plan, there before anything is placed.
+  empty_section: 'off',
 }
 
 export type Check = { key: string; severity: 'error' | 'warning'; text: string; ids: string[] }

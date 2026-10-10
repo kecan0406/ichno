@@ -2,7 +2,7 @@
 
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import CameraControls from 'camera-controls'
-import type { Fixture, Place, SeatPlan } from 'ichno'
+import { seatPlan, type Fixture, type Place, type SeatPlan } from 'ichno'
 import { useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react'
 import {
   Box3,
@@ -47,13 +47,12 @@ export type Preview3DProps = {
   status: Record<string, string>
   picked: readonly string[]
   isDisabled(place: Place<string>): boolean
-  sectionName(id: string): string
   fixtureName(fixture: Fixture): string | null
   onPlaceTap(place: Place<string>): void
 }
 
 export default function Preview3D(props: Preview3DProps) {
-  const { plan, sectionName } = props
+  const { plan } = props
   const hostRef = useRef<HTMLDivElement>(null)
   const controlsRef = useRef<CameraControls | null>(null)
   const palette = usePalette(hostRef)
@@ -144,7 +143,6 @@ export default function Preview3D(props: Preview3DProps) {
                 hovered={hovered}
                 marked={viewing === null ? focus : null}
                 isDisabled={props.isDisabled}
-                sectionName={sectionName}
                 fixtureName={props.fixtureName}
                 onHover={setHovered}
                 onTap={tap}
@@ -159,9 +157,7 @@ export default function Preview3D(props: Preview3DProps) {
         <div className={styles.seatCard} aria-live="polite">
           <div>
             <strong>{focused.label ?? focused.id}</strong>
-            <span>
-              {[focused.role, sectionName(focused.section), props.status[focused.id]].filter(Boolean).join(' · ')}
-            </span>
+            <span>{[focused.role, props.status[focused.id]].filter(Boolean).join(' · ')}</span>
           </div>
           {viewing === null ? (
             <button type="button" className={ui.button} onClick={() => setViewing(focused.id)}>
@@ -200,7 +196,7 @@ export default function Preview3D(props: Preview3DProps) {
 
 // ---------- Scene ----------
 
-type SceneProps = Pick<Preview3DProps, 'plan' | 'picked' | 'isDisabled' | 'sectionName' | 'fixtureName'> & {
+type SceneProps = Pick<Preview3DProps, 'plan' | 'picked' | 'isDisabled' | 'fixtureName'> & {
   pieces: Piece[]
   overview: Overview
   palette: Palette
@@ -211,7 +207,7 @@ type SceneProps = Pick<Preview3DProps, 'plan' | 'picked' | 'isDisabled' | 'secti
   onTap(place: Place<string>): void
 }
 
-function Scene({ plan, pieces, overview, palette, marked, sectionName, fixtureName, ...props }: SceneProps) {
+function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props }: SceneProps) {
   const reach = overview.radius
   const mark = marked === null ? undefined : pieces.find((piece) => piece.id === marked)
   const overhead = useOverhead()
@@ -228,9 +224,9 @@ function Scene({ plan, pieces, overview, palette, marked, sectionName, fixtureNa
     look: lookOf(piece, palette, props),
   }))
   // Cut down while the camera is up high, so it sees into the rooms, and at full height once it is down among the
-  // seats. Dashed, as the 2D drawing draws a section's walls.
+  // seats. Drawn in hairlines, as the 2D drawing draws a wall's band.
   const walls = wallsOf(plan).map((wall, i): Solid => ({
-    id: wall.id ?? `wall-${i}`,
+    id: `${wall.id}:${i}`,
     model: 'wall',
     round: false,
     x: wall.x,
@@ -239,7 +235,7 @@ function Scene({ plan, pieces, overview, palette, marked, sectionName, fixtureNa
     d: wall.d,
     yaw: wall.yaw,
     h: overhead ? WALL_CUT : WALL_HEIGHT,
-    look: { fill: palette.surface, line: 'label', dash: true },
+    look: { fill: palette.surface, line: 'ink' },
   }))
 
   return (
@@ -251,8 +247,8 @@ function Scene({ plan, pieces, overview, palette, marked, sectionName, fixtureNa
         <planeGeometry args={[reach * 12, reach * 12]} />
         <meshBasicMaterial color={palette.ground} />
       </mesh>
-      {plan.sections.map((section) => (
-        <Floor key={section.id} id={section.id} points={section.points} color={palette.surface} />
+      {seatPlan.roomsOf(plan).map((room, i) => (
+        <Floor key={i} points={room.points} color={palette.surface} />
       ))}
       <Solids solids={walls} palette={palette} />
       <Solids
@@ -264,7 +260,7 @@ function Scene({ plan, pieces, overview, palette, marked, sectionName, fixtureNa
           if (place) props.onTap(place)
         }}
       />
-      {writingOf(plan, pieces, sectionName, fixtureName).map((writing, i) =>
+      {writingOf(plan, pieces, fixtureName).map((writing, i) =>
         writing.overhead && !overhead ? null : (
           <Text
             key={i}

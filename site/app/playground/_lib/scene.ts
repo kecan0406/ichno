@@ -1,16 +1,5 @@
-import {
-  SECTION_LABEL_BAND,
-  SECTION_LABEL_FONT,
-  WALL_THICKNESS,
-  seatPlan,
-  type Fixture,
-  type Place,
-  type PlanPoint,
-  type SeatPlan,
-  type Shape,
-} from 'ichno'
+import { seatPlan, type Fixture, type Place, type PlanPoint, type Room, type SeatPlan, type Shape } from 'ichno'
 import { METRE } from './units'
-import { openingsOf, wallLinesOf, type WallLine } from './walls'
 
 // The playground's 3D reading of a document, for its 3D preview (../_components/preview-3d.tsx). ichno stores
 // footprints — a box on the floor, a turn, a role word — and nothing upward: how tall a stage is, which way a chair
@@ -104,12 +93,11 @@ export type Piece = {
   place: Place<string> | null
 }
 
-// A wall as a box on the floor, cut down with the rest in the overview. `id` is the wall fixture it is drawn for
-// (none for a section's outline).
-export type Wall = { x: number; z: number; w: number; d: number; yaw: number; id?: string }
+// A stretch of a wall as a box on the floor, cut down with the rest in the overview. `id` is the wall's.
+export type Wall = { x: number; z: number; w: number; d: number; yaw: number; id: string }
 
 // Text in the room: `flat` lies on a surface (a fixture's name on its top), `face` stands on a screen, `sign` always
-// turns to the camera (a section's name, a group's label). `size` is the height of a line; `tone` the theme colour
+// turns to the camera (a group's label). `size` is the height of a line; `tone` the theme colour
 // the 2D view writes it in. `overhead` text stands on the cut-down walls, so it shows only while they are cut.
 export type Writing = {
   text: string
@@ -142,6 +130,7 @@ export type Overview = { x: number; z: number; w: number; h: number; radius: num
 export function piecesOf(plan: Plan): Piece[] {
   const things = plan.objects.filter((object): object is Thing => object.kind !== 'label' && object.role !== 'wall')
   const models = new Map(things.map((thing) => [thing.id, modelOf(thing)]))
+  const rooms = seatPlan.roomsOf(plan)
   const members = new Map<string, Thing[]>()
   for (const thing of things) {
     if (thing.group === undefined) continue
@@ -153,7 +142,7 @@ export function piecesOf(plan: Plan): Piece[] {
     const model = models.get(thing.id)!
     const center = seatPlan.centerOf(thing)
     const turn = -radians(thing.rotation ?? 0)
-    const target = targetOf(plan, thing, model, members, models)
+    const target = targetOf(plan, rooms, thing, model, members, models)
     const toward = target === null ? null : yawToward(center, target)
     // Seating keeps to quarter turns of its box, so it stands on the footprint the plan shows.
     const quarter = toward === null ? 0 : Math.round(angleBetween(turn, toward) / (Math.PI / 2))
@@ -173,48 +162,28 @@ export function piecesOf(plan: Plan): Piece[] {
   })
 }
 
-// Every section's outer wall, a box per side on the outline the 2D view strokes, and the band a wall fixture paints —
-// each left open where a door stands in it (./walls.ts).
+// Every wall, a box per stretch of each edge its openings leave standing. Each stretch runs half the wall's thickness
+// past a corner or a free end, so neighbouring edges and walls that meet close the corner between them, the way the 2D
+// band does; at an opening it stops square.
 export function wallsOf(plan: Plan): Wall[] {
-  const openings = openingsOf(plan)
-  const gapsOf = (kind: WallLine['kind'], id: string, edge: number) =>
-    openings.filter((o) => o.wall.kind === kind && o.wall.id === id && o.wall.edge === edge)
-  const outer = plan.sections.flatMap((section) => {
-    const points = seatPlan.sectionWallOf(section)
-    return points.flatMap((a, i) => {
-      const b = points[(i + 1) % points.length]!
-      const length = Math.hypot(b.x - a.x, b.y - a.y)
-      const along = { x: (b.x - a.x) / length, y: (b.y - a.y) / length }
-      // Doors are measured from the section's own corner, half a wall in from this side's.
-      const corner = section.points[i]!
-      const shift = (corner.x - a.x) * along.x + (corner.y - a.y) * along.y
-      const gaps = gapsOf('room', section.id, i).map((o): [number, number] => [o.from + shift, o.to + shift])
-      // Each side runs half a wall past its corners, so neighbouring sides close them.
-      return stretchesOf(-WALL_THICKNESS / 2, length + WALL_THICKNESS / 2, gaps).map(([from, to]): Wall => ({
-        x: a.x + (along.x * (from + to)) / 2,
-        z: a.y + (along.y * (from + to)) / 2,
+  return plan.walls.flatMap((wall) => {
+    const half = wall.thickness / 2
+    const openings = seatPlan.openingsOf(wall)
+    return seatPlan.wallEdgesOf(wall).flatMap((edge) => {
+      if (edge.length === 0) return []
+      const gaps = openings.flatMap(({ opening }): [number, number][] =>
+        opening.edge === edge.index ? [[opening.at, opening.at + opening.width]] : [],
+      )
+      return stretchesOf(-half, edge.length + half, gaps).map(([from, to]): Wall => ({
+        x: edge.a.x + (edge.along.x * (from + to)) / 2,
+        z: edge.a.y + (edge.along.y * (from + to)) / 2,
         w: to - from,
-        d: WALL_THICKNESS,
-        yaw: -Math.atan2(along.y, along.x),
+        d: wall.thickness,
+        yaw: -Math.atan2(edge.along.y, edge.along.x),
+        id: wall.id,
       }))
     })
   })
-  const inner = plan.objects.flatMap((object): Wall[] => {
-    if (object.kind !== 'fixture' || object.role !== 'wall') return []
-    const band = seatPlan.innerWallOf(object)
-    const [line] = wallLinesOf({ ...plan, sections: [], objects: [object] })
-    if (!line) return []
-    const gaps = gapsOf('wall', object.id, 0).map((o): [number, number] => [o.from, o.to])
-    return stretchesOf(0, line.length, gaps).map(([from, to]): Wall => ({
-      x: line.a.x + (line.along.x * (from + to)) / 2,
-      z: line.a.y + (line.along.y * (from + to)) / 2,
-      w: to - from,
-      d: Math.min(band.w, band.h),
-      yaw: -Math.atan2(line.along.y, line.along.x),
-      id: object.id,
-    }))
-  })
-  return [...outer, ...inner]
 }
 
 // What is left of a stretch from `start` to `end` once the gaps are taken out.
@@ -229,40 +198,15 @@ function stretchesOf(start: number, end: number, gaps: readonly [number, number]
   return pieces.filter(([a, b]) => b - a > 0.5)
 }
 
-// What the 2D view writes, placed in the room: section names on the top-left corner of their walls (the site names
-// its sections, so the 2D view writes them even for one), fixture names on the fixture (the names `fixtureName`
-// gives, turned like the 2D view's, and larger — the room is seen from further off), group labels as signs at their
-// label boxes. Each carries where the 2D view writes it (`plan`).
+// What the 2D view writes, placed in the room: fixture names on the fixture (the names `fixtureName` gives, turned like
+// the 2D view's, and larger — the room is seen from further off), group labels as signs at their label boxes. Each
+// carries where the 2D view writes it (`plan`). The playground's section is the whole plan, and it writes no name for
+// it.
 export function writingOf(
   plan: Plan,
   pieces: readonly Piece[],
-  sectionName: (id: string) => string,
   fixtureName: (fixture: Fixture) => string | null,
 ): Writing[] {
-  const sections = plan.sections.map((section): Writing => {
-    const bounds = seatPlan.sectionBoundsOf(section)
-    const x = bounds.x - WALL_THICKNESS
-    return {
-      text: sectionName(section.id),
-      lie: 'sign',
-      tone: 'ink',
-      x,
-      y: WALL_CUT + 6,
-      z: bounds.y - WALL_THICKNESS,
-      size: SECTION_LABEL_FONT * 1.4,
-      yaw: 0,
-      anchor: 'start',
-      overhead: true,
-      // In the name band above the outline, its line starting 10 units below the band's top.
-      plan: {
-        x,
-        y: WALL_CUT + 6,
-        z: bounds.y - SECTION_LABEL_BAND + 10 + SECTION_LABEL_FONT / 2,
-        size: SECTION_LABEL_FONT,
-        yaw: 0,
-      },
-    }
-  })
   const byId = new Map(pieces.map((piece) => [piece.id, piece]))
   const fixtures = plan.objects.flatMap((object): Writing[] => {
     if (object.kind !== 'fixture') return []
@@ -332,12 +276,13 @@ export function writingOf(
       },
     ]
   })
-  return [...sections, ...fixtures, ...groups]
+  return [...fixtures, ...groups]
 }
 
 // The view from a place. A guest at a desk or a table booked whole sits on its chair; seats, sofas and those chairs
-// are sat on, everything else is stood at. Guests look at the stage or screen of their section (the nearest), or
-// else ahead of them when seated, or into the middle of their section. Null when the plan has no such place.
+// are sat on, everything else is stood at. Guests look at the stage or screen of their room (the nearest), or else
+// ahead of them when seated, or into the middle of their room — the plan's, outside every room. Null when the plan
+// has no such place.
 export function sightFrom(plan: Plan, pieces: readonly Piece[], id: string): Sight | null {
   const own = pieces.find((piece) => piece.id === id)
   if (!own?.place) return null
@@ -348,16 +293,17 @@ export function sightFrom(plan: Plan, pieces: readonly Piece[], id: string): Sig
   const spot = chair ?? own
   const seated = SEATING.has(spot.model)
   const eye = { x: spot.x, y: seated ? SEATED_EYE : STANDING_EYE, z: spot.z }
-  const section = own.place.section
+  const rooms = seatPlan.roomsOf(plan)
+  const room = seatPlan.roomAt(rooms, { x: own.x, y: own.z })
   const focus = pieces
-    .filter((piece) => FOCI.has(piece.model) && seatPlan.sectionAt(plan, { x: piece.x, y: piece.z }) === section)
+    .filter((piece) => FOCI.has(piece.model) && seatPlan.roomAt(rooms, { x: piece.x, y: piece.z }) === room)
     .sort((a, b) => distance(eye, a) - distance(eye, b))[0]
   if (focus) {
     const y = focus.model === 'screen' ? (SCREEN_BOTTOM + HEIGHT.screen) / 2 : HEIGHT.stage + 0.8 * METRE
     return { eye, look: { x: focus.x, y, z: focus.z } }
   }
-  const middle = middleOf(plan, section)
-  if (!seated && middle && distance(eye, { x: middle.x, z: middle.y }) > METRE) {
+  const middle = middleOf(plan, room)
+  if (!seated && distance(eye, { x: middle.x, z: middle.y }) > METRE) {
     return { eye, look: { x: middle.x, y: METRE, z: middle.y } }
   }
   // Ahead, and a little down.
@@ -388,10 +334,11 @@ function modelOf(thing: Thing): Model {
 }
 
 // What a piece turns to face, if anything: seating the nearest table, desk or coffee table of its group, a stage or
-// screen the middle of its section. Anything else — a row's seats too — faces the way its box is turned: this site
-// draws rows facing the left of the direction they were drawn in.
+// screen the middle of its room (of the plan, outside every room). Anything else — a row's seats too — faces the way
+// its box is turned: this site draws rows facing the left of the direction they were drawn in.
 function targetOf(
   plan: Plan,
+  rooms: readonly Room[],
   thing: Thing,
   model: Model,
   members: ReadonlyMap<string, Thing[]>,
@@ -405,10 +352,7 @@ function targetOf(
       .sort((a, b) => Math.hypot(a.x - center.x, a.y - center.y) - Math.hypot(b.x - center.x, b.y - center.y))
     return surfaces[0] ?? null
   }
-  if (FOCI.has(model)) {
-    const section = seatPlan.sectionAt(plan, center)
-    return section === null ? null : middleOf(plan, section)
-  }
+  if (FOCI.has(model)) return middleOf(plan, seatPlan.roomAt(rooms, center))
   return null
 }
 
@@ -417,9 +361,9 @@ function fitted(text: string, long: number, most: number): number {
   return Math.min(most, (long * 0.8) / (0.62 * text.length))
 }
 
-function middleOf(plan: Plan, section: string): PlanPoint | null {
-  const found = seatPlan.sectionOf(plan, section)
-  return found ? seatPlan.centerOf(seatPlan.sectionBoundsOf(found)) : null
+// The middle of a room, or of the plan for none.
+function middleOf(plan: Plan, room: Room | null): PlanPoint {
+  return room ? seatPlan.centerOf(seatPlan.sectionBoundsOf(room)) : { x: plan.width / 2, y: plan.height / 2 }
 }
 
 // The yaw that faces `to` from `from`; null when they are the same point.

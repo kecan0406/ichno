@@ -1,11 +1,5 @@
 /* What the playground marks on the 2D plan besides ichno's own overlay — never in the way of the pointer. */
 
-/* The gaps doors leave in a section's outline: the page colour over the dashed wall. */
-.openings {
-  fill: var(--theme-bg);
-  pointer-events: none;
-}
-
 /* Lengths, written the way a drawing writes its dimensions — small, in the numbers' font, kept clear of the lines
    they cross by a halo in the page colour. */
 .dimensions {

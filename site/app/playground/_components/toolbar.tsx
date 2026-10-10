@@ -77,11 +77,11 @@ export function Toolbar({
   )
 }
 
-const PRIMITIVE_ICONS: Partial<Record<string, IconName>> = { place: 'place', fixture: 'fixture', section: 'section' }
+const PRIMITIVE_ICONS: Partial<Record<string, IconName>> = { place: 'place', fixture: 'fixture', wall: 'wall' }
 const PRIMITIVE_WHAT: Partial<Record<string, string>> = {
   place: 'something to book',
   fixture: 'anything else',
-  section: 'an area places belong to',
+  wall: 'rooms close where walls meet',
 }
 
 function Tool({

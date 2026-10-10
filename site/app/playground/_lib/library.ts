@@ -48,7 +48,16 @@ export function previewOf(template: PlanTemplate): { plan: SeatPlan<string>; vie
   const pad = Math.max(extent.w, extent.h) * 0.08
   const view = { x: extent.x - pad, y: extent.y - pad, w: extent.w + pad * 2, h: extent.h + pad * 2 }
   return {
-    plan: { version: 3, width: 1, height: 1, sections: [], categories: [], groups: template.groups, objects },
+    plan: {
+      version: 3,
+      width: 1,
+      height: 1,
+      sections: [],
+      walls: [],
+      categories: [],
+      groups: template.groups,
+      objects,
+    },
     view,
   }
 }

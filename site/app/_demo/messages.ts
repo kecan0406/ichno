@@ -40,11 +40,12 @@ function counted(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`
 }
 
-// A place, object or group as people would name it — "Row A, seat 3", "Table T2, seat 1", a desk's label. Rows and
-// tables are this site's roles; ichno only knows groups.
+// A place, object, wall or group as people would name it — "Row A, seat 3", "Table T2, seat 1", a desk's label.
+// Rows and tables are this site's roles; ichno only knows groups.
 export function describe(plan: SeatPlan<string>, id: string): string {
   const group = seatPlan.groupById(plan, id)
   if (group) return groupName(group)
+  if (seatPlan.wallOf(plan, id)) return `Wall ${id}`
   const object = seatPlan.objectById(plan, id)
   if (!object) return id
   const owner = object.group === undefined ? undefined : seatPlan.groupById(plan, object.group)
@@ -93,7 +94,15 @@ export function planIssueText(plan: SeatPlan<string>, issue: SeatPlanIssue): str
       return `${describe(plan, issue.id)} reaches outside the plan.`
     case 'overlap':
       return `${describe(plan, issue.ids[0])} overlaps ${describe(plan, issue.ids[1])}.`
+    case 'opening_off_wall':
+      return `${openingName(plan, issue.id, issue.opening)} in ${describe(plan, issue.id)} does not fit its wall.`
   }
+}
+
+// An opening as this site names it — by the role it gave it.
+function openingName(plan: SeatPlan<string>, wallId: string, index: number): string {
+  const role = seatPlan.wallOf(plan, wallId)?.openings?.[index]?.role
+  return role === 'door' ? 'A door' : 'An opening'
 }
 
 export function lintIssueText(plan: SeatPlan<string>, issue: LintIssue): string {

@@ -11,11 +11,10 @@ import styles from './panels.module.css'
 // The right-hand panels besides Design — what the schema and the lint rules say (Checks), the stored document
 // (JSON), the customer preview's settings — and the import dialog.
 
+// The section rules are left out: the playground's section is the whole plan, which it never shows.
 const LINT_RULES: { code: LintCode; name: string }[] = [
   { code: 'duplicate_label', name: 'Duplicate labels' },
-  { code: 'outside_section', name: 'Places outside their section' },
   { code: 'missing_category', name: 'Places without a category' },
-  { code: 'empty_section', name: 'Empty sections' },
 ]
 
 export function ChecksPanel({

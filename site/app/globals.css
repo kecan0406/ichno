@@ -84,10 +84,27 @@
   box-sizing: border-box;
 }
 
-/* Chairs and table tops are fixtures with this site's roles — drawn like furniture, not like floor fixtures. A door
-   is filled too: across a wall fixture it covers the band the wall paints, leaving the gap. */
-[data-kind='fixture']:is([data-role='chair'], [data-role='table'], [data-role='door']) [data-part='shape'] {
+/* Chairs and table tops are fixtures with this site's roles — drawn like furniture, not like floor fixtures. */
+[data-kind='fixture']:is([data-role='chair'], [data-role='table']) [data-part='shape'] {
   fill: var(--ichno-surface);
+}
+
+/* A wall is drawn the way a floor plan draws one: its two faces in hairlines. Selected, it is filled — the selection
+   is the one filled shape. A door leaves a gap, its sides marked across it. */
+[data-ichno-root] [data-kind='wall'] [data-part='shape'] {
+  fill: var(--ichno-surface);
+  stroke: var(--ichno-ink);
+  vector-effect: non-scaling-stroke;
+}
+
+[data-ichno-root] [data-kind='wall'][data-selected] [data-part='shape'] {
+  fill: var(--ichno-ink);
+}
+
+[data-ichno-root] [data-kind='wall'] [data-part='opening'] {
+  stroke: var(--ichno-label);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
 }
 
 /* Seat maps are drawn in hairlines: solid for things, dashed for guides and for what cannot be had, one filled

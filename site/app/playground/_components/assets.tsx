@@ -45,6 +45,7 @@ export function AssetsPanel({
     objects.filter((object) => object.shelf === name && matches(object.name))
   const places = shelf('places')
   const fixtures = shelf('fixtures')
+  const structure = shelf('structure')
   const yours = saved.filter((object) => matches(object.name))
 
   return (
@@ -65,8 +66,8 @@ export function AssetsPanel({
           Playground objects
         </h2>
         <p className={styles.note}>
-          One ichno place or fixture each, with a role this playground gave it — an app makes its own the same way.
-          Group them into rows and tables yourself (⌘G).
+          One ichno place, fixture or wall each, with a role this playground gave it — an app makes its own the same
+          way. Group them into rows and tables yourself (⌘G).
         </p>
         {places.length > 0 && (
           <>
@@ -104,7 +105,27 @@ export function AssetsPanel({
             </ul>
           </>
         )}
-        {places.length + fixtures.length === 0 && <p className={styles.note}>No playground object matches.</p>}
+        {structure.length > 0 && (
+          <>
+            <h3 className={styles.subheading}>Structure</h3>
+            <ul className={styles.cards} data-compact="">
+              {structure.map((object) => (
+                <li key={object.id}>
+                  <AssetCard
+                    name={object.name}
+                    template={object.sample}
+                    compact
+                    active={activeId === object.id}
+                    onPick={() => onPick(object)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {places.length + fixtures.length + structure.length === 0 && (
+          <p className={styles.note}>No playground object matches.</p>
+        )}
       </section>
       <section className={styles.shelf} aria-labelledby="your-objects">
         <h2 id="your-objects" className={styles.heading}>

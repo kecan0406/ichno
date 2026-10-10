@@ -532,7 +532,8 @@ function pixelsPerUnit(camera: Camera, height: number): number {
   return height / (2 * Math.max(distance, 1) * Math.tan(((camera as PerspectiveCamera).fov * Math.PI) / 360))
 }
 
-const FAR_AHEAD = 2000
+// 25 m.
+const FAR_AHEAD = 2500
 
 let motionQuery: MediaQueryList | null = null
 
@@ -543,21 +544,17 @@ export function reducedMotion(): boolean {
 
 // ---------- Floors and writing ----------
 
-// A section's floor in the surface colour, unlit so it matches the 2D floor. `picks` registers it for hit-testing
-// as the section.
+// A room's floor in the surface colour, unlit so it matches the 2D floor. Rooms are found from the walls, so a floor
+// is nothing to pick.
 export function Floor({
-  id,
   points,
   color,
   flat,
-  picks,
 }: {
-  id: string
   points: readonly PlanPoint[]
   color: Color
   // The 2D view's paint, which the floor turns to as the camera looks straight down.
   flat?: Color
-  picks?: Picks
 }) {
   const ref = useRef<Mesh>(null)
   useFrame((state) => {
@@ -571,14 +568,6 @@ export function Floor({
     setGeometry(made)
     return () => made.dispose()
   }, [points])
-  useEffect(() => {
-    const mesh = ref.current
-    if (!mesh || !picks) return
-    picks.set(mesh, () => ({ kind: 'section', id }))
-    return () => {
-      picks.delete(mesh)
-    }
-  }, [picks, id, geometry])
   if (!geometry) return null
   return (
     <mesh ref={ref} geometry={geometry}>

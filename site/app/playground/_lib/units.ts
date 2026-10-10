@@ -1,7 +1,10 @@
 import type { PlanPoint } from 'ichno'
 
-// Plan units have no size. This site draws a seat 36 units wide — 45 cm — so a metre is 80.
-export const METRE = 80
+// Plan units have no size; this site reads one as a centimetre, the scale ichno's defaults assume (a 50-unit grid
+// is half a metre).
+export const METRE = 100
+// Walls keep to whole metres — a wall is built a metre at a time, and its corners stay on the metre grid.
+export const WALL_STEP = METRE
 
 // A length in plan units as this site writes it: metres to the centimetre, trailing zeros dropped — "4.6 m".
 export function metres(units: number): string {

@@ -33,8 +33,16 @@ import { fixtureNames } from '../../_demo/plans'
 import { DEFAULT_LINT, PRESETS, checksOf, copyDocument, downloadDocument, type Workbench } from '../_lib/documents'
 import { rowHandles } from '../_lib/build'
 import { loadLibrary, newObjectId, saveLibrary, type SavedObject } from '../_lib/library'
-import { PLAYGROUND_OBJECTS, PRIMITIVE_TOOLS, savedObjectTool, type ToolDef } from '../_lib/playground-objects'
-import { METRE } from '../_lib/units'
+import {
+  PIECE_FINE_TURN,
+  PIECE_TURN,
+  PLAYGROUND_OBJECTS,
+  PRIMITIVE_TOOLS,
+  savedObjectTool,
+  wallPiece,
+  type ToolDef,
+} from '../_lib/playground-objects'
+import { METRE, WALL_STEP } from '../_lib/units'
 import { AssetsPanel } from './assets'
 import type { BuildCamera, BuildControls, BuildView, Handoff } from './build-3d'
 import { CanvasMenu, type CanvasMenuAt } from './context-menu'
@@ -47,7 +55,6 @@ import { Icon } from './icons'
 import { LayersPanel } from './layers'
 import { MenuButton, MenuItem, MenuSeparator } from './menu'
 import marks from './marks.module.css'
-import { Openings } from './openings'
 import { ChecksPanel, ImportDialog, JsonPanel, PreviewPanel, type PickRules } from './panels'
 import { ShortcutsDialog } from './shortcuts'
 import { Toolbar } from './toolbar'
@@ -72,13 +79,15 @@ const Build3D = dynamic(() => import('./build-3d'), {
   loading: () => <p className={styles.loading}>Loading the 3D view…</p>,
 })
 
-const UNPASTABLE = 'What was copied holds places — paste it inside a section.'
+const UNPASTABLE = 'What was copied holds places — paste it on the plan.'
 const NO_IDS: ReadonlySet<string> = new Set()
 const NO_STRAYS: string[] = []
 // The steps a typed edge keeps to, toward the pointer — 15°, as Shift keeps a corner.
 const EDGE_STEP = Math.PI / 12
 // Seat numbers drawn smaller than this on screen are left out (`SeatMap.Content` defaults to 9).
 const LABEL_MIN_PX = 6
+// How far (screen pixels) the wheel scrolls to turn the next wall piece a step.
+const TURN_WHEEL_PX = 40
 
 // A set of ids with one put in or taken out.
 function toggled(ids: ReadonlySet<string>, id: string, on: boolean): ReadonlySet<string> {
@@ -158,8 +167,12 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const [menu, setMenu] = useState<CanvasMenuAt | null>(null)
   // The plan point under the pointer as last seen — where the menu's Paste lands.
   const pointRef = useRef<PlanPoint | null>(null)
-  // A length typed for the next edge of the section being drawn, in metres as typed.
+  // A length typed for the next edge of the room being drawn, in metres as typed.
   const [typed, setTyped] = useState('')
+  // Which way the next wall piece runs — degrees clockwise from the right, turned by the wheel and R.
+  const [pieceTurn, setPieceTurn] = useState(0)
+  // The wheel scrolled toward the next turn.
+  const wheeled = useRef(0)
 
   const plan = editor.plan
   const checks = checksOf(plan, lint)
@@ -168,10 +181,11 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const places = seatPlan.placesOf(plan)
   const guests = picked.reduce((sum, id) => sum + (places.find((place) => place.id === id)?.capacity ?? 0), 0)
   const pickIssues = validateSelection(plan, { selected: picked, unavailable: booked }, rules)
-  const sectionLabel = (section: { id: string }) => initial.sectionNames[section.id] ?? section.id
 
-  // The tool in use as this site knows it — its name and hint — and, for an asset, what it places.
-  const tools = [...PRIMITIVE_TOOLS, ...PLAYGROUND_OBJECTS, ...library.map(savedObjectTool)]
+  // The tool in use as this site knows it — its name and hint — and, for an asset, what it places. The Wall is turned
+  // the way the next piece runs.
+  const primitives = PRIMITIVE_TOOLS.map((def) => (def.id === 'wall' ? wallPiece(pieceTurn) : def))
+  const tools = [...primitives, ...PLAYGROUND_OBJECTS, ...library.map(savedObjectTool)]
   const activeTool = editor.tool === null ? null : (tools.find((def) => def.id === editor.tool?.id) ?? null)
   const placing =
     editor.tool === null
@@ -186,12 +200,21 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     setLibrary(loadLibrary())
   }, [])
 
-  // Picks a tool to draw with, or goes back to selecting with null.
+  // Picks a tool to draw with, or goes back to selecting with null. A tool that stays picked by itself (the Wall) does
+  // whatever Keep says.
   function choose(def: ToolDef | null) {
     setNotice(null)
     setTyped('')
     setHand(false)
-    editor.setTool(def === null ? null : { ...def.tool, keep })
+    const picked = def?.id === 'wall' ? wallPiece(pieceTurn) : def
+    editor.setTool(picked === null ? null : { ...picked.tool, keep: keep || picked.tool.keep === true })
+  }
+
+  // Turns the next wall piece by `degrees`.
+  function turnPiece(degrees: number) {
+    const next = (((pieceTurn + degrees) % 360) + 360) % 360
+    setPieceTurn(next)
+    if (editor.tool?.id === 'wall') editor.setTool(wallPiece(next).tool)
   }
 
   function chooseHand() {
@@ -203,7 +226,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   function toggleKeep() {
     const next = !keep
     setKeep(next)
-    if (editor.tool) editor.setTool({ ...editor.tool, keep: next })
+    if (editor.tool) editor.setTool({ ...editor.tool, keep: next || activeTool?.tool.keep === true })
   }
 
   function toggleAssets() {
@@ -244,12 +267,12 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     setNotice(editor.paste(at).length === 0 ? UNPASTABLE : null)
   }
 
-  // The length typed for the next edge, while a section is being drawn.
-  const typedLength = editor.tool?.draw === 'polygon' && editor.corners !== null ? typed : ''
+  // The length typed for the next edge, while a wall is being drawn.
+  const typedLength = editor.tool?.draw === 'path' && editor.corners !== null ? typed : ''
 
-  // Keys caught before ichno's (which close a polygon on Enter and take a corner back on ⌫): while a section is drawn,
-  // digits type a length — Enter puts the next corner that far toward the pointer, in 15° steps, and ⌫ and Esc take
-  // the typing back first; ⌘V pastes the way ichno does, saying why when it cannot.
+  // Keys caught before ichno's (which end a wall on Enter and take a corner back on ⌫): while a wall is drawn, digits
+  // type a length — Enter puts the next corner that far toward the pointer, in 15° steps, and ⌫ and Esc take the
+  // typing back first; ⌘V pastes the way ichno does, saying why when it cannot.
   const onEarlyKey = useEffectEvent((e: KeyboardEvent) => {
     if (e.defaultPrevented || mode !== 'edit' || e.altKey) return
     if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], dialog')) return
@@ -259,7 +282,13 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       pasteAt(undefined)
       return
     }
-    const last = editor.tool?.draw === 'polygon' ? editor.corners?.at(-1) : undefined
+    // R turns the next wall piece, ahead of ichno's R (which turns the selection).
+    if (editor.tool?.id === 'wall' && e.code === 'KeyR') {
+      e.preventDefault()
+      turnPiece(e.shiftKey ? -PIECE_TURN : PIECE_TURN)
+      return
+    }
+    const last = editor.tool?.draw === 'path' ? editor.corners?.at(-1) : undefined
     if (last === undefined) return
     const decimal = (e.key === '.' || e.key === ',') && !typedLength.includes('.')
     if (/^[0-9]$/.test(e.key) || decimal) {
@@ -284,6 +313,28 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     const listener = (e: KeyboardEvent) => onEarlyKey(e)
     window.addEventListener('keydown', listener, { capture: true })
     return () => window.removeEventListener('keydown', listener, { capture: true })
+  }, [])
+
+  // While the Wall is picked the wheel turns the next piece, the way a housing game turns what it holds — 15° a step,
+  // ⇧ 5° — instead of panning. Pinching and ⌘ or Ctrl with the wheel still zoom.
+  const onWheel = useEffectEvent((e: WheelEvent) => {
+    if (editor.tool?.id !== 'wall' || e.ctrlKey || e.metaKey) return
+    e.preventDefault()
+    e.stopPropagation()
+    const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+    const pixels = e.deltaMode === 1 ? delta * 33 : e.deltaMode === 2 ? delta * 800 : delta
+    if (Math.sign(pixels) !== Math.sign(wheeled.current)) wheeled.current = 0
+    wheeled.current += pixels
+    if (Math.abs(wheeled.current) < TURN_WHEEL_PX) return
+    turnPiece(Math.sign(wheeled.current) * (e.shiftKey ? PIECE_FINE_TURN : PIECE_TURN))
+    wheeled.current = 0
+  })
+  useEffect(() => {
+    const element = canvasRef.current
+    if (!element) return
+    const listener = (e: WheelEvent) => onWheel(e)
+    element.addEventListener('wheel', listener, { capture: true, passive: false })
+    return () => element.removeEventListener('wheel', listener, { capture: true })
   }, [])
 
   // Opens the Assets tab's form for saving what is selected.
@@ -375,11 +426,12 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     onReplace(preset.workbench)
   }
 
-  // What a marquee in 3D touched, picked the way the 2D marquee picks: grouped objects as their group, nothing frozen
-  // or hidden, Shift adding to the selection.
+  // What a marquee in 3D touched, picked the way the 2D marquee picks: grouped objects as their group, walls, nothing
+  // frozen or hidden, Shift adding to the selection.
   function pickSwept(ids: readonly string[], info: { additive: boolean }) {
     const off = (id: string | undefined) => id !== undefined && (frozen.has(id) || hidden.has(id))
     const units = ids.flatMap((id): EditorSelection<string>[] => {
+      if (seatPlan.wallOf(plan, id)) return off(id) ? [] : [{ kind: 'wall', id }]
       const object = seatPlan.objectById(plan, id)
       if (!object || off(object.id) || off(object.group)) return []
       return [object.group === undefined ? { kind: 'object', id } : { kind: 'group', id: object.group }]
@@ -426,12 +478,15 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   }
 
   // A right-click selects what it is on (the way a click does) unless that is selected already, then opens the menu.
-  function openMenuOn(screen: ScreenPoint, id: string | null, section: string | null) {
+  function openMenuOn(screen: ScreenPoint, target: PlanTarget<string> | null) {
     if (mode !== 'edit') return
     if (editor.tool !== null) editor.setTool(null)
-    if (id !== null) {
+    if (target?.kind === 'wall') {
+      if (!editor.selectedWallIds.includes(target.id)) editor.select(target)
+    } else if (target?.kind === 'place' || target?.kind === 'object') {
+      const id = target.id
       if (!editor.selectedObjects.some((object) => object.id === id)) editor.select({ kind: 'object', id })
-    } else if (!editor.selection.some((item) => item.kind === 'section' && item.id === section)) {
+    } else {
       editor.select(null)
     }
     setMenu({ screen, plan: pointRef.current })
@@ -445,8 +500,11 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       element?.closest('[data-ichno-id]')?.getAttribute('data-ichno-id') ??
       element?.closest('[data-ichno-object]')?.getAttribute('data-ichno-object') ??
       null
-    const section = element?.closest('[data-ichno-section]')?.getAttribute('data-ichno-section') ?? null
-    openMenuOn({ x: e.clientX, y: e.clientY }, id, section)
+    const wall = element?.closest('[data-ichno-wall]')?.getAttribute('data-ichno-wall') ?? null
+    openMenuOn(
+      { x: e.clientX, y: e.clientY },
+      id !== null ? { kind: 'object', id } : wall !== null ? { kind: 'wall', id: wall } : null,
+    )
   }
 
   // The pointer over the plan, 2D or 3D — where Paste lands, and what the tool previews (the Hand previews nothing).
@@ -468,9 +526,9 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   }
 
   // Where the tool would draw — the end of the stroke under way, or where the pointer is — and whether it can make
-  // nothing there, and why. A section has no draft to miss: the polygon being drawn shows it.
+  // nothing there, and why. A wall has no draft to miss before its second corner: the corners drawn show it.
   const drawAt = editor.stroke?.end ?? editor.pointer
-  const refused = activeTool !== null && activeTool.tool.draw !== 'polygon' && drawAt !== null && editor.draft === null
+  const refused = activeTool !== null && activeTool.tool.draw !== 'path' && drawAt !== null && editor.draft === null
   const reason = refused && activeTool && drawAt ? (activeTool.why?.(plan, drawAt) ?? null) : null
   // What it would have dropped, under the pointer, in the colour of what cannot be had — a stroke under way is marked
   // itself.
@@ -479,7 +537,8 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       ? sampleAt(activeTool.sample, editor.pointer, plan)
       : null
   // Places standing outside their section — as drawn, and where a drag is taking them — marked like overlaps, unless
-  // Checks has the warning off. A drag drawn in one layer (a section, or most of the plan) is all in `stillPlan`.
+  // Checks has the warning off. The playground's section is the whole plan, so only an imported document has any. A
+  // drag drawn in one layer (walls, or most of the plan) is all in `stillPlan`.
   const strayOff = lint.outside_section === 'off'
   const strays = strayOff ? NO_STRAYS : straysOf(editor.stillPlan.objects, editor.stillPlan)
   const movingStrays =
@@ -487,15 +546,19 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const stillInvalid = strays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...strays]
   const movingInvalid = movingStrays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...movingStrays]
   const strayCount = strays.length + movingStrays.length
-  // The plan with the door a tool would put in a wall, for the gaps doors leave.
-  const opened =
-    editor.draft === null
-      ? editor.displayPlan
-      : { ...editor.displayPlan, objects: [...editor.displayPlan.objects, ...editor.draft.objects] }
-  // The one selected section's outline as drawn — its edges are measured.
+  // The wall whose edges are measured — the one a wall tool would make or carry on, or else the one selected wall.
   const [only] = editor.selection.length === 1 ? editor.selection : []
-  const measuredSection =
-    only?.kind === 'section' ? (seatPlan.sectionOf(editor.displayPlan, only.id)?.points ?? null) : null
+  const measuredWall =
+    editor.tool !== null
+      ? (editor.draft?.walls[0] ?? null)
+      : only?.kind === 'wall'
+        ? (seatPlan.wallOf(editor.displayPlan, only.id) ?? null)
+        : null
+  // What is selected, for the parts to mark — places and walls.
+  const selectedMarks =
+    editor.selectedWallIds.length === 0
+      ? editor.selectedPlaceIds
+      : [...editor.selectedPlaceIds, ...editor.selectedWallIds]
   const threeD = mode === 'preview' && dimension === '3d'
   const hint =
     mode !== 'edit'
@@ -552,7 +615,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
             <LayersPanel
               plan={plan}
               selection={editor.selection}
-              sectionNames={initial.sectionNames}
               isLocked={editor.isLocked}
               onSelect={(items) => {
                 setNotice(null)
@@ -600,7 +662,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
             plan={editor.displayPlan}
             draft={editor.draft}
             refused={refusedSample}
-            selected={editor.selectedObjects.map((object) => object.id)}
+            selected={[...editor.selectedObjects.map((object) => object.id), ...editor.selectedWallIds]}
             conflicts={movingStrays.length === 0 ? stillInvalid : [...stillInvalid, ...movingStrays]}
             status={bookedStatus}
             overlay={{ ...editor.overlayProps, hoverFrame: layerFrame ?? editor.overlayProps.hoverFrame }}
@@ -614,13 +676,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
               onMarquee: pickSwept,
               onDraw: viewportProps.onDraw,
             }}
-            onMenu={(at, target) =>
-              openMenuOn(
-                at,
-                target?.kind === 'place' || target?.kind === 'object' ? target.id : null,
-                target?.kind === 'section' ? target.id : null,
-              )
-            }
+            onMenu={openMenuOn}
             controlsRef={build}
             cameraRef={buildCamera}
             onCamera={(camera) => {
@@ -628,7 +684,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
             }}
             handoffRef={handoff}
             onViewChange={setBuildView}
-            sectionName={(id) => initial.sectionNames[id] ?? id}
             fixtureName={fixtureLabel}
             onShown={() => {
               // The hand-over is taken — a later opening (after the preview) starts where the camera was.
@@ -656,11 +711,10 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                     than 6 screen pixels are left out — unreadable anyway, and SVG text is what large plans pay for. */}
                 <SeatMap.Content
                   plan={editor.stillPlan}
-                  selected={editor.selectedPlaceIds}
+                  selected={selectedMarks}
                   invalid={stillInvalid}
                   status={bookedStatus}
                   isDisabled={never}
-                  sectionLabel={sectionLabel}
                   fixtureLabel={fixtureLabel}
                   fixtureVariant={fixtureVariant}
                   region={frame.region}
@@ -670,7 +724,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                 {editor.movingPlan && (
                   <SeatMap.Content
                     plan={editor.movingPlan}
-                    selected={editor.selectedPlaceIds}
+                    selected={selectedMarks}
                     invalid={movingInvalid}
                     status={bookedStatus}
                     isDisabled={never}
@@ -680,7 +734,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                     minLabelPx={LABEL_MIN_PX}
                   />
                 )}
-                <Openings plan={opened} scale={frame.scale} />
                 {editor.draft && (
                   <g className={styles.draft}>
                     <SeatMap.Content
@@ -702,8 +755,8 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                   corners={editor.corners}
                   pointer={editor.pointer}
                   typed={typedLength}
-                  frame={editor.overlayProps.frame}
-                  section={measuredSection}
+                  frame={measuredWall === null ? editor.overlayProps.frame : null}
+                  wall={measuredWall}
                   scale={frame.scale}
                 />
                 <SeatMap.EditorOverlay
@@ -719,7 +772,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
             status={bookedStatus}
             picked={picked}
             isDisabled={(place) => picking === 'pick' && booked.includes(place.id)}
-            sectionName={(id) => initial.sectionNames[id] ?? id}
             fixtureName={fixtureLabel}
             onPlaceTap={previewTap}
           />
@@ -737,7 +789,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
               status={bookedStatus}
               selected={picked}
               isDisabled={picking === 'book' ? never : undefined}
-              sectionLabel={sectionLabel}
               fixtureLabel={fixtureLabel}
               fixtureVariant={fixtureVariant}
             />
@@ -944,7 +995,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                 <DesignPanel
                   editor={editor}
                   name={initial.name}
-                  sectionNames={initial.sectionNames}
                   booked={booked}
                   snapping={snapping}
                   onSnappingChange={setSnapping}
@@ -995,13 +1045,13 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         onRemove={remove}
         onPaste={pasteAt}
         onSaveAsset={startSaving}
-        onFreeze={() => setFrozen((current) => new Set([...current, ...editor.selectedIds]))}
-        onHide={() => setHidden((current) => new Set([...current, ...editor.selectedIds]))}
+        onFreeze={() => setFrozen((current) => new Set([...current, ...editor.selectedIds, ...editor.selectedWallIds]))}
+        onHide={() => setHidden((current) => new Set([...current, ...editor.selectedIds, ...editor.selectedWallIds]))}
         onZoomToSelection={() => view.zoomTo(editor.selectionBounds)}
         onFit={view.fit}
         onHidePanels={() => panels.setHidden(true)}
       />
-      <ImportDialog onLoad={(next) => onReplace({ name: 'Imported plan', plan: next, sectionNames: {}, booked: [] })} />
+      <ImportDialog onLoad={(next) => onReplace({ name: 'Imported plan', plan: next, booked: [] })} />
       <ShortcutsDialog />
     </div>
   )
@@ -1054,5 +1104,5 @@ function fixtureVariant(fixture: Fixture): 'box' | 'wall' {
   return fixture.role === 'wall' ? 'wall' : 'box'
 }
 
-// The editor snaps to the site's 46-unit cells when Snap is on.
-const SNAP = { cell: GRID_CELL }
+// The editor snaps to the site's 50-unit cells (half a metre) when Snap is on — walls to whole metres.
+const SNAP = { cell: GRID_CELL, wall: WALL_STEP }

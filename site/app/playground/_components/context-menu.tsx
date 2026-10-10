@@ -106,12 +106,31 @@ export function CanvasMenu({
             Zoom to selection
           </MenuItem>
         </>
+      ) : editor.selectedWallIds.length > 0 ? (
+        <>
+          <MenuItem keys="⌘D" onSelect={() => editor.duplicateSelected()}>
+            Duplicate
+          </MenuItem>
+          <MenuItem keys="⌫" onSelect={onRemove}>
+            Delete
+          </MenuItem>
+          <MenuSeparator />
+          <MenuItem onSelect={onFreeze}>Lock</MenuItem>
+          <MenuItem onSelect={onHide}>Hide</MenuItem>
+          <MenuItem keys="⇧2" onSelect={onZoomToSelection}>
+            Zoom to selection
+          </MenuItem>
+        </>
       ) : (
         <>
           <MenuItem keys="⌘V" disabled={editor.clipboard === null} onSelect={paste}>
             Paste here
           </MenuItem>
-          <MenuItem keys="⌘A" disabled={plan.objects.length === 0} onSelect={editor.selectAll}>
+          <MenuItem
+            keys="⌘A"
+            disabled={plan.objects.length === 0 && plan.walls.length === 0}
+            onSelect={editor.selectAll}
+          >
             Select all
           </MenuItem>
           <MenuSeparator />

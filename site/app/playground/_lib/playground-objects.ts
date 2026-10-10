@@ -1,8 +1,7 @@
 import type { PlanPoint, PlanSize, PlanTemplate, SeatPlan, Shape } from 'ichno'
 import { planEdits, type EditorTool } from 'ichno/editor'
-import { doorTool, fixtureTool, placeTool, sectionTool } from './build'
+import { fixtureTool, openingRefusal, openingTool, placeTool, roomTool, wallPieceRefusal, wallPieceTool } from './build'
 import type { SavedObject } from './library'
-import { doorAt } from './walls'
 
 // The playground's own objects — one ichno place or fixture each, with a role this site gave it (./build.ts), the
 // way an app makes its own. ichno ships none of them. A drag sizes one and a tap drops the standard one; grouping
@@ -10,7 +9,7 @@ import { doorAt } from './walls'
 
 // Something the playground can place — its name, the key that picks it (`key` as shown, `code` the physical key),
 // what the hint says while it is picked, the ichno tool that places it, one dropped at its standard size (none for a
-// section) and, for a tool that can refuse, why it makes nothing where the pointer is — said while the sample is drawn
+// wall) and, for a tool that can refuse, why it makes nothing where the pointer is — said while the sample is drawn
 // there in the colour of what cannot be had.
 export type ToolDef = {
   id: string
@@ -24,16 +23,27 @@ export type ToolDef = {
 }
 
 export type PlaygroundObject = ToolDef & {
-  shelf: 'places' | 'fixtures'
+  shelf: 'places' | 'fixtures' | 'structure'
   // Its thumbnail, and what it is made of.
   sample: PlanTemplate
 }
 
 const BOX_KEYS = 'Shift: square · Alt: from the centre.'
-const LINE_KEYS = 'Shift: 15° steps · Alt: from the centre.'
-const NOWHERE = 'Every place belongs to a section — move inside one to place it.'
-const NO_WALL = 'A door goes in a wall — move onto a wall or the edge of a section.'
-const SHORT_WALL = 'This wall is too short for a door.'
+const NOWHERE = 'Places go on the plan — move onto it to place one.'
+const OPENING_REASONS = {
+  far: 'A door goes in a wall — move onto one.',
+  short: 'This wall is too short for a door.',
+  taken: 'There is a door here already.',
+} as const
+const PIECE_REASONS = {
+  outside: 'Walls go on the plan — move onto it.',
+  taken: 'There is a wall here already — turn the piece (wheel or R) or move on.',
+} as const
+// How thick walls are built — 15 cm.
+const WALL_THICKNESS = 15
+// How far the wheel or R turns the next wall piece — ⇧ for the fine step.
+export const PIECE_TURN = 15
+export const PIECE_FINE_TURN = 5
 
 // A scratch plan to drop each object on once, for its sample.
 const SCRATCH: SeatPlan<string> = {
@@ -41,6 +51,7 @@ const SCRATCH: SeatPlan<string> = {
   width: 1600,
   height: 1600,
   sections: [{ id: '_', points: square(1600) }],
+  walls: [],
   categories: [],
   groups: [],
   objects: [],
@@ -56,7 +67,8 @@ function sampleOf(create: EditorTool<string>['create']): PlanTemplate {
   )!.template
 }
 
-// An object drawn with a tool. `sample` drops one where the tool would need more around it (a door needs a wall).
+// An object drawn with a tool. `sample` drops one where the tool would need more around it — a door needs a wall, so
+// its thumbnail is a box the size of one.
 function drawn({
   id,
   shelf,
@@ -105,52 +117,67 @@ export function savedObjectTool(saved: SavedObject): ToolDef {
   }
 }
 
-// What stops most tools: the places they make need a section.
+// What stops the place tools: the places they make go on the plan.
 function nowhere(): string {
   return NOWHERE
 }
 
-// Places and fixtures are the app's words — these are this site's.
+// Places and fixtures are the app's words — these are this site's, at their real sizes (a unit is a centimetre).
 const PLACES: { role: string; name: string; size: PlanSize; capacity?: number }[] = [
-  { role: 'seat', name: 'Seat', size: { w: 36, h: 36 } },
-  { role: 'desk', name: 'Desk', size: { w: 88, h: 60 } },
-  { role: 'sofa', name: 'Sofa', size: { w: 138, h: 46 }, capacity: 3 },
-  { role: 'booth', name: 'Booth', size: { w: 184, h: 138 } },
-  { role: 'area', name: 'Standing area', size: { w: 276, h: 138 } },
+  { role: 'seat', name: 'Seat', size: { w: 45, h: 45 } },
+  { role: 'desk', name: 'Desk', size: { w: 120, h: 60 } },
+  { role: 'sofa', name: 'Sofa', size: { w: 180, h: 85 }, capacity: 3 },
+  { role: 'booth', name: 'Booth', size: { w: 180, h: 120 } },
+  { role: 'area', name: 'Standing area', size: { w: 300, h: 150 } },
 ]
 
-// A wall is drawn along a line, a door put in a wall (as deep as a wall fixture is thick, so it stands across the band
-// one paints); the rest are drawn as boxes.
+// A door is an opening put in a wall, as wide as the box it is drawn as; the rest are drawn as boxes.
 const FIXTURES: {
   role: string
   name: string
   size: PlanSize
   shape?: Shape
-  draw?: 'line' | 'wall'
 }[] = [
-  { role: 'table', name: 'Round table', size: { w: 92, h: 92 }, shape: 'ellipse' },
-  { role: 'table', name: 'Square table', size: { w: 70, h: 70 } },
-  { role: 'chair', name: 'Chair', size: { w: 36, h: 36 } },
-  { role: 'coffee', name: 'Coffee table', size: { w: 92, h: 46 } },
-  { role: 'stage', name: 'Stage', size: { w: 414, h: 115 } },
-  { role: 'screen', name: 'Screen', size: { w: 460, h: 46 } },
-  { role: 'bar', name: 'Bar', size: { w: 368, h: 69 } },
-  { role: 'wall', name: 'Wall', size: { w: 23, h: 230 }, draw: 'line' },
-  { role: 'door', name: 'Door', size: { w: 92, h: 23 }, draw: 'wall' },
-  { role: 'pillar', name: 'Pillar', size: { w: 46, h: 46 } },
+  { role: 'table', name: 'Round table', size: { w: 120, h: 120 }, shape: 'ellipse' },
+  { role: 'table', name: 'Square table', size: { w: 80, h: 80 } },
+  { role: 'chair', name: 'Chair', size: { w: 45, h: 45 } },
+  { role: 'coffee', name: 'Coffee table', size: { w: 100, h: 50 } },
+  { role: 'stage', name: 'Stage', size: { w: 600, h: 300 } },
+  { role: 'screen', name: 'Screen', size: { w: 500, h: 20 } },
+  { role: 'bar', name: 'Bar', size: { w: 400, h: 60 } },
+  { role: 'pillar', name: 'Pillar', size: { w: 50, h: 50 } },
 ]
 
+// The Wall tool turned `degrees` clockwise from the right — the toolbar's Wall, as the wheel and R turn it. It stays
+// picked, a piece at every click, until it is put down.
+export function wallPiece(degrees: number): ToolDef {
+  const turn = ((degrees % 360) + 360) % 360
+  return {
+    id: 'wall',
+    name: 'Wall',
+    key: 'W',
+    code: 'KeyW',
+    hint:
+      `Turned ${turn}° — click to put up a metre of wall; beside a wall’s end it carries that wall on, back at its ` +
+      `start it closes a room. The wheel or R turns it ${PIECE_TURN}° (⇧ ${PIECE_FINE_TURN}°).`,
+    tool: { id: 'wall', draw: 'point', create: wallPieceTool(WALL_THICKNESS, turn), keep: true, snap: false },
+    sample: null,
+    why: (plan, at) => PIECE_REASONS[wallPieceRefusal(plan, at, turn)],
+  }
+}
+
 // ichno's own primitives as the toolbar's tools — a place (something to book) and a fixture (anything else), each a
-// bare box. What they are for — a role, a capacity, a category — is set in Design once they are drawn.
+// bare box, and a wall, put up a metre at a time; rooms close where walls meet. What they are for — a role, a capacity,
+// a category, a wall's thickness — is set in Design once they are drawn.
 export const PRIMITIVE_TOOLS: ToolDef[] = [
   {
     id: 'place',
     name: 'Place',
     key: 'P',
     code: 'KeyP',
-    hint: `Drag to draw a place, tap for a seat — every place belongs to a section. ${BOX_KEYS}`,
-    tool: { id: 'place', draw: 'box', create: placeTool(undefined, { w: 36, h: 36 }) },
-    sample: sampleOf(placeTool(undefined, { w: 36, h: 36 })),
+    hint: `Drag to draw a place, tap for a seat. ${BOX_KEYS}`,
+    tool: { id: 'place', draw: 'box', create: placeTool(undefined, { w: 45, h: 45 }) },
+    sample: sampleOf(placeTool(undefined, { w: 45, h: 45 })),
     why: nowhere,
   },
   {
@@ -159,20 +186,10 @@ export const PRIMITIVE_TOOLS: ToolDef[] = [
     key: 'F',
     code: 'KeyF',
     hint: `Drag to draw a fixture — nothing to book. ${BOX_KEYS}`,
-    tool: { id: 'fixture', draw: 'box', create: fixtureTool(undefined, { w: 92, h: 92 }) },
-    sample: sampleOf(fixtureTool(undefined, { w: 92, h: 92 })),
+    tool: { id: 'fixture', draw: 'box', create: fixtureTool(undefined, { w: 100, h: 100 }) },
+    sample: sampleOf(fixtureTool(undefined, { w: 100, h: 100 })),
   },
-  {
-    id: 'section',
-    name: 'Section',
-    key: 'S',
-    code: 'KeyS',
-    hint:
-      'Drag a rectangle, or tap corner by corner and tap the first (or press Enter) to close. Type a length and ' +
-      'press Enter for the next edge. ⌫ takes a corner back. Shift: square, 15° edges.',
-    tool: { id: 'section', draw: 'polygon', create: sectionTool },
-    sample: null,
-  },
+  wallPiece(0),
 ]
 
 export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
@@ -188,30 +205,39 @@ export const PLAYGROUND_OBJECTS: PlaygroundObject[] = [
       why: nowhere,
     }),
   ),
-  ...FIXTURES.map(({ role, name, size, shape, draw }) =>
-    draw === 'wall'
-      ? drawn({
-          id: `fixture:${role}`,
-          shelf: 'fixtures',
-          name,
-          hint: `Tap a wall or the edge of a section to put a ${name.toLowerCase()} in it — the wall opens there.`,
-          draw: 'point',
-          create: doorTool(size),
-          why: (plan, at) => (doorAt(plan, at, size) === 'short' ? SHORT_WALL : NO_WALL),
-          sample: fixtureTool(role, size),
-        })
-      : drawn({
-          id: `fixture:${name.toLowerCase().replace(/ /g, '-')}`,
-          shelf: 'fixtures',
-          name,
-          hint:
-            draw === 'line'
-              ? `Drag to draw a ${name.toLowerCase()} along a line. Tap for a short one. ${LINE_KEYS}`
-              : `Drag to draw the ${name.toLowerCase()}. Tap for the standard one. ${BOX_KEYS}`,
-          draw: draw === 'line' ? 'line' : 'box',
-          create: fixtureTool(role, size, { shape, along: draw === 'line' }),
-        }),
+  ...FIXTURES.map(({ role, name, size, shape }) =>
+    drawn({
+      id: `fixture:${name.toLowerCase().replace(/ /g, '-')}`,
+      shelf: 'fixtures',
+      name,
+      hint: `Drag to draw the ${name.toLowerCase()}. Tap for the standard one. ${BOX_KEYS}`,
+      draw: 'box',
+      create: fixtureTool(role, size, { shape }),
+    }),
   ),
+  // The building: a room is one closed wall on the metre grid, a door an opening in a wall. Their thumbnails are boxes
+  // the size of one — a template holds no walls.
+  drawn({
+    id: 'structure:room',
+    shelf: 'structure',
+    name: 'Room',
+    hint:
+      'Drag a room on the metre grid, or tap its corners and tap the first (or press Enter) to close it. Type a ' +
+      'length and press Enter for the next edge. ⌫ takes a corner back. Shift: square, 15° edges.',
+    draw: 'path',
+    create: roomTool(WALL_THICKNESS),
+    sample: fixtureTool('room', { w: 300, h: 300 }),
+  }),
+  drawn({
+    id: 'structure:door',
+    shelf: 'structure',
+    name: 'Door',
+    hint: 'Tap a wall to put a door in it — the wall opens there.',
+    draw: 'point',
+    create: openingTool(90, 'door'),
+    why: (plan, at) => OPENING_REASONS[openingRefusal(plan, at, 90) ?? 'far'],
+    sample: fixtureTool('door', { w: 90, h: WALL_THICKNESS }),
+  }),
 ]
 
 function square(size: number) {

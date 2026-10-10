@@ -15,7 +15,7 @@ import { planEdits, type EditorSelection, type SeatPlanEditor } from 'ichno/edit
 import type { ReactNode } from 'react'
 import { describe, makeupOf } from '../../_demo/messages'
 import { relayRow, relayTable, rowOf, setWholeTable, tableOf } from '../_lib/build'
-import { areaOf, squareMetres } from '../_lib/units'
+import { areaOf, metres, squareMetres } from '../_lib/units'
 import controls from './controls.module.css'
 import styles from './design.module.css'
 import { pressKeepingFocus } from './focus'
@@ -33,7 +33,6 @@ type Item = EditorSelection<string>
 type Props = {
   editor: Editor
   name: string
-  sectionNames: Record<string, string>
   booked: readonly string[]
   snapping: boolean
   onSnappingChange(on: boolean): void
@@ -47,14 +46,12 @@ type Props = {
 export function DesignPanel(props: Props) {
   const { selection } = props.editor
   if (selection.length === 0) return <DocumentDesign {...props} />
-  const units = selection.filter((item) => item.kind !== 'section')
+  const units = selection.filter((item) => item.kind === 'object' || item.kind === 'group')
   if (units.length === 0) {
-    const [only] = selection
-    return selection.length === 1 && only ? (
-      <SectionDesign {...props} sectionId={only.id} />
-    ) : (
-      <Head chip="Section" name={`${selection.length} sections`} stored="Drag one to move them together." />
-    )
+    const walls = selection.filter((item) => item.kind === 'wall')
+    const [only] = walls
+    if (walls.length === 1 && only) return <WallDesign key={only.id} {...props} wallId={only.id} />
+    return <Head chip="Wall" name={`${walls.length} walls`} stored="Drag one to move them together." />
   }
   // A new selection starts with fresh fields.
   return <SelectionDesign key={units.map((item) => `${item.kind}:${item.id}`).join()} {...props} units={units} />
@@ -81,7 +78,8 @@ function DocumentDesign({ editor, name, booked, snapping, onSnappingChange }: Pr
           <Stat name="Groups" value={plan.groups.length} />
           <Stat name="Places" value={places.length} />
           <Stat name="Capacity" value={capacity} />
-          <Stat name="Sections" value={plan.sections.length} />
+          <Stat name="Walls" value={plan.walls.length} />
+          <Stat name="Rooms" value={seatPlan.roomsOf(plan).length} />
           <Stat name="Booked" value={booked.length} />
         </dl>
       </Section>
@@ -102,7 +100,9 @@ function DocumentDesign({ editor, name, booked, snapping, onSnappingChange }: Pr
       </Section>
       <Section title="Grid">
         <Toggle label="Snap to the grid" checked={snapping} onChange={onSnappingChange} />
-        <p className={controls.hint}>Objects land on half cells of 46, sections on whole ones, turns on 15°.</p>
+        <p className={controls.hint}>
+          Cells are 50 cm; objects land on half cells (25 cm), walls on whole metres, turns on 15°.
+        </p>
       </Section>
       <p className={styles.tip}>
         Select something on the plan or in Layers to change it — a click on a row or a table picks the group, a second
@@ -121,28 +121,41 @@ function Stat({ name, value }: { name: string; value: number }) {
   )
 }
 
-// ---------- A section ----------
+// ---------- A wall ----------
 
-function SectionDesign({ editor, sectionNames, sectionId, onRemove }: Props & { sectionId: string }) {
-  const section = seatPlan.sectionOf(editor.plan, sectionId)
-  if (!section) return null
-  const bounds = seatPlan.sectionBoundsOf(section)
-  const places = seatPlan.placesOf(editor.plan).filter((place) => place.section === section.id)
-  const capacity = places.reduce((sum, place) => sum + place.capacity, 0)
+function WallDesign({ editor, wallId, onRemove }: Props & { wallId: string }) {
+  const wall = seatPlan.wallOf(editor.plan, wallId)
+  if (!wall) return null
+  const bounds = seatPlan.sectionBoundsOf(wall)
+  const openings = wall.openings ?? []
+  // A closed wall goes round a floor, and holds what stands on it — what moves with it.
+  const inside = wall.closed
+    ? seatPlan
+        .placesOf(editor.plan)
+        .filter((place) => seatPlan.roomAt([{ points: wall.points, walls: [wall.id] }], seatPlan.centerOf(place)))
+    : []
+  const capacity = inside.reduce((sum, place) => sum + place.capacity, 0)
 
   // Exactly where it is typed — not to the grid.
   function moveBy(delta: { x: number; y: number }) {
-    editor.edit((current) => planEdits.moveSection(current, section!.id, delta, null))
+    editor.edit((current) => planEdits.move(current, [wallId], delta))
+  }
+
+  function setClosed(closed: boolean) {
+    editor.updateWall(wallId, (current) => {
+      const { closed: _, ...rest } = current
+      return closed ? { ...rest, closed: true } : rest
+    })
   }
 
   return (
     <>
       <Head
-        chip="Section"
-        name={sectionNames[section.id] ?? section.id}
-        id={section.id}
-        stored={`ichno stores its outline — ${section.points.length} corners. Places name it as their section.`}
-        actions={<Action icon="trash" label="Delete with what stands in it (⌫)" onClick={onRemove} />}
+        chip="Wall"
+        name={wall.closed ? 'Room walls' : 'Wall'}
+        id={wall.id}
+        stored={`ichno stores its centre line — ${wall.points.length} corners${wall.closed ? ', closed' : ''} — and how thick it is${openings.length > 0 ? `, with ${openings.length === 1 ? 'an opening' : `${openings.length} openings`}` : ''}. Rooms are found where walls meet.`}
+        actions={<Action icon="trash" label="Delete (⌫)" onClick={onRemove} />}
       />
       <Section title="Position">
         <div className={controls.pair}>
@@ -164,36 +177,52 @@ function SectionDesign({ editor, sectionNames, sectionId, onRemove }: Props & { 
           />
         </div>
         <ReadOnly label="Size">
-          {Math.round(bounds.w)} × {Math.round(bounds.h)}
+          {metres(bounds.w)} × {metres(bounds.h)}
         </ReadOnly>
       </Section>
-      <Section title="Section">
-        <ReadOnly label="Floor">{squareMetres(areaOf(section.points))}</ReadOnly>
-        <ReadOnly label="Places">{places.length}</ReadOnly>
-        <ReadOnly label="Holds">
-          {capacity} {capacity === 1 ? 'person' : 'people'}
-        </ReadOnly>
+      <Section title="Wall">
+        <NumberField
+          icon="T"
+          label="Thickness"
+          value={wall.thickness}
+          min={5}
+          max={50}
+          unit={metres(wall.thickness)}
+          onCommit={(thickness) => editor.updateWall(wallId, (current) => ({ ...current, thickness }))}
+        />
+        {wall.points.length > 2 && (
+          <Toggle label="Closed — round a room" checked={wall.closed === true} onChange={setClosed} />
+        )}
+        {wall.closed && (
+          <>
+            <ReadOnly label="Floor">{squareMetres(areaOf(wall.points))}</ReadOnly>
+            <ReadOnly label="Holds">
+              {capacity} {capacity === 1 ? 'person' : 'people'}
+            </ReadOnly>
+          </>
+        )}
         <p className={controls.hint}>
           Drag a corner to move it, the middle of an edge to push that wall (⌥: add a corner there), a corner onto its
-          neighbour to take it away. What stands in it — its places, their groups whole, the loose fixtures inside —
-          moves with it, and goes when it is deleted.
+          neighbour to take it away. Walls that end on it follow. A closed wall moves with what stands in it.
         </p>
       </Section>
+      {openings.length > 0 && (
+        <Section title="Openings">
+          {openings.map((opening, i) => (
+            <div key={i} className={controls.pair}>
+              <ReadOnly label={opening.role === 'door' ? 'Door' : 'Opening'}>{metres(opening.width)}</ReadOnly>
+              <Action icon="trash" label="Take it out" onClick={() => editor.removeOpening(wallId, i)} />
+            </div>
+          ))}
+        </Section>
+      )}
     </>
   )
 }
 
 // ---------- Objects and groups, one or many ----------
 
-function SelectionDesign({
-  editor,
-  sectionNames,
-  booked,
-  onNotice,
-  onRemove,
-  onSaveAsset,
-  units,
-}: Props & { units: Item[] }) {
+function SelectionDesign({ editor, booked, onNotice, onRemove, onSaveAsset, units }: Props & { units: Item[] }) {
   const plan = editor.plan
   const locked = new Set(booked)
   const [single] = units.length === 1 ? units : []
@@ -515,11 +544,6 @@ function SelectionDesign({
               ]}
               onChange={(category) => editor.assign(ids(places), { category: category || undefined })}
             />
-          )}
-          {object?.kind === 'place' && (
-            <ReadOnly label="Section">
-              {sectionNames[object.section] ?? object.section} <code className={styles.code}>{object.section}</code>
-            </ReadOnly>
           )}
         </Section>
       )}
