@@ -13,6 +13,7 @@ import {
   type PlanStroke,
   type SeatPlan,
   type Shape,
+  type Wall,
 } from 'ichno'
 import { planEdits, type EditorHandles } from 'ichno/editor'
 import { WALL_STEP } from './units'
@@ -65,17 +66,20 @@ export function fixtureTool(role: string | undefined, size: PlanSize, options: {
 }
 
 // A metre of wall `thickness` across, turned `degrees` clockwise from the right — the way a housing game puts up a wall
-// piece by piece, under the pointer (`pieceAt`). An end that comes to a wall's end meets it there, which carries that
-// wall on, links two or closes a room (`planEdits.buildWall`). null where a wall runs already or off the plan.
+// piece by piece, under the pointer (`pieceAt`). Carried on from a wall's end it joins that wall; an end that comes to
+// a wall's end meets it, which links the two or closes a room (`planEdits.buildWall`). null where a wall runs already
+// or off the plan.
 export function wallPieceTool(thickness: number, degrees: number) {
-  return (plan: Plan, stroke: PlanStroke): Plan | null =>
-    planEdits.buildWall(plan, { points: pieceAt(plan, stroke.end, degrees), thickness })?.plan ?? null
+  return (plan: Plan, stroke: PlanStroke): Plan | null => {
+    const placed = pieceAt(plan, stroke.end, degrees)
+    return planEdits.buildWall(placed.plan, { points: placed.points, thickness })?.plan ?? null
+  }
 }
 
 // Why a wall piece cannot go where the pointer is.
 export function wallPieceRefusal(plan: Plan, at: PlanPoint, degrees: number): 'outside' | 'taken' {
-  const ends = pieceAt(plan, at, degrees)
-  return ends.some((p) => p.x < 0 || p.y < 0 || p.x > plan.width || p.y > plan.height) ? 'outside' : 'taken'
+  const { points } = pieceAt(plan, at, degrees)
+  return points.some((p) => p.x < 0 || p.y < 0 || p.x > plan.width || p.y > plan.height) ? 'outside' : 'taken'
 }
 
 // A room — a closed wall `thickness` across through the corners drawn on the metre grid, or round the rectangle
@@ -88,50 +92,76 @@ export function roomTool(thickness: number) {
   }
 }
 
+// A wall's end a piece is run from, the corner before it, and whether the piece runs straight on.
+type Hinge = { wall: Wall; index: number; neighbour: PlanPoint }
+
 // Where a wall piece for the pointer at `at` runs, so it lies under the pointer: hinged on the end of a wall when the
 // pointer is over where a piece from that end (or into it) would run — within half a metre of it — and otherwise, level
-// or upright, on the metre of grid line under the pointer, or at another turn centred on it. Its far end lands on a
-// wall's end within a hair, so a chain of turned pieces still closes.
-function pieceAt(plan: Plan, at: PlanPoint, degrees: number): [PlanPoint, PlanPoint] {
+// or upright, on the metre of grid line under the pointer, or at another turn centred on it. A piece is a metre to a
+// hundredth of a unit, however it is turned. When its far end comes to a wall's end it meets it there and stays a
+// metre: the corner it is run from moves to where both it and the edge into that corner keep their lengths (a free
+// piece moves whole). That is how a room of turned pieces closes with every edge a whole metre. The plan comes back
+// with that corner moved.
+function pieceAt(plan: Plan, at: PlanPoint, degrees: number): { plan: Plan; points: [PlanPoint, PlanPoint] } {
   const a = (degrees * Math.PI) / 180
   const d = { x: tidy(Math.cos(a)), y: tidy(Math.sin(a)) }
-  const [start, end] = hingedAt(plan, at, d) ?? freeAt(at, d)
-  return [start, wallEndNear(plan, end, PIECE_MEET) ?? end]
+  const hinged = hingedAt(plan, at, d)
+  const [from, to] = hinged?.piece ?? freeAt(at, d)
+  const meet = wallEndNear(plan, to, PIECE_MEET)
+  if (meet === null || samePoint(meet, from) || (hinged && samePoint(meet, hinged.hinge.neighbour)))
+    return { plan, points: [from, to] }
+  if (!hinged) {
+    const back = unit(meet, from)
+    return { plan, points: [{ x: meet.x + back.x * WALL_STEP, y: meet.y + back.y * WALL_STEP }, meet] }
+  }
+  const { wall, index, neighbour } = hinged.hinge
+  const corner = crossing(neighbour, distance(neighbour, from), meet, WALL_STEP, from)
+  if (corner === null || distance(corner, from) > FIT_REACH) return { plan, points: [from, to] }
+  const moved = planEdits.reshapeWall(
+    plan,
+    wall.id,
+    wall.points.map((p, i) => (i === index ? corner : p)),
+  )
+  return { plan: moved, points: [corner, meet] }
 }
 
 // A piece run from — or into — the end of an open wall, for a pointer over where it would lie; the nearest such. Run
-// straight on, it lengthens the wall's last edge to the next whole metre from that edge's start, so the edge reads in
-// whole metres however many pieces it took.
-function hingedAt(plan: Plan, at: PlanPoint, d: PlanPoint): [PlanPoint, PlanPoint] | null {
-  let best: { piece: [PlanPoint, PlanPoint]; distance: number } | null = null
+// straight on, it lengthens the wall's last edge to the next whole metre from that edge's start. `piece` runs from the
+// hinge to the far end.
+function hingedAt(plan: Plan, at: PlanPoint, d: PlanPoint): { piece: [PlanPoint, PlanPoint]; hinge: Hinge } | null {
+  let best: { piece: [PlanPoint, PlanPoint]; hinge: Hinge; distance: number } | null = null
   for (const wall of plan.walls) {
     if (wall.closed || wall.points.length < 2) continue
-    const ends: [PlanPoint, PlanPoint][] = [
-      [wall.points[0]!, wall.points[1]!],
-      [wall.points.at(-1)!, wall.points.at(-2)!],
-    ]
-    for (const [end, neighbour] of ends) {
+    const last = wall.points.length - 1
+    for (const [index, before] of [
+      [0, 1],
+      [last, last - 1],
+    ] as const) {
+      const end = wall.points[index]!
+      const neighbour = wall.points[before]!
       const along = (at.x - end.x) * d.x + (at.y - end.y) * d.y
       const across = Math.abs((at.x - end.x) * -d.y + (at.y - end.y) * d.x)
       if (across > WALL_STEP / 2 || Math.abs(along) > WALL_STEP) continue
-      // The way from the end to the piece's other end, and the way the wall comes into the end.
+      // The way from the end to the piece's far end, and the way the wall comes into the end.
       const away = along >= 0 ? d : { x: -d.x, y: -d.y }
-      const edge = Math.hypot(end.x - neighbour.x, end.y - neighbour.y)
-      const into = { x: (end.x - neighbour.x) / edge, y: (end.y - neighbour.y) / edge }
+      const edge = distance(neighbour, end)
+      const into = unit(neighbour, end)
       const straight = away.x * into.x + away.y * into.y > STRAIGHT_ON
-      const reach = straight ? Math.round(edge / WALL_STEP) * WALL_STEP + WALL_STEP : WALL_STEP
-      const from = straight ? neighbour : end
-      const way = straight ? into : away
-      const other = metreNear({ x: from.x + way.x * reach, y: from.y + way.y * reach }, from, reach)
-      const piece: [PlanPoint, PlanPoint] = along >= 0 ? [end, other] : [other, end]
+      const far = straight
+        ? {
+            x: neighbour.x + into.x * (Math.round(edge / WALL_STEP) * WALL_STEP + WALL_STEP),
+            y: neighbour.y + into.y * (Math.round(edge / WALL_STEP) * WALL_STEP + WALL_STEP),
+          }
+        : { x: end.x + away.x * WALL_STEP, y: end.y + away.y * WALL_STEP }
+      const piece: [PlanPoint, PlanPoint] = [end, far]
       // Not back along the wall it ends.
-      if (alongAWall(plan, piece[0], piece[1])) continue
-      const middle = { x: (piece[0].x + piece[1].x) / 2, y: (piece[0].y + piece[1].y) / 2 }
-      const distance = Math.hypot(at.x - middle.x, at.y - middle.y)
-      if (best === null || distance < best.distance) best = { piece, distance }
+      if (alongAWall(plan, end, far)) continue
+      const middle = { x: (end.x + far.x) / 2, y: (end.y + far.y) / 2 }
+      const off = Math.hypot(at.x - middle.x, at.y - middle.y)
+      if (best === null || off < best.distance) best = { piece, hinge: { wall, index, neighbour }, distance: off }
     }
   }
-  return best?.piece ?? null
+  return best && { piece: best.piece, hinge: best.hinge }
 }
 
 // A piece away from every wall's end: level or upright, the metre of grid line under the pointer; at another turn,
@@ -147,28 +177,29 @@ function freeAt(at: PlanPoint, d: PlanPoint): [PlanPoint, PlanPoint] {
   }
   const half = WALL_STEP / 2
   const start = { x: Math.round(at.x - d.x * half), y: Math.round(at.y - d.y * half) }
-  return [start, metreNear({ x: start.x + d.x * WALL_STEP, y: start.y + d.y * WALL_STEP }, start, WALL_STEP)]
+  return [start, { x: start.x + d.x * WALL_STEP, y: start.y + d.y * WALL_STEP }]
 }
 
-// The whole-unit point near `ideal` that lies `length` from `from` most nearly — within half a unit when any does, so
-// a turned piece still measures a whole metre (the nearest whole units to a metre at 10° are 99.46 away). Of those, the
-// one nearest `ideal`.
-function metreNear(ideal: PlanPoint, from: PlanPoint, length: number): PlanPoint {
-  let best: { point: PlanPoint; miss: number; off: number } | null = null
-  for (let dx = -2; dx <= 2; dx++) {
-    for (let dy = -2; dy <= 2; dy++) {
-      const point = { x: Math.round(ideal.x) + dx, y: Math.round(ideal.y) + dy }
-      const off = Math.hypot(point.x - ideal.x, point.y - ideal.y)
-      if (off > 2) continue
-      const miss = Math.abs(Math.hypot(point.x - from.x, point.y - from.y) - length)
-      const better =
-        best === null ||
-        (miss < 0.5 && best.miss >= 0.5) ||
-        (miss < 0.5 === best.miss < 0.5 && (miss < 0.5 ? off < best.off : miss < best.miss))
-      if (better) best = { point, miss, off }
-    }
-  }
-  return best!.point
+// Where a circle `r1` round `c1` and one `r2` round `c2` cross, the crossing nearer `near` — null where they do not.
+function crossing(c1: PlanPoint, r1: number, c2: PlanPoint, r2: number, near: PlanPoint): PlanPoint | null {
+  const apart = distance(c1, c2)
+  if (apart === 0 || apart > r1 + r2 || apart < Math.abs(r1 - r2)) return null
+  const a = (r1 * r1 - r2 * r2 + apart * apart) / (2 * apart)
+  const h = Math.sqrt(Math.max(0, r1 * r1 - a * a))
+  const u = unit(c1, c2)
+  const base = { x: c1.x + u.x * a, y: c1.y + u.y * a }
+  const one = { x: base.x - u.y * h, y: base.y + u.x * h }
+  const other = { x: base.x + u.y * h, y: base.y - u.x * h }
+  return distance(one, near) <= distance(other, near) ? one : other
+}
+
+function unit(from: PlanPoint, to: PlanPoint): PlanPoint {
+  const length = distance(from, to) || 1
+  return { x: (to.x - from.x) / length, y: (to.y - from.y) / length }
+}
+
+function samePoint(a: PlanPoint, b: PlanPoint): boolean {
+  return Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01
 }
 
 // Whether a stretch lies along an edge a wall has already.
@@ -419,6 +450,8 @@ const OPENING_REACH = 50
 const PIECE_MEET = 10
 // How nearly a piece runs the way the wall comes into its end to carry it on in one edge — within about 1°.
 const STRAIGHT_ON = Math.cos((1 * Math.PI) / 180)
+// How far the corner a piece is run from may move so the piece meets a wall's end and stays a metre.
+const FIT_REACH = 20
 
 // The rectangle a stroke spans, corner to corner.
 function rectOf(stroke: PlanStroke): PlanRect {
