@@ -247,6 +247,11 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
 - `ichno/editor`: `planEdits.buildWall` carries a wall on in one edge when the run continues it within a unit of
   straight — a slanted wall's corners sit on whole units, so they were never exactly in line, and its edges grew a
   corner per piece.
+- `ichno`, `ichno/schema`: a wall's corners keep a hundredth of a unit, unlike boxes. Whole units cannot hold a metre
+  turned any way — at 10° its far corner rounds to 99.46 away — so a run of turned metres read 0.99 m and a room of
+  them never closed with whole-metre edges. The schema takes wall corners that are not whole; `addWall`, `buildWall`,
+  `reshapeWall` (without snapping), joined walls that follow a reshaped one and a path tool's corner on a wall keep
+  them to a hundredth.
 
 ## 0.2.1 — 2026-09-25
 

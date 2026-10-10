@@ -62,7 +62,8 @@ type PlanObject<S> =
   | { kind: 'fixture'; id; shape: 'rect' | 'ellipse'; x; y; w; h; rotation?; group?; role? } // stage, wall, chair — never capacity
   | { kind: 'label'; id; group; x; y; w; h } // where a group's label is written (a row's ends)
 
-// A centre line through `points` (back to the first when `closed`), `thickness` across, with gaps cut in it.
+// A centre line through `points` (back to the first when `closed`; corners to a hundredth of a unit, so a metre
+// turned any way stays a metre), `thickness` across, with gaps cut in it.
 type Wall = {
   id
   points: { x: number; y: number }[]

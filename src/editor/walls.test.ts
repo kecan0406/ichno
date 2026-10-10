@@ -53,19 +53,19 @@ const drag = (plan: SeatPlan, id: string, name: string, total: PlanPoint, alt = 
   planHandles.drag(plan, { kind: 'wall', id }, name, total, SNAP, false, 1, alt)
 
 describe('addWall', () => {
-  it('keeps whole units on the plan, drops repeated points and numbers its id', () => {
+  it('keeps a hundredth of a unit on the plan, drops repeated points and numbers its id', () => {
     const made = planEdits.addWall(planOf([]), {
       points: [
-        { x: -10, y: 0.4 },
-        { x: -10, y: 0.4 },
-        { x: 400.6, y: 0 },
+        { x: -10, y: 0.404 },
+        { x: -10, y: 0.404 },
+        { x: 400.567, y: 0 },
       ],
       thickness: 12,
     })!
     expect(made.ids).toEqual(['wall-1'])
     expect(wallOf(made.plan, 'wall-1').points).toEqual([
-      { x: 0, y: 0 },
-      { x: 401, y: 0 },
+      { x: 0, y: 0.4 },
+      { x: 400.57, y: 0 },
     ])
   })
 
@@ -303,6 +303,14 @@ describe('building a wall a piece at a time', () => {
     const plan = planOf([line('w1', [p(0, 0), p(97, 26)])])
     const built = planEdits.buildWall(plan, piece(p(97, 26), p(193, 52)))!
     expect(wallOf(built.plan, 'w1').points).toEqual([p(0, 0), p(193, 52)])
+  })
+
+  it('keeps a metre turned any way a metre — its corners to a hundredth', () => {
+    const a = (10 * Math.PI) / 180
+    const built = planEdits.buildWall(planOf([]), piece(p(0, 0), p(100 * Math.cos(a), 100 * Math.sin(a))))!
+    const [from, to] = wallOf(built.plan, 'wall-1').points as [PlanPoint, PlanPoint]
+    expect(to).toEqual(p(98.48, 17.36))
+    expect(Math.hypot(to.x - from.x, to.y - from.y)).toBeCloseTo(100, 1)
   })
 
   it('refuses a piece along a wall already there, or off the plan', () => {

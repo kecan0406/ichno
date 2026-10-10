@@ -24,7 +24,8 @@ export type PlanBox = PlanRect & { rotation?: number }
 export type Section<S extends string = string> = { id: S; points: PlanPoint[] }
 
 // A wall — a centre line through `points` (back to the first when `closed`), `thickness` plan units across, with
-// `openings` cut in it. Walls that meet close rooms; rooms are found from them (`seatPlan.roomsOf`), never stored.
+// `openings` cut in it. Its corners keep a hundredth of a unit, unlike boxes: a metre of wall turned any way measures a
+// metre. Walls that meet close rooms; rooms are found from them (`seatPlan.roomsOf`), never stored.
 export type Wall = { id: string; points: PlanPoint[]; thickness: number; closed?: boolean; openings?: WallOpening[] }
 
 // A gap in a wall — a door, a window, an arch (`role` is the consumer's word). It runs `width` plan units along edge

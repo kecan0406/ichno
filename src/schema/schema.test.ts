@@ -151,6 +151,22 @@ describe('SeatPlan schema (editor save guard)', () => {
       ...extra,
     })
     expect(issuesOf(planWith([], { walls: [wall('w1', { openings: [{ edge: 3, at: 100, width: 92 }] })] }))).toEqual([])
+    // Corners keep a hundredth of a unit — a turned metre of wall.
+    expect(
+      issuesOf(
+        planWith([], {
+          walls: [
+            wall('w2', {
+              points: [
+                { x: 0, y: 0 },
+                { x: 98.48, y: 17.36 },
+              ],
+              closed: false,
+            }),
+          ],
+        }),
+      ),
+    ).toEqual([])
     expect(issuesOf(planWith([fixture('w1', 600, 20, 40, 40)], { walls: [wall('w1')] }))).toEqual([
       { code: 'duplicate_id', id: 'w1' },
     ])

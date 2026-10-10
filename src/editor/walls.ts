@@ -7,7 +7,8 @@ import type { Snap } from './operations'
 // Wall edits — adding walls and their openings, what a closed wall carries when it moves, and reshaping a wall from
 // its handles with the walls joined to it following. Pure; `planEdits` and `planHandles` hand them out.
 //
-// A wall's vertices land on the walls' step when snapping (`Snap.wall`, half a cell unless given), and stay on the plan. Its
+// A wall's vertices land on the walls' step when snapping (`Snap.wall`, half a cell unless given), and stay on the plan;
+// where they are worked out (a wall built or joined, a run of it followed) they keep a hundredth of a unit. Its
 // openings keep their place along their edge as the wall changes shape — moved back within an edge that got shorter,
 // dropped from one shorter than they are wide. Another wall whose corner or end lies on a wall (within half its
 // thickness) is joined to it: when that wall is reshaped, the joint goes with the edge it is on.
@@ -21,7 +22,7 @@ const STRAIGHT = 1
 const TOUCH = 1
 const EPSILON = 1e-9
 
-// Adds a wall — its points in whole units on the plan, a point repeated right after itself dropped; a closed wall
+// Adds a wall — its points to a hundredth of a unit on the plan, a point repeated right after itself dropped; a closed wall
 // needs three corners, an open one two. Its id is `wall-<n>`. Openings that do not fit their edge are moved back
 // within it or dropped. null when too few points remain.
 export function addWall<S extends string>(
@@ -30,8 +31,8 @@ export function addWall<S extends string>(
 ): { plan: SeatPlan<S>; ids: string[] } | null {
   const points = wall.points
     .map((p) => ({
-      x: Math.min(plan.width, Math.max(0, Math.round(p.x))),
-      y: Math.min(plan.height, Math.max(0, Math.round(p.y))),
+      x: Math.min(plan.width, Math.max(0, hundredth(p.x))),
+      y: Math.min(plan.height, Math.max(0, hundredth(p.y))),
     }))
     .filter((p, i, all) => i === 0 || !samePoint(p, all[i - 1]!))
   if (wall.closed && points.length > 1 && samePoint(points[0]!, points.at(-1)!)) points.pop()
@@ -48,7 +49,7 @@ export function addWall<S extends string>(
   return { plan: { ...plan, walls: [...plan.walls, made] }, ids: [id] }
 }
 
-// Adds a run of wall — `points` in whole units, `thickness` across — joined to the open walls its ends meet, the way a
+// Adds a run of wall — `points` to a hundredth of a unit, `thickness` across — joined to the open walls its ends meet, the way a
 // housing game builds a wall a piece at a time: it carries one on (a straight continuation lengthens that wall's last
 // edge rather than adding a corner), links two into one, or closes one round into a room. The wall it carries on keeps
 // its id and thickness; one it links in is folded into it, openings and all. Straight on means within a unit of it:
@@ -60,7 +61,7 @@ export function buildWall<S extends string>(
   run: { points: readonly PlanPoint[]; thickness: number },
 ): { plan: SeatPlan<S>; ids: string[] } | null {
   const points = run.points
-    .map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }))
+    .map((p) => ({ x: hundredth(p.x), y: hundredth(p.y) }))
     .filter((p, i, all) => i === 0 || !samePoint(p, all[i - 1]!))
   if (points.length < 2) return null
   if (points.some((p) => p.x < 0 || p.y < 0 || p.x > plan.width || p.y > plan.height)) return null
@@ -119,8 +120,8 @@ export function removeOpening<S extends string>(plan: SeatPlan<S>, wallId: strin
   return withWall(plan, openings.length > 0 ? { ...rest, openings } : rest)
 }
 
-// Replaces a wall's points — on the walls' step when snapping, whole units otherwise, on the plan — its openings kept
-// within their edges.
+// Replaces a wall's points — on the walls' step when snapping, to a hundredth of a unit otherwise, on the plan — its
+// openings kept within their edges.
 export function reshapeWall<S extends string>(
   plan: SeatPlan<S>,
   id: string,
@@ -130,7 +131,12 @@ export function reshapeWall<S extends string>(
   const wall = seatPlan.wallOf(plan, id)
   if (!wall) return plan
   const step = wallStepOf(snap)
-  return withWall(plan, fitted({ ...wall, points: points.map((p) => onPlan(plan, p, step)) }))
+  const placed = points.map((p) =>
+    snap
+      ? onPlan(plan, p, step)
+      : { x: Math.min(plan.width, Math.max(0, hundredth(p.x))), y: Math.min(plan.height, Math.max(0, hundredth(p.y))) },
+  )
+  return withWall(plan, fitted({ ...wall, points: placed }))
 }
 
 // What the closed walls among `ids` carry when they move — the units standing in them (a group whole when one of
@@ -299,8 +305,8 @@ function joined<S extends string>(plan: SeatPlan<S>, before: Wall, after: Wall):
       if (distanceToEdge(edge, p).distance <= reach) return p
       moved = true
       return {
-        x: Math.round(edge.a.x + (edge.b.x - edge.a.x) * best.t),
-        y: Math.round(edge.a.y + (edge.b.y - edge.a.y) * best.t),
+        x: hundredth(edge.a.x + (edge.b.x - edge.a.x) * best.t),
+        y: hundredth(edge.a.y + (edge.b.y - edge.a.y) * best.t),
       }
     })
     if (!moved) return wall
@@ -545,8 +551,13 @@ function roundTo(value: number, step: number): number {
   return Math.round(value / step) * step
 }
 
+// A coordinate of a wall's corner — to a hundredth of a unit, so a metre turned any way measures a metre.
+function hundredth(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 // The point on a wall nearest `point` within `reach` plan units of its band — a corner or end first, then anywhere
-// along a centre line, in whole units — so a wall drawn there meets the wall. null when no wall is that near.
+// along a centre line, to a hundredth — so a wall drawn there meets the wall. null when no wall is that near.
 export function onWalls(plan: Pick<SeatPlan, 'walls'>, point: PlanPoint, reach: number): PlanPoint | null {
   let corner: { point: PlanPoint; distance: number } | null = null
   let line: { point: PlanPoint; distance: number } | null = null
@@ -560,7 +571,7 @@ export function onWalls(plan: Pick<SeatPlan, 'walls'>, point: PlanPoint, reach: 
       const { t, distance } = distanceToEdge(edge, point)
       if (distance > near || (line !== null && distance >= line.distance)) continue
       const foot = { x: edge.a.x + (edge.b.x - edge.a.x) * t, y: edge.a.y + (edge.b.y - edge.a.y) * t }
-      line = { point: { x: Math.round(foot.x), y: Math.round(foot.y) }, distance }
+      line = { point: { x: hundredth(foot.x), y: hundredth(foot.y) }, distance }
     }
   }
   return corner?.point ?? line?.point ?? null

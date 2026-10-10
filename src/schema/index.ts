@@ -59,9 +59,11 @@ export function createSeatPlanSchema<const S extends readonly [string, ...string
     width: z.int().positive(),
     role: Role.optional(),
   })
+  // A wall's corners keep a hundredth of a unit — a metre of wall turned any way measures a metre.
+  const WallPoint = z.object({ x: z.number(), y: z.number() })
   const Wall = z.object({
     id: ObjectId,
-    points: z.array(Point).min(2),
+    points: z.array(WallPoint).min(2),
     thickness: z.int().positive(),
     closed: z.boolean().optional(),
     openings: z.array(Opening).optional(),
