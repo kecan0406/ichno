@@ -16,11 +16,16 @@ renderer.
 | --------------------- | ------------------------------------------------------------------- |
 | `pnpm check`          | Everything CI runs, in order. Run it before handing work back.      |
 | `pnpm test`           | vitest (`src/**/*.test.ts`)                                         |
+| `pnpm lint`           | oxlint with the vendored anti-slop rules                            |
 | `pnpm typecheck`      | `tsc --noEmit`                                                      |
 | `pnpm check:compiler` | Fails if React Compiler bails out of any client component or hook   |
 | `pnpm build`          | tsdown → `dist/` (one file per source file, React Compiler applied) |
 | `pnpm check:pkg`      | publint + are-the-types-wrong on the packed tarball                 |
 | `pnpm format`         | prettier (no semicolons, single quotes, width 120)                  |
+
+The anti-slop rules are vendored in `tools/oxlint/anti-slop`; its `UPSTREAM.md` records the source commit and the two
+places ichno's configuration departs from it. Fix what they report instead of disabling them. A type assertion that has
+to stay carries a `// SAFETY:` comment naming the invariant that makes it true.
 
 ## Layout and dependency rules
 

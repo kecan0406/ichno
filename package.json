@@ -36,9 +36,10 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "lint": "oxlint",
     "check:compiler": "node scripts/check-compiler.mjs",
     "check:pkg": "publint && attw --pack . --profile esm-only",
-    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm check:compiler && pnpm build && pnpm check:pkg",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm check:compiler && pnpm build && pnpm check:pkg",
     "prepublishOnly": "pnpm check"
   },
   "peerDependencies": {
@@ -56,10 +57,12 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@babel/core": "^7.29.7",
+    "@oxlint/plugins": "1.87.0",
     "@rolldown/plugin-babel": "^0.2.4",
     "@types/node": "^26.6.2",
     "@types/react": "^19.2.17",
     "babel-plugin-react-compiler": "^1.0.0",
+    "oxlint": "1.87.0",
     "prettier": "^3.9.9",
     "publint": "^0.3.24",
     "react": "19.2.8",
