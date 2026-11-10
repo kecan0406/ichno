@@ -2,7 +2,6 @@
 
 import {
   GRID_CELL,
-  planView,
   seatPlan,
   validateSelection,
   type LintCode,
@@ -10,10 +9,8 @@ import {
   type Place,
   type PlanObject,
   type PlanPoint,
-  type PlanRect,
   type PlanTarget,
   type PlanTemplate,
-  type PlanView,
   type ScreenPoint,
   type SeatPlan,
 } from 'ichno'
@@ -23,23 +20,14 @@ import {
   useSeatPlanEditor,
   useSeatPlanEditorShortcuts,
   type EditorSelection,
-  type ViewControls,
 } from 'ichno/editor'
-import { SeatMap, planTargetOf, useSeatMapView } from 'ichno/react'
+import { planTargetOf, useSeatMapView } from 'ichno/react'
 import dynamic from 'next/dynamic'
-import {
-  useEffect,
-  useEffectEvent,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type MouseEvent,
-} from 'react'
+import { useEffect, useEffectEvent, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { describe } from '../../_demo/messages'
-import { DEFAULT_LINT, PRESETS, checksOf, copyDocument, downloadDocument, type Workbench } from '../_lib/documents'
+import { DEFAULT_LINT, PRESETS, checksOf, type Workbench } from '../_lib/documents'
 import { rowHandles } from '../_lib/build'
-import { fixtureLabel, fixtureVariant } from '../_lib/fixtures'
+import { fixtureLabel } from '../_lib/fixtures'
 import { loadLibrary, newObjectId, saveLibrary, type SavedObject } from '../_lib/library'
 import {
   PIECE_FINE_TURN,
@@ -51,22 +39,18 @@ import {
   type ToolDef,
 } from '../_lib/playground-objects'
 import { METRE, WALL_STEP } from '../_lib/units'
-import { AssetsPanel } from './assets'
 import { BookingPanel, type PickRules } from './booking'
-import type { BuildCamera, BuildControls, BuildView, Handoff } from './build-3d'
-import { CategoryLabels } from './category-labels'
 import { CanvasMenu, type CanvasMenuAt } from './context-menu'
 import controls from './controls.module.css'
-import { DesignPanel } from './design'
-import { Dimensions, type Measured } from './dimensions'
-import { DocumentHead } from './file-menu'
+import { openDialog } from './dialogs'
+import type { Measured } from './dimensions'
+import { EditCanvas2D } from './edit-canvas-2d'
+import { EditSide } from './edit-side'
 import { Resizer, usePanels } from './frame'
-import { Gliding } from './settling'
 import { Icon } from './icons'
-import { LayersPanel } from './layers'
-import { MenuButton, MenuItem, MenuSeparator } from './menu'
-import marks from './marks.module.css'
-import { ChecksPanel, ImportDialog, JsonPanel } from './panels'
+import { LeftSide, type LeftTab } from './left-side'
+import { ImportDialog } from './panels'
+import { VIEW_MARGIN, useEditViews } from './use-edit-views'
 import { Preview2D } from './preview-2d'
 import { PreviewTitle } from './preview-chrome'
 import preview from './preview.module.css'
@@ -77,10 +61,6 @@ import styles from './workspace.module.css'
 // The playground's editor, laid out the way a design tool (Figma) is: the document's layers and the assets on the
 // left, the plan in the middle with the tools floating over it, the properties of the selection on the right. Every
 // area is its own component; this file holds the state they share and wires them to ichno's editor.
-
-type LeftTab = 'layers' | 'assets'
-
-type RightTab = 'design' | 'checks' | 'json'
 
 // The 3D preview is this site's own (three.js) — fetched only when someone switches to it.
 const Preview3D = dynamic(() => import('./preview-3d'), {
@@ -100,12 +80,6 @@ const NO_STRAYS: string[] = []
 
 // The steps a typed edge keeps to, toward the pointer — 15°, as Shift keeps a corner.
 const EDGE_STEP = Math.PI / 12
-
-// Room left round the plan in the 2D views — a metre, so its walls keep off the canvas's edges.
-const VIEW_MARGIN = METRE
-
-// Seat numbers drawn smaller than this on screen are left out (`SeatMap.Content` defaults to 9).
-const LABEL_MIN_PX = 6
 
 // How far (screen pixels) the wheel scrolls to turn the next wall piece a step.
 const TURN_WHEEL_PX = 40
@@ -144,51 +118,13 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const panels = usePanels()
 
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
-  // The plan stood up by the site in 3D, seen from a corner — what opens first — or as ichno draws it (2D), a switch
-  // away for exact work. To edit or to preview.
-  const [dimension, setDimension] = useState<'2d' | '3d'>('3d')
-  // The 3D preview was switched to from the 2D one — its camera comes down from above the plan.
-  const [fromAbove, setFromAbove] = useState(false)
-  // The 2D view lies under the 3D editor while one gives way to the other: until the 3D canvas has faded in — from
-  // the first paint, while three.js loads — and while it tilts back and fades away.
-  const [entering3D, setEntering3D] = useState(true)
-  const [leaving3D, setLeaving3D] = useState(false)
-  const building = mode === 'edit' && (dimension === '3d' || leaving3D)
-  // The 3D editor's view, for the zoom menu and keys and the turn keys.
-  const build = useRef<BuildControls | null>(null)
-  const buildCamera = useRef<BuildCamera | null>(null)
-  // The 2D view the 3D editor takes over from.
-  const handoff = useRef<Handoff | null>(null)
   const canvasRef = useRef<HTMLElement>(null)
-  const [buildView, setBuildView] = useState<BuildView>({ level: 1, canZoomIn: true, canZoomOut: false })
-
-  // What the zoom menu and the zoom keys drive — the 2D canvas's view or the 3D editor's.
-  const view: ViewControls & BuildView = building
-    ? {
-        ...buildView,
-        zoomIn: () => build.current?.zoomIn(),
-        zoomOut: () => build.current?.zoomOut(),
-        fit: () => build.current?.fit(),
-        zoomTo: (rects: readonly PlanRect[]) => build.current?.zoomTo(rects) ?? false,
-      }
-    : map
-
-  // What the zoom menu shows — read apart from the controls, which call into the 3D view's ref.
-  const zoom: BuildView = building
-    ? buildView
-    : { level: map.level, canZoomIn: map.canZoomIn, canZoomOut: map.canZoomOut }
-
-  // The first view hands over the way a switch from 2D does: the 3D editor starts straight above what the 2D view
-  // shows, then tilts into its corner.
-  useLayoutEffect(() => {
-    const element = canvasRef.current
-
-    if (element) handoff.current = handoffOf(map.view, map.level, element)
-  }, [])
+  // 2D or 3D, to edit or to preview — and the hand-over between them (./use-edit-views.ts).
+  const views = useEditViews({ mode, plan: editor.plan, map, canvasRef })
+  const { dimension, building, view, zoom } = views
 
   useSeatPlanEditorShortcuts(editor, { view })
   const [leftTab, setLeftTab] = useState<LeftTab>('layers')
-  const [rightTab, setRightTab] = useState<RightTab>('design')
   // The Hand: every drag pans. It is the site's, not an ichno tool — the viewport simply gets nothing to drag.
   const [hand, setHand] = useState(false)
   // Keep the tool picked after placing something, instead of going back to selecting.
@@ -215,7 +151,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 
   const plan = editor.plan
   const checks = checksOf(plan, lint)
-  const errorCount = checks.filter((check) => check.severity === 'error').length
   const bookedStatus = Object.fromEntries(booked.map((id) => [id, 'booked']))
   const places = seatPlan.placesOf(plan)
   const pickIssues = validateSelection(plan, { selected: picked, unavailable: booked }, rules)
@@ -308,7 +243,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 
     if (e.code === 'KeyQ') return toggleKeep()
 
-    if (building && (e.code === 'Comma' || e.code === 'Period')) build.current?.turn(e.code === 'Period' ? 1 : -1)
+    if (e.code === 'Comma' || e.code === 'Period') views.turn(e.code === 'Period' ? 1 : -1)
   })
 
   useEffect(() => {
@@ -452,32 +387,12 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // Selects exactly what a check points at and brings it into view.
   function focus(ids: string[]) {
     editor.selectIds(ids)
-
-    if (building) build.current?.zoomTo(seatPlan.boundsOfIds(plan, ids))
-    else map.zoomTo(seatPlan.boundsOfIds(plan, ids), 160)
-  }
-
-  // A layers row renamed — the label people read, on a group or a place.
-  function relabel(item: EditorSelection<string>, label: string) {
-    if (item.kind === 'group') {
-      editor.updateGroup(item.id, (group) => {
-        const { label: _, ...rest } = group
-
-        return label ? { ...rest, label } : rest
-      })
-    } else {
-      editor.updateObject(item.id, (object) => {
-        if (object.kind !== 'place') return object
-        const { label: _, ...rest } = object
-
-        return label ? { ...rest, label } : rest
-      })
-    }
+    views.reveal(seatPlan.boundsOfIds(plan, ids))
   }
 
   function switchMode(next: 'edit' | 'preview') {
     setMode(next)
-    setFromAbove(false)
+    views.settle()
     setNotice(null)
     setMenu(null)
     setLayerHover(null)
@@ -537,46 +452,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     editor.setSelection(info.additive ? [...editor.selection, ...units] : units)
   }
 
-  // Editing, 2D and 3D hand the view over — the same spot in the middle, zoomed in as far — and the 3D camera tilts
-  // between straight down, where the 2D view is, and its corner.
-  function switchDimension(next: '2d' | '3d') {
-    if (next === dimension) return
-    setDimension(next)
-    setFromAbove(mode === 'preview' && next === '3d')
-    const element = canvasRef.current
-
-    if (mode !== 'edit' || !element) return
-    const size = { width: element.clientWidth, height: element.clientHeight }
-
-    if (next === '3d') {
-      if (leaving3D) {
-        build.current?.rest()
-        setLeaving3D(false)
-
-        return
-      }
-
-      handoff.current = handoffOf(map.view, map.level, element)
-      setEntering3D(true)
-
-      return
-    }
-
-    const camera = buildCamera.current
-
-    if (!camera || !build.current) return
-    // The 2D view over the 3D camera's spot, zoomed in as far.
-    const home = planView.home(plan, VIEW_MARGIN)
-    const center = { x: camera.x, y: camera.z }
-    const around = { x: center.x - home.w / 2, y: center.y - home.h / 2, w: home.w, h: home.h }
-    const target = planView.zoom(around, buildView.level, center, home)
-    // The 2D view is laid under the 3D one at once — drawing it is the heavy part, done before anything moves — and
-    // shows as the canvas fades away at the end of the tilt.
-    map.setView(target)
-    setLeaving3D(true)
-    build.current.leave({ center, zoom: planView.scaleOf(target, size) }, () => setLeaving3D(false))
-  }
-
   function handleTap(target: PlanTarget<string> | null, info: { point: PlanPoint | null; additive: boolean }) {
     setNotice(null)
     onTap(target, info)
@@ -614,20 +489,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     pointRef.current = point
 
     if (!hand) onHover(point, target, info)
-  }
-
-  // Zooms to a level of the whole plan (1: all of it), about the middle of the view.
-  function zoomToLevel(level: number) {
-    if (building) {
-      build.current?.setLevel(level)
-
-      return
-    }
-
-    const home = planView.home(plan, VIEW_MARGIN)
-    const current = map.view
-    const middle = { x: current.x + current.w / 2, y: current.y + current.h / 2 }
-    map.setView(planView.zoom(current, (level * current.w) / home.w, middle, home))
   }
 
   // Where the tool would draw — the end of the stroke under way, or where the pointer is — and whether it can make
@@ -704,69 +565,26 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       style={{ '--left': `${panels.widths.left}px`, '--right': `${panels.widths.right}px` } as CSSProperties}
     >
       <aside className={styles.left} aria-label="Layers and assets">
-        <DocumentHead
+        <LeftSide
+          editor={editor}
           name={initial.name}
-          dirty={editor.dirty}
+          tab={leftTab}
+          onTabChange={setLeftTab}
+          frozen={frozen}
+          hidden={hidden}
+          onFreeze={(id, on) => setFrozen((current) => toggled(current, id, on))}
+          onHide={(id, on) => setHidden((current) => toggled(current, id, on))}
+          onLayerHover={setLayerHover}
+          library={library}
+          saving={saving}
+          onSavingChange={setSaving}
+          onPick={choose}
+          onSave={saveObject}
+          onDelete={deleteObject}
           onPreset={loadPreset}
-          onImport={() => openDialog('import-dialog')}
-          onCopy={() => void copyDocument(plan)}
-          onDownload={() => downloadDocument(plan, initial.name)}
-          onRevert={editor.reset}
-          onShortcuts={() => openDialog('shortcuts-dialog')}
           onHidePanels={() => panels.setHidden(true)}
+          onNotice={setNotice}
         />
-        <div className={controls.tabs} role="tablist" aria-label="Left panel">
-          <button
-            type="button"
-            role="tab"
-            className={controls.tab}
-            aria-selected={leftTab === 'layers'}
-            onClick={() => setLeftTab('layers')}
-          >
-            Layers
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={controls.tab}
-            aria-selected={leftTab === 'assets'}
-            title="Assets (⇧I)"
-            onClick={() => setLeftTab('assets')}
-          >
-            Assets
-          </button>
-        </div>
-        <div className={styles.tabPanel} role="tabpanel">
-          {leftTab === 'layers' ? (
-            <LayersPanel
-              plan={plan}
-              selection={editor.selection}
-              isLocked={editor.isLocked}
-              onSelect={(items) => {
-                setNotice(null)
-                editor.setSelection(items)
-              }}
-              onHover={setLayerHover}
-              onRename={relabel}
-              frozen={frozen}
-              hidden={hidden}
-              onFreeze={(id, on) => setFrozen((current) => toggled(current, id, on))}
-              onHide={(id, on) => setHidden((current) => toggled(current, id, on))}
-            />
-          ) : (
-            <AssetsPanel
-              objects={PLAYGROUND_OBJECTS}
-              saved={library}
-              activeId={editor.tool?.id ?? null}
-              canSave={editor.selectedIds.length > 0}
-              saving={saving}
-              onSavingChange={setSaving}
-              onPick={choose}
-              onSave={saveObject}
-              onDelete={deleteObject}
-            />
-          )}
-        </div>
         <Resizer
           side="left"
           label="Width of the layers panel"
@@ -805,98 +623,27 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
               onDraw: viewportProps.onDraw,
             }}
             onMenu={openMenuOn}
-            controlsRef={build}
-            cameraRef={buildCamera}
-            onCamera={(camera) => {
-              buildCamera.current = camera
-            }}
-            handoffRef={handoff}
-            onViewChange={setBuildView}
+            {...views.build3D}
             fixtureName={fixtureLabel}
-            onShown={() => {
-              // The hand-over is taken — a later opening (after the preview) starts where the camera was.
-              handoff.current = null
-              setEntering3D(false)
-            }}
           />
         )}
-        {building && !entering3D && !leaving3D ? null : mode === 'edit' ? (
-          <SeatMap.Viewport
-            {...(hand ? { plan: editor.displayPlan } : viewportProps)}
-            {...map.viewProps}
-            onTap={hand ? undefined : handleTap}
+        {building && !views.underlaid ? null : mode === 'edit' ? (
+          <EditCanvas2D
+            editor={editor}
+            map={map}
+            hand={hand}
+            snapping={snapping}
+            selected={selectedMarks}
+            stillInvalid={stillInvalid}
+            movingInvalid={movingInvalid}
+            status={bookedStatus}
+            refused={refusedSample}
+            measured={measured}
+            hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame}
+            onTap={handleTap}
             onHover={hover}
             onContextMenu={openMenu}
-            wheel="pan"
-            className={styles.viewport}
-            aria-label="Seat plan editor"
-          >
-            {(frame) => (
-              // What an edit moved glides to where it goes (./settling.ts) — a drag is drawn as the hand moves it.
-              <Gliding plan={editor.stillPlan} committed={editor.plan}>
-                {(still, gliding) => (
-                  <>
-                    {/* The grid only reads the plan's size — the saved plan's does not change mid-drag. */}
-                    {snapping && <SeatMap.Grid plan={editor.plan} />}
-                    {/* What a drag leaves alone keeps its identity, so this layer is drawn once per drag. Numbers
-                        smaller than 6 screen pixels are left out — unreadable anyway, and SVG text is what large
-                        plans pay for. */}
-                    <SeatMap.Content
-                      plan={still}
-                      selected={selectedMarks}
-                      invalid={stillInvalid}
-                      status={bookedStatus}
-                      isDisabled={never}
-                      fixtureLabel={fixtureLabel}
-                      fixtureVariant={fixtureVariant}
-                      region={frame.region}
-                      scale={frame.scale}
-                      minLabelPx={LABEL_MIN_PX}
-                    />
-                    {editor.movingPlan && (
-                      <SeatMap.Content
-                        plan={editor.movingPlan}
-                        selected={selectedMarks}
-                        invalid={movingInvalid}
-                        status={bookedStatus}
-                        isDisabled={never}
-                        fixtureLabel={fixtureLabel}
-                        fixtureVariant={fixtureVariant}
-                        scale={frame.scale}
-                        minLabelPx={LABEL_MIN_PX}
-                      />
-                    )}
-                    <CategoryLabels plan={editor.plan} scale={frame.scale} />
-                    {editor.draft && (
-                      <g className={styles.draft}>
-                        <SeatMap.Content
-                          plan={editor.draft}
-                          invalid={editor.conflictIds}
-                          fixtureLabel={fixtureLabel}
-                          fixtureVariant={fixtureVariant}
-                        />
-                      </g>
-                    )}
-                    {refusedSample && (
-                      <g className={marks.refused} data-refused="">
-                        <SeatMap.Content plan={refusedSample} fixtureVariant={fixtureVariant} minLabelPx={Infinity} />
-                      </g>
-                    )}
-                    {/* Outlines and lengths are drawn where the edit ends — they wait for what they go round. */}
-                    {!gliding && (
-                      <>
-                        <Dimensions {...measured} scale={frame.scale} />
-                        <SeatMap.EditorOverlay
-                          {...editor.overlayProps}
-                          hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame}
-                        />
-                      </>
-                    )}
-                  </>
-                )}
-              </Gliding>
-            )}
-          </SeatMap.Viewport>
+          />
         ) : (
           <div className={preview.stage}>
             {threeD ? (
@@ -906,7 +653,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                 picked={picked}
                 isDisabled={(place) => picking === 'pick' && booked.includes(place.id)}
                 onPlaceTap={previewTap}
-                fromAbove={fromAbove}
+                fromAbove={views.fromAbove}
               />
             ) : (
               <Preview2D
@@ -986,7 +733,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                 ? 'The plan as ichno draws it — with handles for exact edits'
                 : 'The plan as ichno draws it'
             }
-            onClick={() => switchDimension('2d')}
+            onClick={() => views.switchDimension('2d')}
           >
             2D
           </button>
@@ -999,7 +746,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                 ? 'Build in 3D, seen from a corner — the same ichno editor, drawn by this playground (three.js)'
                 : 'The same document stood up in 3D by this playground (three.js) — not part of ichno'
             }
-            onClick={() => switchDimension('3d')}
+            onClick={() => views.switchDimension('3d')}
           >
             3D
           </button>
@@ -1019,133 +766,25 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 
       <aside className={styles.right} aria-label={mode === 'edit' ? 'Properties' : 'Your selection'}>
         {mode === 'edit' ? (
-          <>
-            <div className={styles.head}>
-              <button
-                type="button"
-                className={controls.iconButton}
-                aria-label="Undo"
-                title="Undo (⌘Z)"
-                disabled={!editor.canUndo}
-                onClick={editor.undo}
-              >
-                <Icon name="undo" />
-              </button>
-              <button
-                type="button"
-                className={controls.iconButton}
-                aria-label="Redo"
-                title="Redo (⇧⌘Z)"
-                disabled={!editor.canRedo}
-                onClick={editor.redo}
-              >
-                <Icon name="redo" />
-              </button>
-              <span className={styles.spacer} />
-              <button
-                type="button"
-                className={controls.button}
-                data-primary=""
-                title="See the plan as your customers would"
-                onClick={() => switchMode('preview')}
-              >
-                <Icon name="play" size={14} />
-                Preview
-              </button>
-              <MenuButton
-                label="Zoom and view"
-                className={styles.zoom}
-                align="end"
-                button={
-                  <>
-                    {Math.round(zoom.level * 100)}%
-                    <Icon name="chevronDown" size={12} />
-                  </>
-                }
-              >
-                <MenuItem keys="+" disabled={!zoom.canZoomIn} onSelect={view.zoomIn}>
-                  Zoom in
-                </MenuItem>
-                <MenuItem keys="−" disabled={!zoom.canZoomOut} onSelect={view.zoomOut}>
-                  Zoom out
-                </MenuItem>
-                <MenuItem keys="⇧1" onSelect={view.fit}>
-                  Zoom to fit
-                </MenuItem>
-                <MenuItem
-                  keys="⇧2"
-                  disabled={editor.selection.length === 0}
-                  onSelect={() => view.zoomTo(editor.selectionBounds)}
-                >
-                  Zoom to selection
-                </MenuItem>
-                <MenuSeparator />
-                <MenuItem onSelect={() => zoomToLevel(2)}>Zoom to 200%</MenuItem>
-                <MenuItem onSelect={() => zoomToLevel(4)}>Zoom to 400%</MenuItem>
-                <MenuSeparator />
-                <MenuItem checked={snapping} onSelect={() => setSnapping((on) => !on)}>
-                  Snap to the grid
-                </MenuItem>
-                <MenuItem keys="⌘\" onSelect={panels.toggle}>
-                  Hide panels
-                </MenuItem>
-              </MenuButton>
-            </div>
-            <div className={controls.tabs} role="tablist" aria-label="Right panel">
-              <button
-                type="button"
-                role="tab"
-                className={controls.tab}
-                aria-selected={rightTab === 'design'}
-                onClick={() => setRightTab('design')}
-              >
-                Design
-              </button>
-              <button
-                type="button"
-                role="tab"
-                className={controls.tab}
-                aria-selected={rightTab === 'checks'}
-                onClick={() => setRightTab('checks')}
-              >
-                Checks
-                {checks.length > 0 && (
-                  <span className={controls.count} data-error={errorCount > 0 || undefined}>
-                    {checks.length}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                className={controls.tab}
-                aria-selected={rightTab === 'json'}
-                onClick={() => setRightTab('json')}
-              >
-                JSON
-              </button>
-            </div>
-            <div className={styles.tabPanel} role="tabpanel">
-              {rightTab === 'design' && (
-                <DesignPanel
-                  editor={editor}
-                  name={initial.name}
-                  booked={booked}
-                  snapping={snapping}
-                  onSnappingChange={setSnapping}
-                  onNotice={setNotice}
-                  onRemove={remove}
-                  onSaveAsset={startSaving}
-                />
-              )}
-              {rightTab === 'checks' && (
-                <ChecksPanel checks={checks} lint={lint} onLintChange={setLint} onFocus={focus} />
-              )}
-              {rightTab === 'json' && (
-                <JsonPanel plan={plan} name={initial.name} onImport={() => openDialog('import-dialog')} />
-              )}
-            </div>
-          </>
+          <EditSide
+            editor={editor}
+            name={initial.name}
+            booked={booked}
+            snapping={snapping}
+            onSnappingChange={setSnapping}
+            checks={checks}
+            lint={lint}
+            onLintChange={setLint}
+            onFocus={focus}
+            zoom={zoom}
+            view={view}
+            onZoomToLevel={views.zoomToLevel}
+            onPreview={() => switchMode('preview')}
+            onHidePanels={panels.toggle}
+            onNotice={setNotice}
+            onRemove={remove}
+            onSaveAsset={startSaving}
+          />
         ) : (
           <BookingPanel
             plan={plan}
@@ -1190,28 +829,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       <ShortcutsDialog />
     </div>
   )
-}
-
-// What the 3D editor takes over from the 2D view: the spot in its middle, its scale on the screen and how far in
-// it is.
-function handoffOf(view: PlanView, level: number, element: HTMLElement): Handoff {
-  const size = { width: element.clientWidth, height: element.clientHeight }
-
-  return {
-    center: { x: view.x + view.w / 2, y: view.y + view.h / 2 },
-    zoom: planView.scaleOf(view, size),
-    level,
-  }
-}
-
-function openDialog(id: string) {
-  const dialog = document.getElementById(id)
-
-  if (dialog instanceof HTMLDialogElement) dialog.showModal()
-}
-
-function never(): boolean {
-  return false
 }
 
 // A template centred on `at` — what a tool would drop there, to draw: the objects alone (no sections, and none of the
