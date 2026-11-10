@@ -267,7 +267,9 @@ right-click landed on, or a handle in an overlay you draw yourself.
 whole drawing) in to 6×, and zooming out stops at the home view exactly. `planView.home(plan, margin)` leaves that
 many plan units round the drawing; give the viewport that view as `home`, or `useSeatMapView(plan, { margin })`,
 and the drawing keeps off the edges. A viewport of another shape shows more
-than its view — `planView.visible(view, size)` is what it shows. Leave `view` out and the viewport keeps its own.
+than its view — `planView.visible(view, size)` is what it shows. `planView.toScreen(view, size, point)` is where a
+plan point shows in the viewport, in pixels from its top-left — the anchor for a tooltip above a place or a popover
+beside a table, following the view as it moves. Leave `view` out and the viewport keeps its own.
 `useSeatMapView(plan)` keeps one for you with the controls around it: `zoomIn` and `zoomOut` about the middle, `fit`
 (the whole plan), `zoomTo(rects)` (e.g. `seatPlan.boundsOf` of the places to show), `level` (how far in — 1 is the
 whole plan; write it the way your app writes zoom), `canZoomIn` / `canZoomOut` for disabling buttons at the limits,

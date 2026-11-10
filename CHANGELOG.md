@@ -264,6 +264,8 @@ margin })` and a `home` prop on `SeatMap.Viewport` (the widest view, which `view
   `PressPointer`, `PressResult`, `EdgeScrollState`, `EdgeScrollStep`.
 - `ichno/react`: `planTargetOf(element)` — the handle, place, object, wall or section an element belongs to, read
   from the parts' `data-ichno-*` attributes the way the viewport delegates its events.
+- `ichno`: `planView.toScreen(view, size, point)` — where a plan point shows in the viewport, `toPlan` the other way:
+  the anchor for a tooltip or a popover you position over the plan.
 
 ## 0.2.1 — 2026-09-25
 

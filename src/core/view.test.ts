@@ -15,6 +15,12 @@ describe('planView — screen and plan coordinates without reading layout', () =
     expect(planView.toPlan(view, { width: 800, height: 800 }, { x: 400, y: 400 })).toEqual({ x: 300, y: 150 })
   })
 
+  it('maps plan points back to the viewport, the same way round', () => {
+    const size = { width: 800, height: 800 }
+    expect(planView.toScreen(view, size, { x: 100, y: 50 })).toEqual({ x: 0, y: 200 })
+    expect(planView.toScreen(view, size, planView.toPlan(view, size, { x: 123, y: 456 }))).toEqual({ x: 123, y: 456 })
+  })
+
   it('shows more than the view along its short side — the letterbox is plan too', () => {
     // 800×800 viewport, scale 2 → the view's 400×200 fills 800×400; 200px above and below show 100 plan units each.
     expect(planView.visible(view, { width: 800, height: 800 })).toEqual({ x: 100, y: -50, w: 400, h: 400 })

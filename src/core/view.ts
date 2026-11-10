@@ -1,4 +1,5 @@
 import { seatPlan } from './geometry'
+import type { ScreenPoint } from './gesture'
 import type { PlanPoint, PlanRect, SeatPlan } from './types'
 
 // View math — a view is the SVG viewBox: the rectangle of the plan (in plan units) that fills the viewport.
@@ -25,6 +26,7 @@ export const planView = {
   fitTo,
   scaleOf,
   toPlan,
+  toScreen,
   visible,
   region,
   contains,
@@ -113,6 +115,16 @@ function toPlan(view: PlanView, size: ViewportSize, point: { x: number; y: numbe
   const offsetY = (size.height - view.h * scale) / 2
 
   return { x: view.x + (point.x - offsetX) / scale, y: view.y + (point.y - offsetY) / scale }
+}
+
+// Where a plan point shows in the viewport (CSS pixels from its top-left) — `toPlan` the other way. Position what
+// floats over the plan by it — a tooltip above a place, a popover beside a table — and it follows the view.
+function toScreen(view: PlanView, size: ViewportSize, point: PlanPoint): ScreenPoint {
+  const scale = scaleOf(view, size)
+  const offsetX = (size.width - view.w * scale) / 2
+  const offsetY = (size.height - view.h * scale) / 2
+
+  return { x: offsetX + (point.x - view.x) * scale, y: offsetY + (point.y - view.y) * scale }
 }
 
 // What the viewport shows — more than the view along its short side when the shapes differ: the browser centres
