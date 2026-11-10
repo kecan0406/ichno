@@ -278,6 +278,69 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
     Not yet: templates (the clipboard, saved objects) carry no walls, turning leaves walls where they are, and a
     section still draws its outer wall — whether a section draws as a zone now that walls are their own is open.
 
+## Restructure
+
+Begun with the maintainer on 2026-11-10. In the table below the Surfaces, Preview and Editor core rows are the
+maintainer's answers and so is the Look; the Store row and the phases are proposals not yet confirmed. Ten phases left the playground with four canvases (2D and 3D, each to edit
+and to preview), an editor hook of 83 members and a preview that read as unfinished — the editor's canvas with its
+panels taken away. The goal is an editor and a preview that look finished and stay light. Nothing after 0.2.1 is
+published, so the hook's API and the shape of document v3 can still change without an upgrade path; v1 and v2
+documents must keep upgrading.
+
+Measured that day, minified and gzipped, without react and zod:
+
+| What                                           | Size    |
+| ---------------------------------------------- | ------- |
+| `ichno`, everything                            | 11.3 KB |
+| `ichno/schema`                                 | 10.2 KB |
+| `ichno/react`, everything                      | 17.6 KB |
+| `SeatMap.Root` and `SeatMap.Content` alone     | 17.1 KB |
+| the same two from their own files              | 8.8 KB  |
+| `ichno/editor`, everything                     | 27.7 KB |
+| an editor app (`ichno/editor` + `ichno/react`) | 38.9 KB |
+
+`SeatMap` is one object, so any part brings the viewport and the editor overlay with it. The playground loads about
+363 KB of script (161 KB of it the page's own chunk) and three.js another 251 KB when 3D opens. What a press means —
+drag, marquee, stroke or pan — is written twice, in `SeatMap.Viewport` (990 lines) and in the playground's 3D editor
+(1,441 lines); the editor's state machine lives inside the hook, where no test reaches it.
+
+| Topic       | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Rejected                                                                                                                                                                                                                                               |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Surfaces    | the reference's objects reach the editor as well as the preview ("에디터까지", after the reference arrived) — so editing from the corner view stays. First answered, before the reference, as two 2D surfaces and a 3D preview with the 3D editor removed. The flat editor stays beside it (see First view)                                                                                                                                                                          | 2D only; the reference's objects in the 3D preview alone, or only as the preview's first view                                                                                                                                                          |
+| Preview     | a booking screen the site builds from ichno's primitives — a legend, what the pointer is on, the picked places, zoom controls, a phone layout; ichno stays headless and gains only what that needs (an anchor for a popover, a fit with a margin)                                                                                                                                                                                                                                    | a default skin with Legend and Tooltip parts in ichno; a read-only viewer with no booking UI                                                                                                                                                           |
+| Editor core | the editor's state machine as pure functions and a store outside React; the hook subscribes to slices of it                                                                                                                                                                                                                                                                                                                                                                          | splitting the hook into smaller hooks; leaving ichno as it is and splitting only the site                                                                                                                                                              |
+| Store       | **recommended, not yet confirmed**: ichno writes its own store (318 B) in the shape zustand's `useStore(api, selector)` takes — `getState`, `getInitialState`, `subscribe` — so no runtime dependency is added and an app on zustand binds to it as it is; the site keeps its own state (panels, tabs, mode) in zustand                                                                                                                                                              | zustand as a dependency (the same forty lines); @xstate/store (event transitions and undo, but 3–4 KB, React bindings in a second package, and an undo that knows nothing of `markSaved`, `preview` or no-op edits); nanostores, jotai, TanStack Store |
+| Look        | the maintainer pointed at the objects in Diverse System's "works. 24/7 stream" visuals — their mood, not the frame round the screen: matte charcoal volumes with a light edge and a soft shadow on a warm light-grey floor — and confirmed the rough boards drawn from it. The boards also carry lettering written on the floor, one accent kept for the selection and categories read from labels on the floor rather than a seat's fill; those were on the boards, not singled out | passed over, not refused: three rough previews shown that day (hairlines refined, category colours, dark)                                                                                                                                              |
+| Corner view | three.js stays (decided 2026-11-10, knowing the cost): orbit and the view from a seat are kept; handles, dimensions and guides, which exist only in 2D today, are to be drawn in WebGL; the 251 KB chunk loads with the first view                                                                                                                                                                                                                                                   | an SVG projection of the same parts, tried first or adopted outright (no dependency, the 2D overlay for free, but a fixed angle and untried for turned and round objects, walls and thousands of seats)                                                |
+| First view  | the corner view opens first, in the editor and in the preview; the flat plan stays a switch away, for exact work                                                                                                                                                                                                                                                                                                                                                                     | the flat plan first; the corner view alone                                                                                                                                                                                                             |
+| Dark theme  | the canvas keeps the look whatever the theme — only the panels turn dark                                                                                                                                                                                                                                                                                                                                                                                                             | a dark version of the look; the old two inks in the dark                                                                                                                                                                                               |
+| Motion      | objects move when the plan changes, the preview included (reverses the static decision of 2026-10-08): placing settles from above, removing sinks away, aligning, turning and undoing glide to where things go, a selection lifts a little, a picked seat lifts in the preview, the views hand over with a camera move. Never while dragging, and not under reduced motion. Cute, never too much, modern — effects and their curves taken from open-source practice, not invented    | motion only for placing, removing and selecting; motion in the editor only; none                                                                                                                                                                       |
+
+Open: whether exports that tree-shake
+replace the namespace objects (`SeatMap`, `seatPlan`, `planEdits`), which changes the "Namespaced exports" rule in
+`AGENTS.md`; and whether a place still needs a `section` when the playground's one section is the whole plan and
+hidden.
+
+Proposed phases, not yet reviewed by the maintainer — each would end with `pnpm check`, the site's build and the
+sizes above measured again:
+
+11. **Look** — the playground's canvases in the reference look: the site's CSS for the 2D parts, palette roles of
+    their own for the three.js views (object faces, their edges, the floor, lettering, the selection), the same in
+    the dark theme; the corner view first; motion when the plan changes.
+    Handles, dimensions and guides in the corner view follow — in WebGL, since three.js stays; proposed to come
+    after phase 12, when the corner view no longer carries its own copy of what a press means.
+12. **Interaction in core** — what a press means, the modifier keys and edge scrolling as pure functions beside
+    `gesture`; a renderer hit-tests, converts coordinates and passes the press on.
+13. **Editor store** — history, selection, press, tool and hover as one state with a reducer, tested without React;
+    selectors memoized on their inputs replace the `'use memo'` hooks; `useSeatPlanEditor` becomes a thin binding and
+    its 83 members are grouped.
+14. **Viewer split** — a viewport without the editor's code, exports that tree-shake, a section's and a wall's edge
+    editing as one implementation.
+15. **Preview** — the booking screen in the reference look, the 3D preview in it too. Needs only the viewer, so it can
+    start once the look is confirmed.
+16. **Editor** — the playground's workspace split by feature, its state in a store, its canvas in the same look.
+17. **Release 0.3.**
+
 ## Out of scope
 
 Booking flow (holds, sessions, channels, seasons, best available), prices and ticket types, finished UI chrome
