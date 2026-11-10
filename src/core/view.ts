@@ -32,9 +32,15 @@ export const planView = {
 }
 
 // The view that shows the whole drawing — the default and the reset target. It covers the drawn extent, not
-// the document size (walls and the name band reach outside).
-function home(plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pick<SeatPlan, 'walls'>>): PlanView {
-  return seatPlan.drawingBoundsOf(plan)
+// the document size (walls and the name band reach outside), and `margin` plan units more on every side, so the
+// drawing does not touch the viewport's edges.
+function home(
+  plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pick<SeatPlan, 'walls'>>,
+  margin = 0,
+): PlanView {
+  const drawn = seatPlan.drawingBoundsOf(plan)
+
+  return { x: drawn.x - margin, y: drawn.y - margin, w: drawn.w + margin * 2, h: drawn.h + margin * 2 }
 }
 
 // Zoom by `factor` (> 1 zooms in) keeping `center` (a plan point, e.g. under the cursor) fixed, from `homeView` in

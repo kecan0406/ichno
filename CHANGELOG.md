@@ -80,6 +80,9 @@ Breaking — document version 3: primitives instead of built-in object kinds (se
   group as one, standing where its highest member is drawn. Shortcuts: ⌘] / ⌘[ step forward and backward, ⌥⌘] /
   ⌥⌘[ go to the front and back (with nothing selected they stay the browser's), Enter selects the selected groups'
   members and ⇧Enter the selected objects' groups. Enter on a button, a link or a menu item is left to it.
+- `ichno`, `ichno/react`: a margin round the whole plan — `planView.home(plan, margin)`, `useSeatMapView(plan, {
+margin })` and a `home` prop on `SeatMap.Viewport` (the widest view, which `viewProps` now carries), so a
+  drawing no longer has to touch the viewport's edges. None by default.
 - `ichno/react`: `useSeatMapView(plan)` keeps the view of a `SeatMap.Viewport` with the controls around it —
   `zoomIn`, `zoomOut`, `fit`, `zoomTo(rects)`, `level` (1: the whole plan), `canZoomIn`, `canZoomOut` — and
   `viewProps` to spread into the viewport.

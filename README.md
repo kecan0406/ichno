@@ -256,7 +256,9 @@ drag, marquee or stroke held near the edge scrolls the plan toward it until the 
 
 **Views** are viewBoxes in plan units (`planView.home(plan)`, `planView.zoom`, `planView.pan`, `planView.pinch`,
 `planView.fitTo` for zoom-to-places), so nothing is measured while rendering. Zoom goes from the home view (the
-whole drawing) in to 6×, and zooming out stops at the home view exactly. A viewport of another shape shows more
+whole drawing) in to 6×, and zooming out stops at the home view exactly. `planView.home(plan, margin)` leaves that
+many plan units round the drawing; give the viewport that view as `home`, or `useSeatMapView(plan, { margin })`,
+and the drawing keeps off the edges. A viewport of another shape shows more
 than its view — `planView.visible(view, size)` is what it shows. Leave `view` out and the viewport keeps its own.
 `useSeatMapView(plan)` keeps one for you with the controls around it: `zoomIn` and `zoomOut` about the middle, `fit`
 (the whole plan), `zoomTo(rects)` (e.g. `seatPlan.boundsOf` of the places to show), `level` (how far in — 1 is the

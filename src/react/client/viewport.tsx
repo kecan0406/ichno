@@ -50,6 +50,9 @@ type ViewportProps<S extends string> = Omit<
   view?: PlanView
   defaultView?: PlanView
   onViewChange?(view: PlanView): void
+  // The widest view — where the view starts and what zooming out stops at. The whole drawing by default
+  // (`planView.home(plan)`); pass one with a margin to keep the drawing off the edges.
+  home?: PlanView
   // Drag on empty floor (or on anything that does not drag) pans, and so does any drag with Space held or the
   // middle button. Leave off for small panels that compete with page scrolling.
   pannable?: boolean
@@ -122,6 +125,7 @@ export function Viewport<S extends string>({
   view,
   defaultView,
   onViewChange,
+  home,
   pannable = true,
   zoomable = true,
   wheel = 'zoom',
@@ -162,7 +166,7 @@ export function Viewport<S extends string>({
   const edgeRef = useRef<{ since: number | null; last: number | null }>({ since: null, last: null })
   const idPrefix = useId()
 
-  const homeView = planView.home(plan)
+  const homeView = home ?? planView.home(plan)
   const [ownView, setOwnView] = useState<PlanView>(defaultView ?? homeView)
   const current = view ?? ownView
   // Gestures fire several events between renders — each builds on the latest view, not the rendered one.

@@ -23,6 +23,12 @@ describe('planView — screen and plan coordinates without reading layout', () =
     expect(planView.visible(view, { width: 0, height: 0 })).toEqual(view)
   })
 
+  it('leaves a margin on every side of the whole drawing when asked for one', () => {
+    const plan = { width: 1000, height: 500, sections: [] }
+    const drawn = planView.home(plan)
+    expect(planView.home(plan, 50)).toEqual({ x: drawn.x - 50, y: drawn.y - 50, w: drawn.w + 100, h: drawn.h + 100 })
+  })
+
   it('zooms out no further than the whole drawing, so zooming in and out comes back to it exactly', () => {
     const home = { x: 0, y: 0, w: 1000, h: 500 }
     const center = { x: 500, y: 250 }

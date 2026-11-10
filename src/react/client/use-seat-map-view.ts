@@ -14,6 +14,9 @@ type Options = {
   step?: number
   // Room left around what zoomTo frames, in plan units.
   padding?: number
+  // Room left round the whole plan, in plan units: the view opens on the drawing with this much about it, and zooms
+  // out no further. None by default — the drawing fills the view.
+  margin?: number
 }
 
 // The view of a <SeatMap.Viewport>, with the controls people expect around it — zoom in and out about the middle, back
@@ -22,9 +25,9 @@ type Options = {
 // write it the way your app writes zoom.
 export function useSeatMapView(
   plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>,
-  { initialView, step = ZOOM_BUTTON_STEP, padding = ZOOM_TO_PADDING }: Options = {},
+  { initialView, step = ZOOM_BUTTON_STEP, padding = ZOOM_TO_PADDING, margin = 0 }: Options = {},
 ) {
-  const home = planView.home(plan)
+  const home = planView.home(plan, margin)
   const [view, setView] = useState<PlanView>(() => initialView ?? home)
   const middle = middleOf(view)
 
@@ -54,7 +57,7 @@ export function useSeatMapView(
     fit: () => setView(home),
     zoomTo,
     // Spread into <SeatMap.Viewport>.
-    viewProps: { view, onViewChange: setView },
+    viewProps: { view, onViewChange: setView, home },
   }
 }
 
