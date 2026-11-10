@@ -21,7 +21,7 @@ import { FONT_VAR, NUMBER_FONT_VAR, cssVar } from '../theme/vars'
 // presentation attributes that read the theme variables. Any `className` (Tailwind, CSS modules) overrides those
 // attributes, so an unstyled plan looks right and a styled one needs no escape hatches.
 // No hooks and no event handlers: every part renders as a React Server Component. Interaction lives in
-// `SeatMap.Viewport`, which delegates events by `data-ichno-*` attributes.
+// `SeatMapViewport` (ichno/react/client), which delegates events by `data-ichno-*` attributes.
 
 type GProps = Omit<ComponentProps<'g'>, 'children'>
 

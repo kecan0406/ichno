@@ -127,10 +127,10 @@ off (duplicate labels, places outside their section, places without a category, 
   ))}
 </SeatMap.Root>
 
-// Interactive — the same children inside a client viewport.
-<SeatMap.Viewport plan={plan} view={view} onViewChange={setView} onPlaceClick={toggle} selection={ids}>
+// Interactive — the same children inside a client viewport (`ichno/react/client`).
+<SeatMapViewport plan={plan} view={view} onViewChange={setView} onPlaceClick={toggle} selection={ids}>
   …
-</SeatMap.Viewport>
+</SeatMapViewport>
 ```
 
 - Parts render with presentation attributes that read the `--ichno-*` variables, so an unstyled plan looks right and
@@ -281,7 +281,8 @@ Each phase is one pre-1.0 minor release. Mark a phase done here when it ships; p
 ## Restructure
 
 Begun with the maintainer on 2026-11-10. In the table below the Surfaces, Preview and Editor core rows are the
-maintainer's answers and so is the Look; the Store row and the phases are proposals not yet confirmed. Ten phases left the playground with four canvases (2D and 3D, each to edit
+maintainer's answers and so is the Look; the Store, the corner view's overlay and the viewport's own entry were
+built as proposals and confirmed on 2026-11-11. Ten phases left the playground with four canvases (2D and 3D, each to edit
 and to preview), an editor hook of 83 members and a preview that read as unfinished — the editor's canvas with its
 panels taken away. The goal is an editor and a preview that look finished and stay light. Nothing after 0.2.1 is
 published, so the hook's API and the shape of document v3 can still change without an upgrade path; v1 and v2
@@ -289,17 +290,19 @@ documents must keep upgrading.
 
 Measured that day, minified and gzipped, without react and zod — and again on 2026-11-11 with what is built below:
 
-| What                                           | 2026-11-10 | 2026-11-11 |
-| ---------------------------------------------- | ---------- | ---------- |
-| `ichno`, everything                            | 11.3 KB    | 12.9 KB    |
-| `ichno/schema`                                 | 10.2 KB    | 10.2 KB    |
-| `ichno/react`, everything                      | 17.6 KB    | 18.5 KB    |
-| `SeatMap.Root` and `SeatMap.Content` alone     | 17.1 KB    | 8.8 KB     |
-| the same two from their own files              | 8.8 KB     | 8.8 KB     |
-| `ichno/editor`, everything                     | 27.7 KB    | 25.0 KB    |
-| an editor app (`ichno/editor` + `ichno/react`) | 38.9 KB    | 37.1 KB    |
+| What                                               | 2026-11-10 | 2026-11-11 |
+| -------------------------------------------------- | ---------- | ---------- |
+| `ichno`, everything                                | 11.3 KB    | 12.9 KB    |
+| `ichno/schema`                                     | 10.2 KB    | 10.2 KB    |
+| `ichno/react`, everything (the viewport included)  | 17.6 KB    | 18.6 KB    |
+| `ichno/react` without the viewport — the parts     | —          | 10.5 KB    |
+| `SeatMap.Root` and `SeatMap.Content` alone         | 17.1 KB    | 8.8 KB     |
+| `ichno/react/client` — the viewport and its hook   | —          | 15.2 KB    |
+| `ichno/editor`, everything                         | 27.7 KB    | 25.0 KB    |
+| an editor app (editor, parts and viewport)         | 38.9 KB    | 37.2 KB    |
+| script a read-only plan sends (Next 16, Turbopack) | 15.4 KB    | none       |
 
-`ichno` grew by what a press means (`press`, `edgeScroll`) and `ichno/react` with it; the editor shrank because its
+`ichno` grew by what a press means (`press`, `edgeScroll`) and the viewport with it; the editor shrank because its
 state machine is plain code now rather than one compiled hook. The playground's first load is 371 KB of script
 (gzip), three.js another 251 KB — fetched straight away now that the corner view opens first, with the 2D plan on
 screen meanwhile.
@@ -314,23 +317,22 @@ drag, marquee, stroke or pan — is written twice, in `SeatMap.Viewport` (990 li
 | Surfaces    | the reference's objects reach the editor as well as the preview ("에디터까지", after the reference arrived) — so editing from the corner view stays. First answered, before the reference, as two 2D surfaces and a 3D preview with the 3D editor removed. The flat editor stays beside it (see First view)                                                                                                                                                                          | 2D only; the reference's objects in the 3D preview alone, or only as the preview's first view                                                                                                                                                          |
 | Preview     | a booking screen the site builds from ichno's primitives — a legend, what the pointer is on, the picked places, zoom controls, a phone layout; ichno stays headless and gains only what that needs (an anchor for a popover, a fit with a margin)                                                                                                                                                                                                                                    | a default skin with Legend and Tooltip parts in ichno; a read-only viewer with no booking UI                                                                                                                                                           |
 | Editor core | the editor's state machine as pure functions and a store outside React; the hook subscribes to slices of it                                                                                                                                                                                                                                                                                                                                                                          | splitting the hook into smaller hooks; leaving ichno as it is and splitting only the site                                                                                                                                                              |
-| Store       | **recommended, not yet confirmed**: ichno writes its own store (318 B) in the shape zustand's `useStore(api, selector)` takes — `getState`, `getInitialState`, `subscribe` — so no runtime dependency is added and an app on zustand binds to it as it is; the site keeps its own state (panels, tabs, mode) in zustand                                                                                                                                                              | zustand as a dependency (the same forty lines); @xstate/store (event transitions and undo, but 3–4 KB, React bindings in a second package, and an undo that knows nothing of `markSaved`, `preview` or no-op edits); nanostores, jotai, TanStack Store |
+| Store       | confirmed 2026-11-11: ichno writes its own store (318 B) in the shape zustand's `useStore(api, selector)` takes — `getState`, `getInitialState`, `subscribe` — so no runtime dependency is added and an app on zustand binds to it as it is; the site keeps its own state (panels, tabs, mode) in zustand                                                                                                                                                                            | zustand as a dependency (the same forty lines); @xstate/store (event transitions and undo, but 3–4 KB, React bindings in a second package, and an undo that knows nothing of `markSaved`, `preview` or no-op edits); nanostores, jotai, TanStack Store |
 | Look        | the maintainer pointed at the objects in Diverse System's "works. 24/7 stream" visuals — their mood, not the frame round the screen: matte charcoal volumes with a light edge and a soft shadow on a warm light-grey floor — and confirmed the rough boards drawn from it. The boards also carry lettering written on the floor, one accent kept for the selection and categories read from labels on the floor rather than a seat's fill; those were on the boards, not singled out | passed over, not refused: three rough previews shown that day (hairlines refined, category colours, dark)                                                                                                                                              |
 | Corner view | three.js stays (decided 2026-11-10, knowing the cost): orbit and the view from a seat are kept; handles, dimensions and guides, which exist only in 2D today, are to be drawn in WebGL; the 251 KB chunk loads with the first view                                                                                                                                                                                                                                                   | an SVG projection of the same parts, tried first or adopted outright (no dependency, the 2D overlay for free, but a fixed angle and untried for turned and round objects, walls and thousands of seats)                                                |
 | First view  | the corner view opens first, in the editor and in the preview; the flat plan stays a switch away, for exact work                                                                                                                                                                                                                                                                                                                                                                     | the flat plan first; the corner view alone                                                                                                                                                                                                             |
 | Dark theme  | the canvas keeps the look whatever the theme — only the panels turn dark                                                                                                                                                                                                                                                                                                                                                                                                             | a dark version of the look; the old two inks in the dark                                                                                                                                                                                               |
 | Motion      | objects move when the plan changes, the preview included (reverses the static decision of 2026-10-08): placing settles from above, removing sinks away, aligning, turning and undoing glide to where things go, a selection lifts a little, a picked seat lifts in the preview, the views hand over with a camera move. Never while dragging, and not under reduced motion. Cute, never too much, modern — effects and their curves taken from open-source practice, not invented    | motion only for placing, removing and selecting; motion in the editor only; none                                                                                                                                                                       |
 
-Open: whether the viewport leaves `SeatMap` so a read-only plan ships no script at all (phase 14 — `SeatMap` itself
-tree-shakes now, as a module namespace); whether `seatPlan` and `planEdits` follow it, which changes the "Namespaced
+Open: whether `seatPlan` and `planEdits` become module namespaces as `SeatMap` did, which changes the "Namespaced
 exports" rule in `AGENTS.md`; and whether a place still needs a `section` when the playground's one section is the
 whole plan and hidden.
 
 Proposed phases, not yet reviewed by the maintainer — each would end with `pnpm check`, the site's build and the
 sizes above measured again. On 2026-11-11 the maintainer asked for them to be carried out as far as they go without
-further questions and brought back for one confirmation; what is marked _built_ below is on the `restructure` branch,
-checked, and waiting for that — where building it meant choosing between options, the choice is a proposal, named as
-one.
+further questions and brought back for one confirmation; what is marked _built_ below was built on a
+`restructure` branch, checked, and merged once the maintainer had answered what was open; where a choice is still
+Claude's alone it is named a proposal.
 
 11. **Look** — the playground's canvases in the reference look: the site's CSS for the 2D parts, palette roles of
     their own for the three.js views (object faces, their edges, the floor, lettering, the selection), the same in
@@ -338,8 +340,8 @@ one.
     Handles, dimensions and guides in the corner view follow — in WebGL, since three.js stays; proposed to come
     after phase 12, when the corner view no longer carries its own copy of what a press means.
 
-    _Built_ (look and motion on `main`, the rest on `restructure`). **Proposal, not the WebGL the Corner view row
-    names:** what the editor draws over the plan is an SVG layer over the canvas. The corner view's camera is
+    _Built._ **Not the WebGL the Corner view row names — confirmed by the maintainer on 2026-11-11 once built:**
+    what the editor draws over the plan is an SVG layer over the canvas. The corner view's camera is
     orthographic, so the floor maps to the screen with one matrix; the layer carries that matrix (written whenever the
     camera moves) and draws ichno's own `SeatMap.EditorOverlay` inside it — the selection's frame, the handles, smart
     guides, a tool's stroke — as the 2D canvas does, with lengths written level beside what they measure. Handles are
@@ -363,8 +365,8 @@ one.
     selectors memoized on their inputs replace the `'use memo'` hooks; `useSeatPlanEditor` becomes a thin binding and
     its 83 members are grouped.
 
-    _Built_, with the store the Store row recommends — **still a proposal**: ichno's own, no dependency, in the
-    shape zustand's `useStore` takes. `src/editor/state.ts` is the state and its pure pieces, `view.ts` what is drawn
+    _Built_, with the store the Store row names: ichno's own, no dependency, in the shape zustand's `useStore`
+    takes. `src/editor/state.ts` is the state and its pure pieces, `view.ts` what is drawn
     from it (each piece remembering its last answer, in place of the `'use memo'` hooks), `store.ts` the commands;
     the hook is thirty lines. Tested without React (`store.test.ts`), the identity of what a drag leaves alone
     included. A drag of a row of 100 among 20,000 seats in the playground measured 227 / 257 ms a step before and
@@ -376,16 +378,16 @@ one.
 14. **Viewer split** — a viewport without the editor's code, exports that tree-shake, a section's and a wall's edge
     editing as one implementation.
 
-    _Partly built._ `SeatMap` is a module namespace now (`export * as`, kept out of the bundle so the build leaves it
-    as written): it is used as before, and a bundler drops the parts an app never names — `Root` and `Content` alone
-    are 8.8 KB in a client bundle instead of 17.1. Pushing an edge is one implementation (`src/editor/edges.ts`).
-    **Found, and left open:** a read-only plan in a Next.js Server Component still loads the viewport's chunk
-    (15.4 KB gzip, measured with Next 16.3 and Turbopack on a page of `SeatMap.Root` and `SeatMap.Content` alone) —
-    whichever way `SeatMap` is exported, naming it imports the client viewport, and the bundler ships every client
-    module a server module imports. The README said such a plan ships no JavaScript; it now says only that the parts
-    are drawn on the server. Shipping none takes the viewport out of `SeatMap` — its own export, or its own entry
-    point — which changes how every app imports it: the maintainer's call. The viewport without the editor's presses
-    was not split either: after phase 12 what a press means is 1.6 KB of shared core, not worth a second component.
+    _Built._ `SeatMap` is a module namespace (`export * as`, kept out of the bundle so the build leaves it as
+    written): a bundler drops the parts an app never names. Pushing an edge is one implementation
+    (`src/editor/edges.ts`). And the viewport has an entry of its own, `ichno/react/client` (`SeatMapViewport`,
+    `useSeatMapView`) — decided on 2026-11-11 after a measurement: a read-only plan in a Next.js Server Component
+    loaded the viewport's chunk (15.4 KB gzip, Next 16.3 with Turbopack, a page of `SeatMap.Root` and
+    `SeatMap.Content` alone), because naming `SeatMap` imported the client viewport and the bundler ships every
+    client module a server module imports — a module namespace did not change that. With `ichno/react` importing no
+    client module, the same page sends none of ichno's script. It breaks every app's `SeatMap.Viewport` import; 0.3
+    breaks the document's shape anyway. Not split: the viewport without the editor's presses — after phase 12 what a
+    press means is 1.6 KB of shared core, not worth a second component.
 
 15. **Preview** — the booking screen in the reference look, the 3D preview in it too. Needs only the viewer, so it can
     start once the look is confirmed.

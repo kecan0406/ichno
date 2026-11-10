@@ -1,7 +1,8 @@
 'use client'
 
 import { seatPlan, validateSelection, type Place } from 'ichno'
-import { SeatMap, useSeatMapView } from 'ichno/react'
+import { SeatMap } from 'ichno/react'
+import { SeatMapViewport, useSeatMapView } from 'ichno/react/client'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { CategoryLabels } from '../playground/_components/category-labels'
@@ -96,7 +97,7 @@ export function VenueDemo() {
       </div>
 
       <div className={styles.stage} data-zoomed={zoomed || undefined}>
-        <SeatMap.Viewport
+        <SeatMapViewport
           plan={venuePlan}
           {...map.viewProps}
           pannable={zoomed}
@@ -120,7 +121,7 @@ export function VenueDemo() {
               {palette === 'charcoal' && <CategoryLabels plan={venuePlan} scale={frame.scale} />}
             </>
           )}
-        </SeatMap.Viewport>
+        </SeatMapViewport>
       </div>
 
       <div className={styles.summary}>

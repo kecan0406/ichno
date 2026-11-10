@@ -274,10 +274,14 @@ margin })` and a `home` prop on `SeatMap.Viewport` (the widest view, which `view
   `frozenIds` and `hiddenIds` are compared by what they hold, `snap` by its numbers, and handle sets (`handles`) by
   their ids — handing over the same again changes nothing; an option that did change is drawn with after the render
   that brought it, before the browser paints. New types `SeatPlanEditorStore`, `SeatPlanEditorOptions`, `EditorView`.
+- Breaking — `ichno/react/client`: the interactive viewport and its view hook have an entry of their own.
+  `SeatMap.Viewport` is `SeatMapViewport`, and it, `useSeatMapView`, `SeatMapView` and `ViewportFrame` are imported
+  from `ichno/react/client`; `ichno/react` keeps the parts drawn on the server and imports no client module. Naming
+  `SeatMap` used to import the viewport with it, so a Server Component that only drew a plan still sent the
+  viewport's script (15.4 KB gzip on Next 16 with Turbopack); now it sends none.
 - `ichno/react`: `SeatMap` is a module namespace instead of an object — used the same way (`SeatMap.Root`,
-  `SeatMap.Viewport`, …), but a bundler now drops the members an app never names: a client bundle of `SeatMap.Root`
-  and `SeatMap.Content` alone goes from 17.8 KB to 8.8 KB (min + gzip). `Object.keys(SeatMap)` and spreading it still
-  list every part.
+  `SeatMap.Content`, …), but a bundler drops the members an app never names. `Object.keys(SeatMap)` and spreading it
+  still list every part.
 
 ## 0.2.1 — 2026-09-25
 

@@ -33,14 +33,14 @@ Each directory is an entry point (or feeds one). The rules keep heavy dependenci
 them — a consumer importing the core must never pull in zod or React. No canvas or drawing library: SVG only
 (see `docs/direction.md`).
 
-| Source             | Entry          | May import           | Notes                                                                                   |
-| ------------------ | -------------- | -------------------- | --------------------------------------------------------------------------------------- |
-| `src/core`         | `ichno`        | nothing external     | Types, geometry, layouts, rules, view math, interaction core. Pure functions only.      |
-| `src/theme`        | `ichno`        | nothing external     | The CSS variable contract (`vars.ts`).                                                  |
-| `src/schema`       | `ichno/schema` | `zod`, core          | The only place zod is allowed.                                                          |
-| `src/react`        | `ichno/react`  | `react`, core, theme | Server-safe parts: no hooks, no state, no handlers, no `'use client'`. Not compiled.    |
-| `src/react/client` | `ichno/react`  | `react`, core, theme | Every file starts with `'use client'`. Interaction only; draws nothing the parts could. |
-| `src/editor`       | `ichno/editor` | `react`, core        | `'use client'`. Never import `src/react` — hook users must not pull the components.     |
+| Source             | Entry                | May import           | Notes                                                                                                                                                                     |
+| ------------------ | -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/core`         | `ichno`              | nothing external     | Types, geometry, layouts, rules, view math, interaction core. Pure functions only.                                                                                        |
+| `src/theme`        | `ichno`              | nothing external     | The CSS variable contract (`vars.ts`).                                                                                                                                    |
+| `src/schema`       | `ichno/schema`       | `zod`, core          | The only place zod is allowed.                                                                                                                                            |
+| `src/react`        | `ichno/react`        | `react`, core, theme | Server-safe parts: no hooks, no state, no handlers, no `'use client'`. Not compiled. Never import `src/react/client` — a page that only draws a plan must send no script. |
+| `src/react/client` | `ichno/react/client` | `react`, core, theme | Every file starts with `'use client'`. Interaction only; draws nothing the parts could.                                                                                   |
+| `src/editor`       | `ichno/editor`       | `react`, core        | `'use client'`. Never import `src/react` — hook users must not pull the components.                                                                                       |
 
 `site/` is the landing page and the editor playground (`/playground`) — a private Next.js app in the pnpm workspace
 that consumes the built `dist/` through `ichno: workspace:*`, like any app would. It is never published. `pnpm check`
@@ -57,7 +57,8 @@ Namespaced exports follow one shape: the object (`seatPlan`, `layout`) at the to
 stay out of the object.
 
 `SeatMap` is the exception: a module namespace (`export * as SeatMap from './seat-map.js'` in `src/react/index.ts`),
-so consumers' bundlers drop the parts they do not name. The build must leave that line as written — `seat-map` is an
+so consumers' bundlers drop the parts they do not name. It holds server-safe parts only — the viewport is
+`SeatMapViewport`, from `ichno/react/client`. The build must leave that line as written — `seat-map` is an
 entry of its own and kept out of the bundle in `tsdown.config.ts`; bundled, it turns back into one object holding
 every part. A new part goes in `src/react/seat-map.ts`.
 

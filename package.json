@@ -27,6 +27,7 @@
     ".": "./dist/index.js",
     "./schema": "./dist/schema/index.js",
     "./react": "./dist/react/index.js",
+    "./react/client": "./dist/react/client/index.js",
     "./editor": "./dist/editor/index.js",
     "./package.json": "./package.json"
   },

@@ -7,8 +7,10 @@ Seat plans for React — one JSON document, headless primitives around it.
   renderer-independent interaction core (hit-testing, gestures, keyboard movement)
 - **`ichno/schema`** — `createSeatPlanSchema({ sectionIds })`: zod validation with structured issue codes; upgrades
   documents stored by ichno 0.1 and 0.2
-- **`ichno/react`** — `SeatMap.*`: headless SVG components. The parts render as React Server Components; the
-  `Viewport` adds pan, zoom, taps, drags and keyboard movement on the client
+- **`ichno/react`** — `SeatMap.*`: headless SVG components, every one a React Server Component — a plan that is only
+  drawn sends no script
+- **`ichno/react/client`** — `SeatMapViewport` adds pan, zoom, taps, drags and keyboard movement in the browser, and
+  `useSeatMapView` the zoom controls around it
 - **`ichno/editor`** — `useSeatPlanEditor`: headless editor state, operations, creation tools you write, saved
   objects and a clipboard; you build the panels
 
@@ -180,7 +182,7 @@ Pure building blocks any renderer can share:
 - `press.down/move/up/cancel` — what a press on the plan means, on top of `gesture`: a tap, a target dragged, a
   marquee, a tool's stroke, a pan or a pinch, with points handed back in plan units through the view's own `toPlan`.
   `press.keys` and `press.restate` report a drag again when a key changes or the view moves under it. It is what
-  `SeatMap.Viewport` runs on; a renderer of your own (a canvas, a 3D view reading the floor under the pointer) feeds
+  `SeatMapViewport` runs on; a renderer of your own (a canvas, a 3D view reading the floor under the pointer) feeds
   it the same way and gets the same presses
 - `edgeScroll.step(state, pointer, size, now)` — how far a view scrolls this frame while a press is held at its edge
 - `placeNavigation.next(items, fromId, 'left')` — arrow-key movement between places
@@ -190,7 +192,7 @@ Pure building blocks any renderer can share:
 ```tsx
 import { SeatMap } from 'ichno/react'
 
-// Read-only — a Server Component: these parts are drawn on the server and never run in the browser.
+// Read-only — a Server Component: no script is sent for it.
 ;<SeatMap.Root plan={plan} aria-label="Floor plan">
   <SeatMap.Content
     plan={plan}
@@ -205,21 +207,22 @@ import { SeatMap } from 'ichno/react'
 
 ```tsx
 'use client'
-import { SeatMap, useSeatMapView } from 'ichno/react'
+import { SeatMap } from 'ichno/react'
+import { SeatMapViewport, useSeatMapView } from 'ichno/react/client'
 
 // Interactive — pan, wheel/pinch zoom, taps, arrow keys (Enter/Space picks), the same children.
 const map = useSeatMapView(plan) // the view, and zoom controls for the buttons you draw
-<SeatMap.Viewport plan={plan} {...map.viewProps} onPlaceClick={(place) => toggle(place.id)} className="h-[480px]">
+<SeatMapViewport plan={plan} {...map.viewProps} onPlaceClick={(place) => toggle(place.id)} className="h-[480px]">
   <SeatMap.Content plan={plan} selected={picked} />
-</SeatMap.Viewport>
+</SeatMapViewport>
 <button onClick={map.zoomOut} disabled={!map.canZoomOut}>−</button>
 <button onClick={map.fit}>{Math.round(map.level * 100)}%</button>
 <button onClick={map.zoomIn} disabled={!map.canZoomIn}>+</button>
 ```
 
-`SeatMap` is a module namespace, so a bundler leaves out the members an app never names — a client bundle of
-`SeatMap.Root` and `SeatMap.Content` alone is 8.8 KB (min + gzip) rather than 17.8 with the viewport and the editor's
-overlay.
+`ichno/react` holds nothing that runs in the browser: the viewport and its view hook are `ichno/react/client`'s, so a
+Server Component that draws a plan with `SeatMap.Root` sends no script for it. `SeatMap` is a module namespace, so in
+a client bundle too the members an app never names are left out.
 
 `SeatMap.Content` is a convenience — sections, the floors of the rooms the walls close, the walls, then the objects;
 compose the parts yourself when you need something else — `SeatMap.Section`, `SeatMap.Room`, `SeatMap.Wall`,
@@ -249,9 +252,9 @@ State is on the element: `data-kind` (`place`, `fixture`, `label`, `wall`), `dat
 margin or the zoom crosses a step, so 20,000 seats pan at 60fps.
 
 ```tsx
-<SeatMap.Viewport plan={plan}>
+<SeatMapViewport plan={plan}>
   {(frame) => <SeatMap.Content plan={plan} region={frame.region} scale={frame.scale} />}
-</SeatMap.Viewport>
+</SeatMapViewport>
 ```
 
 **Pointer and keys.** A drag on empty floor pans; so does any drag with Space held or the middle button, whatever
@@ -291,7 +294,8 @@ For narrow screens, `seatPlan.sectionPlansOf(plan)` returns one crop per section
 'use client'
 import { labeling, layout } from 'ichno'
 import { useSeatPlanEditor, useSeatPlanEditorShortcuts } from 'ichno/editor'
-import { SeatMap, useSeatMapView } from 'ichno/react'
+import { SeatMap } from 'ichno/react'
+import { SeatMapViewport, useSeatMapView } from 'ichno/react/client'
 
 const editor = useSeatPlanEditor({ initialPlan, lockedIds: bookedSeatIds, snap: { cell: 50 } })
 const map = useSeatMapView(editor.plan)
@@ -299,7 +303,7 @@ const map = useSeatMapView(editor.plan)
 // and with the view, + / − / ⇧1 / ⇧2
 useSeatPlanEditorShortcuts(editor, { view: map })
 
-<SeatMap.Viewport {...editor.viewportProps} {...map.viewProps} wheel="pan">
+<SeatMapViewport {...editor.viewportProps} {...map.viewProps} wheel="pan">
   <SeatMap.Grid plan={editor.displayPlan} />
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} invalid={editor.conflictIds} />
   {editor.draft && (
@@ -308,7 +312,7 @@ useSeatPlanEditorShortcuts(editor, { view: map })
     </g>
   )}
   <SeatMap.EditorOverlay {...editor.overlayProps} />
-</SeatMap.Viewport>
+</SeatMapViewport>
 
 const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, curve: 0.2, count: 10, size: 40 })
 <button onClick={() => editor.addPlaces('B', seats, { role: 'seat', group: { role: 'row', label: 'A' } })}>
@@ -403,7 +407,7 @@ for what moves only. A drag of a section or a wall, or of more than half the obj
 redraws every place in view on every move.
 
 ```tsx
-<SeatMap.Viewport {...editor.viewportProps} {...map.viewProps}>
+<SeatMapViewport {...editor.viewportProps} {...map.viewProps}>
   {(frame) => (
     <>
       <SeatMap.Content
@@ -424,7 +428,7 @@ redraws every place in view on every move.
       <SeatMap.EditorOverlay {...editor.overlayProps} />
     </>
   )}
-</SeatMap.Viewport>
+</SeatMapViewport>
 ```
 
 Whatever else you pass `Content` (`status`, label functions) must keep its identity too — compile your app with the

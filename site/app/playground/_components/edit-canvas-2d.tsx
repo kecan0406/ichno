@@ -2,7 +2,8 @@
 
 import type { PlanPoint, PlanTarget, SeatPlan } from 'ichno'
 import type { SeatPlanEditor } from 'ichno/editor'
-import { SeatMap, type SeatMapView } from 'ichno/react'
+import { SeatMap } from 'ichno/react'
+import { SeatMapViewport, type SeatMapView } from 'ichno/react/client'
 import type { MouseEvent } from 'react'
 import { fixtureLabel, fixtureVariant } from '../_lib/fixtures'
 import { CategoryLabels } from './category-labels'
@@ -59,7 +60,7 @@ export function EditCanvas2D({
   const { onTap: _tap, onHover: _hover, ...viewportProps } = editor.viewportProps
 
   return (
-    <SeatMap.Viewport
+    <SeatMapViewport
       {...(hand ? { plan: editor.displayPlan } : viewportProps)}
       {...map.viewProps}
       onTap={hand ? undefined : onTap}
@@ -130,7 +131,7 @@ export function EditCanvas2D({
           )}
         </Gliding>
       )}
-    </SeatMap.Viewport>
+    </SeatMapViewport>
   )
 }
 

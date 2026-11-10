@@ -30,7 +30,7 @@ import type { EditorTool } from './tools'
 // answer (`cached`), so what a change does not reach keeps its identity: the still part of the plan stays the same
 // object through a drag, the selection's lists through a hover — and whatever draws them is not drawn again.
 
-// What a viewport calls as the plan is pressed — the editor's side of <SeatMap.Viewport>'s props.
+// What a viewport calls as the plan is pressed — the editor's side of <SeatMapViewport>'s props.
 export type ViewportHandlers<S extends string> = {
   onTap(target: PlanTarget<S> | null, info: { additive: boolean }): void
   canDrag(target: PlanTarget<S>): boolean
@@ -254,7 +254,7 @@ export function createView<S extends string>(handlers: ViewportHandlers<S>) {
     (plan: SeatPlan<S>, locked: ReadonlySet<string>) => (id: string) => planEdits.isLocked(plan, id, locked),
   )
 
-  // Spread into <SeatMap.Viewport> (ichno/react).
+  // Spread into <SeatMapViewport> (ichno/react/client).
   const viewportPropsOf = cached((display: SeatPlan<S>, drawing: boolean, navigable: boolean) => ({
     plan: display,
     onTap: handlers.onTap,
@@ -350,7 +350,7 @@ export function createView<S extends string>(handlers: ViewportHandlers<S>) {
       selectedWallIds,
       selectedWall: selectedWallIds[0] === undefined ? undefined : seatPlan.wallOf(plan, selectedWallIds[0]),
       selectedPlaceIds: picked.selectedPlaceIds,
-      // What the selection covers. Frame it with a view's zoomTo (useSeatMapView, ichno/react).
+      // What the selection covers. Frame it with a view's zoomTo (useSeatMapView, ichno/react/client).
       selectionBounds: boundsOf(plan, picked),
       handles,
       // The outline those handles belong to — pass it to <SeatMap.Handles frame>.

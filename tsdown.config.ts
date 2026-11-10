@@ -8,6 +8,7 @@ export default defineConfig({
     'react/index': 'src/react/index.ts',
     // `SeatMap`'s members — an entry of its own so `ichno/react` can re-export it as a namespace (see `external`).
     'react/seat-map': 'src/react/seat-map.ts',
+    'react/client/index': 'src/react/client/index.ts',
     'editor/index': 'src/editor/index.ts',
   },
   format: 'esm',

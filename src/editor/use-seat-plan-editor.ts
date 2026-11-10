@@ -8,7 +8,7 @@ import { createSeatPlanEditor } from './store'
 export type SeatPlanEditor<S extends string> = ReturnType<typeof useSeatPlanEditor<S>>
 
 // Headless seat plan editor — document state, selection, creation tools, clipboard, undo history and every edit
-// operation; no UI. Spread `viewportProps` into <SeatMap.Viewport> (ichno/react) for tap-to-select, drag-to-move,
+// operation; no UI. Spread `viewportProps` into <SeatMapViewport> (ichno/react/client) for tap-to-select, drag-to-move,
 // marquee selection and drawing with a tool; draw `displayPlan` (the plan with the drag in progress), `draft` (what
 // the tool would make), `handles`, `frames` and `marquee` on top, and build panels, buttons and saving yourself.
 // Edits stay local until you save `plan`; `markSaved` then makes what you saved the baseline `dirty` compares
@@ -34,7 +34,7 @@ export function useSeatPlanEditor<S extends string>(options: SeatPlanEditorOptio
   return { ...view, ...store.commands, store }
 }
 
-// The view controls the zoom keys drive — what useSeatMapView (ichno/react) returns, or your own.
+// The view controls the zoom keys drive — what useSeatMapView (ichno/react/client) returns, or your own.
 export type ViewControls = {
   zoomIn(): void
   zoomOut(): void

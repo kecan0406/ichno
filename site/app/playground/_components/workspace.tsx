@@ -21,7 +21,8 @@ import {
   useSeatPlanEditorShortcuts,
   type EditorSelection,
 } from 'ichno/editor'
-import { planTargetOf, useSeatMapView } from 'ichno/react'
+import { planTargetOf } from 'ichno/react'
+import { useSeatMapView } from 'ichno/react/client'
 import dynamic from 'next/dynamic'
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { describe } from '../../_demo/messages'

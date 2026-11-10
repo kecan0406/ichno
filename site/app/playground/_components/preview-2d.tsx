@@ -1,7 +1,8 @@
 'use client'
 
 import { planView, seatPlan, type Place, type PlanRect, type PlanView, type SeatPlan, type ViewportSize } from 'ichno'
-import { SeatMap, type SeatMapView } from 'ichno/react'
+import { SeatMap } from 'ichno/react'
+import { SeatMapViewport, type SeatMapView } from 'ichno/react/client'
 import { useEffect, useRef, useState } from 'react'
 import { fixtureLabel, fixtureVariant } from '../_lib/fixtures'
 import { CategoryLabels } from './category-labels'
@@ -44,7 +45,7 @@ export function Preview2D({ plan, map, status, picked, bookable, onPlaceTap }: P
 
   return (
     <div ref={hostRef} className={styles.plan}>
-      <SeatMap.Viewport
+      <SeatMapViewport
         plan={plan}
         {...map.viewProps}
         onPlaceClick={onPlaceTap}
@@ -62,7 +63,7 @@ export function Preview2D({ plan, map, status, picked, bookable, onPlaceTap }: P
           fixtureVariant={fixtureVariant}
         />
         <CategoryLabels plan={plan} />
-      </SeatMap.Viewport>
+      </SeatMapViewport>
       {place && size && (
         <PlaceTip
           plan={plan}

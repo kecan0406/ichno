@@ -73,7 +73,7 @@ import styles from './build-3d.module.css'
 
 type Editor = SeatPlanEditor<string>
 
-// What a press means to the editor — <SeatMap.Viewport>'s handlers, with plan points read off the floor.
+// What a press means to the editor — <SeatMapViewport>'s handlers, with plan points read off the floor.
 type Handlers = Pick<Editor['viewportProps'], 'canDrag' | 'onTargetDrag' | 'onDraw'> & {
   onTap(target: PlanTarget<string> | null, info: { point: PlanPoint | null; additive: boolean }): void
   onHover(point: PlanPoint | null, target: PlanTarget<string> | null, info?: { pixel: number }): void

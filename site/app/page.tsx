@@ -76,7 +76,12 @@ const ENTRY_POINTS = [
   {
     name: 'ichno/react',
     deps: 'react',
-    body: 'SeatMap parts that render on the server, plus a client Viewport for gestures.',
+    body: 'SeatMap parts that render on the server — a read-only plan ships no script.',
+  },
+  {
+    name: 'ichno/react/client',
+    deps: 'react',
+    body: 'SeatMapViewport for pan, zoom, taps and keys, and useSeatMapView for the controls around it.',
   },
   { name: 'ichno/editor', deps: 'react', body: 'useSeatPlanEditor — headless editor state and every edit operation.' },
 ]
@@ -85,17 +90,19 @@ const CODE: CodeTab[] = [
   {
     id: 'draw',
     title: 'Draw',
-    caption: 'A read-only map is a Server Component. Swap Root for Viewport to add pan, zoom, taps and keys.',
+    caption:
+      'A read-only map is a Server Component. Swap Root for the client viewport to add pan, zoom, taps and keys.',
     code: `import { SeatMap } from 'ichno/react'
+import { SeatMapViewport } from 'ichno/react/client'
 
-<SeatMap.Viewport plan={plan} onPlaceClick={(place) => toggle(place.id)}>
+<SeatMapViewport plan={plan} onPlaceClick={(place) => toggle(place.id)}>
   <SeatMap.Content
     plan={plan}
     status={{ A2: 'booked' }}   // your words, exposed as data-status
     selected={picked}
     sectionLabel={(section) => names[section.id]}
   />
-</SeatMap.Viewport>`,
+</SeatMapViewport>`,
   },
   {
     id: 'validate',
@@ -141,11 +148,11 @@ const row: EditorTool<'hall'> = {
   },
 }
 
-<SeatMap.Viewport {...editor.viewportProps} wheel="pan">
+<SeatMapViewport {...editor.viewportProps} wheel="pan">
   <SeatMap.Content plan={editor.displayPlan} selected={editor.selectedPlaceIds} invalid={editor.conflictIds} />
   {editor.draft && <SeatMap.Content plan={editor.draft} />}
   <SeatMap.Handles handles={editor.handles} frame={editor.frame} />
-</SeatMap.Viewport>
+</SeatMapViewport>
 
 <button onClick={() => editor.setTool(row)}>Row</button>
 <button disabled={!editor.dirty} onClick={() => save(editor.plan)}>Save</button>`,

@@ -2,7 +2,7 @@
 
 import { planView, type PlanRect, type PlanView, type SeatPlan } from 'ichno'
 import type { ViewControls } from 'ichno/editor'
-import type { SeatMapView } from 'ichno/react'
+import type { SeatMapView } from 'ichno/react/client'
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { METRE } from '../_lib/units'
 import type { BuildCamera, BuildControls, BuildView, Handoff } from './build-3d'

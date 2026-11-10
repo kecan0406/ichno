@@ -1,7 +1,7 @@
 import type { HandleOwner, PlanTarget } from '../core/types'
 
 // The handle, place, object, wall or section an element belongs to — the nearest part with an ichno data attribute,
-// or null. <SeatMap.Viewport> delegates its events by it; a context menu or a view of your own drawing the parts can
+// or null. <SeatMapViewport> delegates its events by it; a context menu or a view of your own drawing the parts can
 // read the same way.
 export function planTargetOf<S extends string = string>(element: EventTarget | null): PlanTarget<S> | null {
   if (!(element instanceof Element)) return null
