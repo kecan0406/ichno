@@ -5,7 +5,6 @@ import {
   planView,
   seatPlan,
   validateSelection,
-  type Fixture,
   type LintCode,
   type LintSeverity,
   type Place,
@@ -38,9 +37,9 @@ import {
   type MouseEvent,
 } from 'react'
 import { describe } from '../../_demo/messages'
-import { fixtureNames } from '../../_demo/plans'
 import { DEFAULT_LINT, PRESETS, checksOf, copyDocument, downloadDocument, type Workbench } from '../_lib/documents'
 import { rowHandles } from '../_lib/build'
+import { fixtureLabel, fixtureVariant } from '../_lib/fixtures'
 import { loadLibrary, newObjectId, saveLibrary, type SavedObject } from '../_lib/library'
 import {
   PIECE_FINE_TURN,
@@ -53,6 +52,7 @@ import {
 } from '../_lib/playground-objects'
 import { METRE, WALL_STEP } from '../_lib/units'
 import { AssetsPanel } from './assets'
+import { BookingPanel, type PickRules } from './booking'
 import type { BuildCamera, BuildControls, BuildView, Handoff } from './build-3d'
 import { CategoryLabels } from './category-labels'
 import { CanvasMenu, type CanvasMenuAt } from './context-menu'
@@ -66,7 +66,10 @@ import { Icon } from './icons'
 import { LayersPanel } from './layers'
 import { MenuButton, MenuItem, MenuSeparator } from './menu'
 import marks from './marks.module.css'
-import { ChecksPanel, ImportDialog, JsonPanel, PreviewPanel, type PickRules } from './panels'
+import { ChecksPanel, ImportDialog, JsonPanel } from './panels'
+import { Preview2D } from './preview-2d'
+import { PreviewTitle } from './preview-chrome'
+import preview from './preview.module.css'
 import { ShortcutsDialog } from './shortcuts'
 import { Toolbar } from './toolbar'
 import styles from './workspace.module.css'
@@ -215,7 +218,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const errorCount = checks.filter((check) => check.severity === 'error').length
   const bookedStatus = Object.fromEntries(booked.map((id) => [id, 'booked']))
   const places = seatPlan.placesOf(plan)
-  const guests = picked.reduce((sum, id) => sum + (places.find((place) => place.id === id)?.capacity ?? 0), 0)
   const pickIssues = validateSelection(plan, { selected: picked, unavailable: booked }, rules)
 
   // The tool in use as this site knows it — its name and hint — and, for an asset, what it places. The Wall is turned
@@ -501,6 +503,12 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     setPicked((current) =>
       current.includes(target.id) ? current.filter((id) => id !== target.id) : [...current, target.id],
     )
+  }
+
+  // The preview's Book button: what is picked becomes taken.
+  function bookPicked() {
+    setBooked((current) => [...new Set([...current, ...picked])])
+    setPicked([])
   }
 
   function loadPreset(id: string) {
@@ -889,37 +897,48 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
               </Gliding>
             )}
           </SeatMap.Viewport>
-        ) : threeD ? (
-          <Preview3D
-            plan={plan}
-            status={bookedStatus}
-            picked={picked}
-            isDisabled={(place) => picking === 'pick' && booked.includes(place.id)}
-            fixtureName={fixtureLabel}
-            onPlaceTap={previewTap}
-            fromAbove={fromAbove}
-          />
         ) : (
-          <SeatMap.Viewport
-            plan={plan}
-            {...map.viewProps}
-            onPlaceClick={previewTap}
-            className={styles.viewport}
-            aria-label="Seat plan preview"
-            aria-multiselectable
-          >
-            <SeatMap.Content
-              plan={plan}
-              status={bookedStatus}
-              selected={picked}
-              isDisabled={picking === 'book' ? never : undefined}
-              fixtureLabel={fixtureLabel}
-              fixtureVariant={fixtureVariant}
-            />
-            <CategoryLabels plan={plan} />
-          </SeatMap.Viewport>
+          <div className={preview.stage}>
+            {threeD ? (
+              <Preview3D
+                plan={plan}
+                status={bookedStatus}
+                picked={picked}
+                isDisabled={(place) => picking === 'pick' && booked.includes(place.id)}
+                onPlaceTap={previewTap}
+                fromAbove={fromAbove}
+              />
+            ) : (
+              <Preview2D
+                plan={plan}
+                map={map}
+                status={bookedStatus}
+                picked={picked}
+                bookable={picking === 'book'}
+                onPlaceTap={previewTap}
+              />
+            )}
+          </div>
         )}
 
+        {mode === 'preview' && (
+          <>
+            <PreviewTitle
+              name={initial.name}
+              free={places.filter((place) => !booked.includes(place.id)).length}
+              total={places.length}
+            />
+            <button
+              type="button"
+              className={`${controls.button} ${preview.edit}`}
+              title="Back to editing"
+              onClick={() => switchMode('edit')}
+            >
+              <Icon name="edit" size={14} />
+              Edit
+            </button>
+          </>
+        )}
         {mode === 'edit' && (editor.conflictIds.length > 0 || strayCount > 0) && (
           <p className={styles.conflicts} role="status">
             {[
@@ -998,10 +1017,10 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         )}
       </main>
 
-      <aside className={styles.right} aria-label={mode === 'edit' ? 'Properties' : 'Preview'}>
-        <div className={styles.head}>
-          {mode === 'edit' && (
-            <>
+      <aside className={styles.right} aria-label={mode === 'edit' ? 'Properties' : 'Your selection'}>
+        {mode === 'edit' ? (
+          <>
+            <div className={styles.head}>
               <button
                 type="button"
                 className={controls.iconButton}
@@ -1022,65 +1041,56 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
               >
                 <Icon name="redo" />
               </button>
-            </>
-          )}
-          <span className={styles.spacer} />
-          <button
-            type="button"
-            className={controls.button}
-            data-primary={mode === 'edit' || undefined}
-            title={mode === 'edit' ? 'See the plan as your customers would' : 'Back to editing'}
-            onClick={() => switchMode(mode === 'edit' ? 'preview' : 'edit')}
-          >
-            <Icon name={mode === 'edit' ? 'play' : 'edit'} size={14} />
-            {mode === 'edit' ? 'Preview' : 'Edit'}
-          </button>
-          {!threeD && (
-            <MenuButton
-              label="Zoom and view"
-              className={styles.zoom}
-              align="end"
-              button={
-                <>
-                  {Math.round(zoom.level * 100)}%
-                  <Icon name="chevronDown" size={12} />
-                </>
-              }
-            >
-              <MenuItem keys="+" disabled={!zoom.canZoomIn} onSelect={view.zoomIn}>
-                Zoom in
-              </MenuItem>
-              <MenuItem keys="−" disabled={!zoom.canZoomOut} onSelect={view.zoomOut}>
-                Zoom out
-              </MenuItem>
-              <MenuItem keys="⇧1" onSelect={view.fit}>
-                Zoom to fit
-              </MenuItem>
-              <MenuItem
-                keys="⇧2"
-                disabled={mode !== 'edit' || editor.selection.length === 0}
-                onSelect={() => view.zoomTo(editor.selectionBounds)}
+              <span className={styles.spacer} />
+              <button
+                type="button"
+                className={controls.button}
+                data-primary=""
+                title="See the plan as your customers would"
+                onClick={() => switchMode('preview')}
               >
-                Zoom to selection
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem onSelect={() => zoomToLevel(2)}>Zoom to 200%</MenuItem>
-              <MenuItem onSelect={() => zoomToLevel(4)}>Zoom to 400%</MenuItem>
-              <MenuSeparator />
-              {mode === 'edit' && (
+                <Icon name="play" size={14} />
+                Preview
+              </button>
+              <MenuButton
+                label="Zoom and view"
+                className={styles.zoom}
+                align="end"
+                button={
+                  <>
+                    {Math.round(zoom.level * 100)}%
+                    <Icon name="chevronDown" size={12} />
+                  </>
+                }
+              >
+                <MenuItem keys="+" disabled={!zoom.canZoomIn} onSelect={view.zoomIn}>
+                  Zoom in
+                </MenuItem>
+                <MenuItem keys="−" disabled={!zoom.canZoomOut} onSelect={view.zoomOut}>
+                  Zoom out
+                </MenuItem>
+                <MenuItem keys="⇧1" onSelect={view.fit}>
+                  Zoom to fit
+                </MenuItem>
+                <MenuItem
+                  keys="⇧2"
+                  disabled={editor.selection.length === 0}
+                  onSelect={() => view.zoomTo(editor.selectionBounds)}
+                >
+                  Zoom to selection
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem onSelect={() => zoomToLevel(2)}>Zoom to 200%</MenuItem>
+                <MenuItem onSelect={() => zoomToLevel(4)}>Zoom to 400%</MenuItem>
+                <MenuSeparator />
                 <MenuItem checked={snapping} onSelect={() => setSnapping((on) => !on)}>
                   Snap to the grid
                 </MenuItem>
-              )}
-              <MenuItem keys="⌘\" onSelect={panels.toggle}>
-                Hide panels
-              </MenuItem>
-            </MenuButton>
-          )}
-        </div>
-
-        {mode === 'edit' ? (
-          <>
+                <MenuItem keys="⌘\" onSelect={panels.toggle}>
+                  Hide panels
+                </MenuItem>
+              </MenuButton>
+            </div>
             <div className={controls.tabs} role="tablist" aria-label="Right panel">
               <button
                 type="button"
@@ -1137,21 +1147,21 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
             </div>
           </>
         ) : (
-          <div className={styles.tabPanel}>
-            <PreviewPanel
-              plan={plan}
-              threeD={threeD}
-              picking={picking}
-              onPickingChange={setPicking}
-              rules={rules}
-              onRulesChange={setRules}
-              picked={picked}
-              guests={guests}
-              issues={picked.length > 0 ? pickIssues : []}
-              booked={booked}
-              onClear={() => setPicked([])}
-            />
-          </div>
+          <BookingPanel
+            plan={plan}
+            threeD={threeD}
+            picked={picked}
+            booked={booked}
+            issues={picked.length > 0 ? pickIssues : []}
+            rules={rules}
+            onRulesChange={setRules}
+            picking={picking}
+            onPickingChange={setPicking}
+            onRemove={(id) => setPicked((current) => current.filter((other) => other !== id))}
+            onClear={() => setPicked([])}
+            onBook={bookPicked}
+            onFree={() => setBooked([])}
+          />
         )}
         <Resizer
           side="right"
@@ -1236,17 +1246,6 @@ function edgeToward(from: PlanPoint, toward: PlanPoint | null, length: number): 
     toward === null ? 0 : Math.round(Math.atan2(toward.y - from.y, toward.x - from.x) / EDGE_STEP) * EDGE_STEP
 
   return { x: Math.round(from.x + Math.cos(angle) * length), y: Math.round(from.y + Math.sin(angle) * length) }
-}
-
-// Loose fixtures are named; the furniture in a group (chairs, table tops) goes unlabelled.
-function fixtureLabel(fixture: Fixture): string | null {
-  if (fixture.group !== undefined || fixture.role === undefined) return null
-
-  return fixtureNames.get(fixture.role) ?? fixture.role
-}
-
-function fixtureVariant(fixture: Fixture): 'box' | 'wall' {
-  return fixture.role === 'wall' ? 'wall' : 'box'
 }
 
 // The editor snaps to the site's 50-unit cells (half a metre) when Snap is on — walls to whole metres.

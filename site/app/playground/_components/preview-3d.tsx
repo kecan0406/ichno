@@ -1,8 +1,8 @@
 'use client'
 
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, type RootState } from '@react-three/fiber'
 import CameraControls from 'camera-controls'
-import { seatPlan, type Fixture, type Place, type SeatPlan } from 'ichno'
+import { seatPlan, type Place, type SeatPlan } from 'ichno'
 import { useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react'
 import {
   Box3,
@@ -17,7 +17,11 @@ import {
   Vector3,
   Vector4,
 } from 'three'
+import { describe } from '../../_demo/messages'
+import { categoryNameOf, categoryWritingOf } from '../_lib/category-labels'
+import { fixtureLabel } from '../_lib/fixtures'
 import {
+  HEIGHT,
   WALL_CUT,
   WALL_HEIGHT,
   overviewOf,
@@ -42,8 +46,8 @@ import {
   type Palette,
   type Solid,
 } from './drawing-3d'
-import { categoryWritingOf } from '../_lib/category-labels'
 import { LIFT, useLifted } from './lifting'
+import { PlaceTip, ZoomButtons, type TipAt } from './preview-chrome'
 import ui from './controls.module.css'
 import styles from './preview-3d.module.css'
 
@@ -60,7 +64,6 @@ export type Preview3DProps = {
   status: Record<string, string>
   picked: readonly string[]
   isDisabled(place: Place<string>): boolean
-  fixtureName(fixture: Fixture): string | null
   onPlaceTap(place: Place<string>): void
   // Opened from the 2D plan: the camera starts straight above it and comes down to its corner.
   fromAbove: boolean
@@ -74,13 +77,16 @@ export default function Preview3D(props: Preview3DProps) {
   // The place tapped last — the card offers the view from it — and the place being looked from.
   const [focus, setFocus] = useState<string | null>(null)
   const [viewing, setViewing] = useState<string | null>(null)
-  const [hovered, setHovered] = useState<string | null>(null)
+  // The place under the pointer, and where its top shows in the view — what the tip points at.
+  const [pointed, setPointed] = useState<Pointed | null>(null)
   const [failed, setFailed] = useState(false)
+  const hovered = pointed?.id ?? null
 
   const pieces = piecesOf(plan)
   const overview = overviewOf(plan, pieces)
   const sight = viewing === null ? null : sightFrom(plan, pieces, viewing)
   const focused = pieces.find((piece) => piece.id === (viewing ?? focus))?.place ?? null
+  const tipped = pointed === null ? null : (pieces.find((piece) => piece.id === pointed.id)?.place ?? null)
 
   // A place that went away (an undo) takes its card and its view with it.
   useEffect(() => {
@@ -131,10 +137,7 @@ export default function Preview3D(props: Preview3DProps) {
     else if (controlsRef.current) flyOver(controlsRef.current, overview, true)
   }
 
-  const status =
-    viewing !== null
-      ? 'Drag to look around, scroll or pinch to zoom. Esc goes back.'
-      : 'Drag to orbit, right-drag or two fingers to pan, scroll or pinch to zoom. Tap a place to pick it.'
+  const hint = viewing !== null ? 'Drag to look around · Esc goes back' : 'Drag to orbit · scroll or pinch to zoom'
 
   return (
     <div
@@ -167,8 +170,7 @@ export default function Preview3D(props: Preview3DProps) {
                 hovered={hovered}
                 marked={viewing === null ? focus : null}
                 isDisabled={props.isDisabled}
-                fixtureName={props.fixtureName}
-                onHover={setHovered}
+                onHover={(next) => setPointed((current) => (samePointed(current, next) ? current : next))}
                 onTap={tap}
               />
             )}
@@ -183,11 +185,25 @@ export default function Preview3D(props: Preview3DProps) {
         </Fallback>
       )}
 
-      {focused && (
+      {tipped && pointed && viewing === null && (
+        <PlaceTip
+          plan={plan}
+          place={tipped}
+          state={props.picked.includes(tipped.id) ? 'picked' : 'available'}
+          at={pointed.at}
+        />
+      )}
+
+      {/* The place tapped last — the view from it is a button away — or, with none, how the view is moved. */}
+      {focused ? (
         <div className={styles.seatCard} aria-live="polite">
           <div>
-            <strong>{focused.label ?? focused.id}</strong>
-            <span>{[focused.role, props.status[focused.id]].filter(Boolean).join(' · ')}</span>
+            <strong>{describe(plan, focused.id)}</strong>
+            <span>
+              {[focused.category === undefined ? null : categoryNameOf(focused.category), props.status[focused.id]]
+                .filter(Boolean)
+                .join(' · ') || 'Place'}
+            </span>
           </div>
           {viewing === null ? (
             <button type="button" className={ui.button} onClick={() => setViewing(focused.id)}>
@@ -199,45 +215,38 @@ export default function Preview3D(props: Preview3DProps) {
             </button>
           )}
         </div>
+      ) : (
+        <p className={styles.status}>{hint}</p>
       )}
-
-      <div className={styles.status} aria-live="polite">
-        {status}
-      </div>
-      <div className={styles.zoom}>
-        <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(-1)}>
-          −
-        </button>
-        <button
-          type="button"
-          className={styles.zoomLevel}
-          title={viewing === null ? 'Back to the whole plan' : 'Back to the overview (Esc)'}
-          onClick={home}
-        >
-          {viewing === null ? 'Fit' : 'Overview'}
-        </button>
-        <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1)}>
-          +
-        </button>
-      </div>
+      <ZoomButtons
+        onIn={() => zoom(1)}
+        onOut={() => zoom(-1)}
+        onFit={home}
+        fit={viewing === null ? 'Fit' : 'Overview'}
+        fitTitle={viewing === null ? 'Back to the whole plan' : 'Back to the overview (Esc)'}
+      />
     </div>
   )
 }
 
 // ---------- Scene ----------
 
-type SceneProps = Pick<Preview3DProps, 'plan' | 'picked' | 'isDisabled' | 'fixtureName'> & {
+// The place under the pointer and where the top of it shows, in the view's pixels.
+type Pointed = { id: string; at: TipAt }
+
+type SceneProps = Pick<Preview3DProps, 'plan' | 'picked' | 'isDisabled'> & {
   pieces: Piece[]
   overview: Overview
   palette: Palette
   hovered: string | null
   // The place the card is about, ringed on the floor.
   marked: string | null
-  onHover(id: string | null): void
+  onHover(pointed: Pointed | null): void
   onTap(place: Place<string>): void
 }
 
-function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props }: SceneProps) {
+function Scene({ plan, pieces, overview, palette, marked, ...props }: SceneProps) {
+  const get = useThree((state) => state.get)
   const reach = overview.radius
   const mark = marked === null ? undefined : pieces.find((piece) => piece.id === marked)
   const overhead = useOverhead()
@@ -290,14 +299,17 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
       <Solids
         solids={solids}
         palette={palette}
-        onHover={(solid) => props.onHover(placeOf(solid, places, props.isDisabled)?.id ?? null)}
+        onHover={(solid) => {
+          const place = placeOf(solid, places, props.isDisabled)
+          props.onHover(place && solid ? { id: place.id, at: topOf(solid, get()) } : null)
+        }}
         onTap={(solid) => {
           const place = placeOf(solid, places, props.isDisabled)
 
           if (place) props.onTap(place)
         }}
       />
-      {[...writingOf(plan, pieces, fixtureName), ...categoryWritingOf(plan)].map((writing, i) =>
+      {[...writingOf(plan, pieces, fixtureLabel), ...categoryWritingOf(plan)].map((writing, i) =>
         writing.overhead && !overhead ? null : (
           <Text
             key={i}
@@ -331,6 +343,21 @@ function lookOf(
   return hovered === place.id
     ? { fill: palette.solid, line: 'edge', dash: true, march: true }
     : { fill: palette.solid, line: 'edge' }
+}
+
+// Where the top of a solid shows in the view, in its pixels — what a tip points at.
+function topOf(solid: Solid, state: RootState): TipAt {
+  const height = solid.model === 'wall' ? (solid.h ?? 0) : HEIGHT[solid.model]
+  const top = TOP.set(solid.x, height + (solid.lift ?? 0), solid.z).project(state.camera)
+
+  return { x: ((top.x + 1) / 2) * state.size.width, y: ((1 - top.y) / 2) * state.size.height }
+}
+
+// Whether the pointer is still on the same place, its tip where it was to within half a pixel.
+function samePointed(a: Pointed | null, b: Pointed | null): boolean {
+  if (a === null || b === null) return a === b
+
+  return a.id === b.id && Math.abs(a.at.x - b.at.x) < 0.5 && Math.abs(a.at.y - b.at.y) < 0.5
 }
 
 // The place a solid stands for, when it can be picked.
@@ -569,3 +596,5 @@ const LENS_STEP = 0.5
 const WAKE_EVENTS = ['control', 'transitionstart', 'update', 'wake'] as const
 
 const RING = new RingGeometry(0.86, 1, 48)
+
+const TOP = new Vector3()

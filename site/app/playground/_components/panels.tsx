@@ -1,15 +1,14 @@
 'use client'
 
-import type { LintCode, LintSeverity, SeatPlan, SelectionIssue } from 'ichno'
+import type { LintCode, LintSeverity, SeatPlan } from 'ichno'
 import { useRef, useState } from 'react'
-import { selectionIssueKey, selectionIssueText } from '../../_demo/messages'
 import { copyDocument, downloadDocument, jsonOf, parseDocument, type Check } from '../_lib/documents'
 import controls from './controls.module.css'
-import { NumberField, Section, Segmented, Toggle } from './fields'
+import { Section } from './fields'
 import styles from './panels.module.css'
 
-// The right-hand panels besides Design — what the schema and the lint rules say (Checks), the stored document
-// (JSON), the customer preview's settings — and the import dialog.
+// The right-hand panels besides Design — what the schema and the lint rules say (Checks) and the stored document
+// (JSON) — and the import dialog.
 
 // The section rules are left out: the playground's section is the whole plan, which it never shows.
 const LINT_RULES: { code: LintCode; name: string }[] = [
@@ -122,118 +121,6 @@ export function JsonPanel({ plan, name, onImport }: { plan: SeatPlan<string>; na
         <code>{json}</code>
       </pre>
     </div>
-  )
-}
-
-export type PickRules = { max: number; consecutive: boolean; noOrphans: boolean }
-
-export function PreviewPanel({
-  plan,
-  threeD,
-  picking,
-  onPickingChange,
-  rules,
-  onRulesChange,
-  picked,
-  guests,
-  issues,
-  booked,
-  onClear,
-}: {
-  plan: SeatPlan<string>
-  threeD: boolean
-  picking: 'pick' | 'book'
-  onPickingChange(next: 'pick' | 'book'): void
-  rules: PickRules
-  onRulesChange(next: PickRules): void
-  picked: readonly string[]
-  guests: number
-  issues: SelectionIssue[]
-  booked: readonly string[]
-  onClear(): void
-}) {
-  return (
-    <>
-      <Section title="Preview">
-        <p className={controls.hint}>
-          The plan as your customers would see it. Booked places stay booked in the editor too — they become its{' '}
-          <code>lockedIds</code>, so what holds them cannot be deleted.
-        </p>
-        {threeD && (
-          <p className={controls.hint}>
-            The 3D view is this playground’s own, built with three.js from the same document. ichno stores footprints
-            only — heights, which way chairs face and the furniture are the playground’s reading of its roles.
-          </p>
-        )}
-        <Segmented
-          label="A tap"
-          value={picking}
-          options={[
-            { value: 'pick', label: 'Picks it' },
-            { value: 'book', label: 'Books it' },
-          ]}
-          onChange={onPickingChange}
-        />
-      </Section>
-      <Section title="Selection rules">
-        <div className={controls.row}>
-          <span className={controls.rowLabel}>At most</span>
-          <NumberField
-            icon="#"
-            label="At most"
-            value={rules.max}
-            min={1}
-            max={50}
-            onCommit={(max) => onRulesChange({ ...rules, max })}
-          />
-        </div>
-        <Toggle
-          label="Seats side by side in one row"
-          checked={rules.consecutive}
-          onChange={(consecutive) => onRulesChange({ ...rules, consecutive })}
-        />
-        <Toggle
-          label="Leave no seat stranded"
-          checked={rules.noOrphans}
-          onChange={(noOrphans) => onRulesChange({ ...rules, noOrphans })}
-        />
-      </Section>
-      <Section
-        title="Picked"
-        actions={
-          picked.length > 0 && (
-            <button type="button" className={controls.button} onClick={onClear}>
-              Clear
-            </button>
-          )
-        }
-      >
-        {picked.length === 0 ? (
-          <p className={controls.hint}>Nothing picked yet — tap a place.</p>
-        ) : (
-          <>
-            <p className={styles.summary}>
-              {picked.length} {picked.length === 1 ? 'place' : 'places'} · {guests} {guests === 1 ? 'guest' : 'guests'}
-            </p>
-            {issues.length === 0 ? (
-              <p className={styles.verdict} data-state="ok">
-                This selection passes every rule.
-              </p>
-            ) : (
-              <ul className={styles.checks}>
-                {issues.map((issue) => (
-                  <li key={selectionIssueKey(issue)} className={styles.check} data-severity="warning">
-                    <span className={styles.dot} />
-                    {selectionIssueText(plan, issue)}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-        <p className={controls.hint}>{booked.length} booked</p>
-      </Section>
-    </>
   )
 }
 

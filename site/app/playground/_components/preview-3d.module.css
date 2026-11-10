@@ -22,21 +22,22 @@
   text-align: center;
 }
 
-/* The place tapped last, and the view from it. */
+/* The place tapped last, and the view from it — bottom left, where the hint is until something is tapped. */
 .seatCard {
   position: absolute;
-  top: 12px;
+  bottom: 12px;
   left: 12px;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: calc(100% - 140px);
+  max-width: calc(100% - 160px);
   padding: 8px 8px 8px 14px;
   border: 1px solid var(--theme-border);
   border-radius: 12px;
   background: color-mix(in srgb, var(--theme-surface) 92%, transparent);
   backdrop-filter: blur(8px);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-fg) 10%, transparent);
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 12%, transparent);
 }
 
 .seatCard div {
@@ -46,7 +47,10 @@
 }
 
 .seatCard strong {
-  font-size: 14px;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .seatCard span {
@@ -57,64 +61,26 @@
   white-space: nowrap;
 }
 
+/* How the view is moved — written on the canvas, in its own ink. */
 .status {
   position: absolute;
-  bottom: 12px;
-  left: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  max-width: calc(100% - 250px);
-  padding: 6px 12px;
-  border: 1px solid var(--theme-border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-surface) 88%, transparent);
-  backdrop-filter: blur(8px);
-  color: var(--theme-muted);
+  bottom: 18px;
+  left: 20px;
+  margin: 0;
+  color: var(--plan-text);
   font-size: 12px;
+  opacity: 0.75;
   pointer-events: none;
 }
 
-.zoom {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  display: flex;
-  gap: 4px;
-}
-
-.zoom button {
-  display: inline-grid;
-  place-items: center;
-  min-width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--theme-border);
-  border-radius: 8px;
-  background: var(--theme-surface);
-  color: inherit;
-  font-size: 15px;
-  cursor: pointer;
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-fg) 10%, transparent);
-}
-
-.zoom button:hover {
-  background: var(--theme-subtle);
-}
-
-.zoom .zoomLevel {
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 @media (max-width: 860px) {
-  /* The 3D view's hint is longer — above the camera buttons, across the view. */
-  .status {
+  .seatCard {
     right: 12px;
-    bottom: 56px;
+    bottom: 52px;
     max-width: none;
-    border-radius: 8px;
+  }
+
+  .status {
+    display: none;
   }
 }

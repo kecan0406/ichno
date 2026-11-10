@@ -359,6 +359,17 @@ one.
     editing as one implementation.
 15. **Preview** — the booking screen in the reference look, the 3D preview in it too. Needs only the viewer, so it can
     start once the look is confirmed.
+
+    _Built_, after the boards the maintainer confirmed (a title, a legend, what the pointer is on, the picks, the
+    zoom): over the plan, its name with how many places are free, a legend and the zoom; a tip above the place under
+    the pointer, in 2D and 3D; beside the plan, the picks by name with what `validateSelection` says of them, and a
+    Book button that makes them taken — and so locked in the editor. The playground's own switches (the rules, a tap
+    that books) fold away under the picks. ichno gained one function for it, `planView.toScreen`, the anchor the tip
+    is placed by; the legend, the tip and the panel are the site's. **Proposals:** the legend lists only what the
+    plan paints differently — available, picked, taken; the boards' "Accessible" is left to the category labels,
+    since categories are read from labels now. On a narrow screen the picks are a sheet at the bottom that shows the
+    total and the button and opens for the rest — the simplest sheet, not on the boards.
+
 16. **Editor** — the playground's workspace split by feature, its state in a store, its canvas in the same look.
 17. **Release 0.3.**
 

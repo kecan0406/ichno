@@ -1,0 +1,208 @@
+/* The preview as a booking screen — what the playground lays over the plan. The canvas keeps its own colours
+   whatever the theme (the `--plan-*` tokens), so what is written straight on it does too; the cards floating over it
+   are the page's. */
+
+/* The plan, under a band of the canvas kept for its name and the legend — so neither ever lies over a wall. */
+.stage {
+  position: absolute;
+  inset: 88px 0 0;
+}
+
+.plan {
+  position: absolute;
+  inset: 0;
+}
+
+.viewport {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The plan's name, how much of it is free and the legend — written on the canvas, top left. */
+.title {
+  position: absolute;
+  top: 16px;
+  left: 20px;
+  z-index: 2;
+  display: grid;
+  gap: 4px;
+  max-width: calc(100% - 220px);
+  color: var(--plan-text);
+  pointer-events: none;
+}
+
+.title h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+  letter-spacing: -0.02em;
+}
+
+.title h2 strong {
+  font-weight: 800;
+}
+
+.title p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  opacity: 0.8;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  list-style: none;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A swatch is painted the way the plan paints a place in that state (workspace.module.css, globals.css). */
+.swatch {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--plan-edge);
+  border-radius: 3px;
+  background: var(--plan-solid);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--plan-text) 20%, transparent);
+}
+
+.swatch[data-tone='picked'] {
+  background: var(--plan-accent);
+}
+
+.swatch[data-tone='taken'] {
+  border: 1px dashed var(--plan-text);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* What the pointer is on — above the place, or under it near the top of the view. It comes in the way Base UI's
+   tooltip does (100 ms ease-out from 98% and clear) and moves from place to place at once. */
+.tip {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  gap: 1px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #1c1c21 92%, transparent);
+  color: #f2f2f4;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  translate: -50% calc(-100% - 10px);
+  transform-origin: 50% 100%;
+  pointer-events: none;
+  transition:
+    opacity 0.1s ease-out,
+    scale 0.1s ease-out;
+
+  @starting-style {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+
+.tip[data-side='bottom'] {
+  translate: -50% 10px;
+  transform-origin: 50% 0;
+}
+
+.tip strong {
+  font-weight: 600;
+}
+
+.tip span {
+  color: color-mix(in srgb, #f2f2f4 72%, transparent);
+}
+
+.tip span[data-state='taken'] {
+  color: color-mix(in srgb, var(--theme-warning) 70%, #f2f2f4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip {
+    transition: none;
+  }
+}
+
+/* The zoom — bottom right, over the plan. */
+.zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+
+.zoom button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-surface);
+  color: var(--theme-fg);
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 12%, transparent);
+}
+
+.zoom button:hover:not(:disabled) {
+  background: var(--theme-subtle);
+}
+
+.zoom button:disabled {
+  color: var(--theme-muted);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.zoom .zoomFit {
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Back to editing — beside the 2D / 3D switch. */
+.edit {
+  position: absolute;
+  top: 12px;
+  right: 132px;
+  z-index: 2;
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 12%, transparent);
+}
+
+@media (max-width: 860px) {
+  /* The name and the legend go under the switches. */
+  .stage {
+    inset: 136px 0 0;
+  }
+
+  .title {
+    top: 56px;
+    left: 16px;
+    max-width: calc(100% - 32px);
+  }
+
+  .title h2 {
+    font-size: 17px;
+  }
+}
