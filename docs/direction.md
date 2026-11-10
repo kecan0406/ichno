@@ -344,7 +344,9 @@ one.
     camera moves) and draws ichno's own `SeatMap.EditorOverlay` inside it — the selection's frame, the handles, smart
     guides, a tool's stroke — as the 2D canvas does, with lengths written level beside what they measure. Handles are
     DOM elements, so they take the pointer and keep their cursors; nothing was rewritten for WebGL. What it costs: the
-    overlay is drawn over everything, so a frame shows through what stands in front of it. The first load shows the
+    overlay is drawn over everything, so a frame shows through what stands in front of it. Measured against the WebGL
+    outlines it replaces, with 5,000 seats in 50 rows all selected: a step of a pan 83 / 85 ms before and 67 / 67
+    after (p50 / p95; 67 with nothing selected), a quarter turn at 17 ms a frame either way. The first load shows the
     2D plan (drawn on the server) until three.js is there, then hands over with the switch's camera move — which
     leans on the 2D ↔ 3D hand-over, itself still to be confirmed.
 

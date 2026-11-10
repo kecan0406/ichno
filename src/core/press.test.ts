@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { IDLE_PRESS, press, type PressEnv, type PressKeys, type PressPointer } from './press'
+import { IDLE_PRESS, press, type PressEnv, type PressEvent, type PressKeys, type PressPointer } from './press'
 import type { PlanTarget } from './types'
 
 const NO_KEYS: PressKeys = { constrain: false, fromCenter: false, free: false }
@@ -82,5 +82,76 @@ describe('press — what a press does', () => {
     expect(modeOf(SEAT, { keys: { constrain: true } }).additive).toBe(true)
     expect(modeOf(SEAT, { keys: { free: true } }).additive).toBe(true)
     expect(modeOf(SEAT, { keys: { fromCenter: true } }).additive).toBe(false)
+  })
+})
+
+describe('press — a press under way', () => {
+  // Each event as `type:phase` — a drag's phase is on the drag it carries.
+  const kinds = (events: readonly PressEvent[]) =>
+    events.map((event) => {
+      if (event.type === 'drag') return `drag:${event.drag.phase}`
+
+      return 'phase' in event ? `${event.type}:${event.phase}` : event.type
+    })
+
+  it('drops a stroke when a second finger lands, and pinches from there', () => {
+    const env = envOf({ draws: true })
+    const finger = { type: 'touch' }
+    const pressed = press.down(IDLE_PRESS, pointerOf(finger), null, NO_KEYS, env).state
+    const drawing = press.move(pressed, pointerOf({ ...finger, x: 60, y: 10 }), NO_KEYS, env)
+    expect(kinds(drawing.events)).toEqual(['draw:start', 'hold', 'draw:move'])
+
+    const second = press.down(drawing.state, pointerOf({ ...finger, id: 2, x: 90, y: 90 }), null, NO_KEYS, env)
+    // The stroke makes nothing: cancelled, never ended.
+    expect(kinds(second.events)).toContain('draw:cancel')
+    expect(kinds(second.events)).not.toContain('draw:end')
+    expect(second.state.gesture.kind).toBe('pinching')
+    expect(second.state.touches).toEqual([1, 2])
+
+    const pinched = press.move(second.state, pointerOf({ ...finger, id: 2, x: 120, y: 120 }), NO_KEYS, env)
+    expect(kinds(pinched.events)).toEqual(['pinch'])
+  })
+
+  it('reports a drag again where the pointer is when the view moves under it', () => {
+    const dragging = press.move(
+      press.down(IDLE_PRESS, pointerOf(), SEAT, NO_KEYS, envOf()).state,
+      pointerOf({ x: 30, y: 10 }),
+      NO_KEYS,
+      envOf(),
+    )
+
+    expect(dragging.events.at(-1)).toMatchObject({ type: 'drag', drag: { phase: 'move', total: { x: 20, y: 0 } } })
+
+    // The view scrolled a hundred units: the same pixel is over another plan point, and the drag follows it.
+    const scrolled = envOf({ toPlan: (point) => ({ x: point.x + 100, y: point.y }) })
+    expect(press.restate(dragging.state, scrolled)).toMatchObject([
+      { type: 'drag', drag: { target: SEAT, phase: 'move', total: { x: 120, y: 0 } } },
+    ])
+    // A changed key says the same, shaped by the key.
+    const constrained = press.keys(dragging.state, { ...NO_KEYS, constrain: true }, envOf())
+    expect(constrained.events).toMatchObject([{ type: 'drag', drag: { phase: 'move', constrain: true } }])
+  })
+
+  it('ends a mouse drag whose release never arrived, the next time the mouse moves with no button held', () => {
+    const dragging = press.move(
+      press.down(IDLE_PRESS, pointerOf(), SEAT, NO_KEYS, envOf()).state,
+      pointerOf({ x: 30, y: 10 }),
+      NO_KEYS,
+      envOf(),
+    )
+
+    const lost = press.move(dragging.state, pointerOf({ x: 50, y: 10, buttons: 0 }), NO_KEYS, envOf())
+    expect(kinds(lost.events)).toEqual(['drag:end', 'hold'])
+    expect(lost.state.gesture.kind).toBe('idle')
+
+    // A finger has no buttons to read — its move is a move.
+    const finger = press.move(
+      press.down(IDLE_PRESS, pointerOf({ type: 'touch' }), SEAT, NO_KEYS, envOf()).state,
+      pointerOf({ type: 'touch', x: 30, y: 10, buttons: 0 }),
+      NO_KEYS,
+      envOf(),
+    )
+
+    expect(finger.state.gesture.kind).toBe('dragging')
   })
 })
