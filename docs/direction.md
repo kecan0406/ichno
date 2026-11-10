@@ -322,15 +322,36 @@ replace the namespace objects (`SeatMap`, `seatPlan`, `planEdits`), which change
 hidden.
 
 Proposed phases, not yet reviewed by the maintainer — each would end with `pnpm check`, the site's build and the
-sizes above measured again:
+sizes above measured again. On 2026-11-11 the maintainer asked for them to be carried out as far as they go without
+further questions and brought back for one confirmation; what is marked _built_ below is on the `restructure` branch,
+checked, and waiting for that — where building it meant choosing between options, the choice is a proposal, named as
+one.
 
 11. **Look** — the playground's canvases in the reference look: the site's CSS for the 2D parts, palette roles of
     their own for the three.js views (object faces, their edges, the floor, lettering, the selection), the same in
     the dark theme; the corner view first; motion when the plan changes.
     Handles, dimensions and guides in the corner view follow — in WebGL, since three.js stays; proposed to come
     after phase 12, when the corner view no longer carries its own copy of what a press means.
+
+    _Built_ (look and motion on `main`, the rest on `restructure`). **Proposal, not the WebGL the Corner view row
+    names:** what the editor draws over the plan is an SVG layer over the canvas. The corner view's camera is
+    orthographic, so the floor maps to the screen with one matrix; the layer carries that matrix (written whenever the
+    camera moves) and draws ichno's own `SeatMap.EditorOverlay` inside it — the selection's frame, the handles, smart
+    guides, a tool's stroke — as the 2D canvas does, with lengths written level beside what they measure. Handles are
+    DOM elements, so they take the pointer and keep their cursors; nothing was rewritten for WebGL. What it costs: the
+    overlay is drawn over everything, so a frame shows through what stands in front of it. The first load shows the
+    2D plan (drawn on the server) until three.js is there, then hands over with the switch's camera move — which
+    leans on the 2D ↔ 3D hand-over, itself still to be confirmed.
+
 12. **Interaction in core** — what a press means, the modifier keys and edge scrolling as pure functions beside
     `gesture`; a renderer hit-tests, converts coordinates and passes the press on.
+
+    _Built._ `press` and `edgeScroll` in `src/core/press.ts`: the view passes its own `toPlan` and how many plan units
+    a pixel spans, and gets taps, drags, marquees, strokes, pans and pinches back. `SeatMap.Viewport` (994 → 742
+    lines) and the playground's 3D editor both run on it, so the 3D editor gained what only the viewport had — smart
+    guides and merge distances measured in screen pixels, ⌘/Ctrl letting go of guides, a release lost to a menu
+    ending the press, edge scrolling — and kept what is its own: a marquee that is a box on the screen, and the Hand.
+
 13. **Editor store** — history, selection, press, tool and hover as one state with a reducer, tested without React;
     selectors memoized on their inputs replace the `'use memo'` hooks; `useSeatPlanEditor` becomes a thin binding and
     its 83 members are grouped.

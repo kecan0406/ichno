@@ -147,9 +147,8 @@ const LIGHT_FROM = new Vector3(0.25, 1, 0.45)
 export type Ink = 'ink' | 'edge' | 'label' | 'warning' | 'grid'
 
 // How a solid is drawn: its faces' colour (null for none — only its edges), its edges' ink, dashed or solid, and
-// whether the dashes march (as the 2D view's outlines do under the pointer and round the selection). `flat` is the
-// colour the 2D view paints it where that differs — the faces turn to it as the camera looks straight down.
-export type Look = { fill: Color | null; line: Ink; dash?: boolean; march?: boolean; flat?: Color }
+// whether the dashes march (as the 2D view's outlines do under the pointer and round the selection).
+export type Look = { fill: Color | null; line: Ink; dash?: boolean; march?: boolean }
 
 // Something standing on the floor: a model on a footprint centred at (x, z), `w` across and `d` along the way it
 // faces, turned by `yaw` radians about the vertical; `h` stretches it upward (walls). `target` is what a tap on it
@@ -239,10 +238,6 @@ function Faces({
   const invalidate = useThree((state) => state.invalidate)
   const first = solids[0]!
 
-  // How far the faces have turned to their 2D paint, as last painted.
-  const down = useRef(0)
-  const turns = solids.some((solid) => solid.look.flat !== undefined)
-
   useLayoutEffect(() => {
     const mesh = ref.current
 
@@ -250,20 +245,11 @@ function Faces({
     drawn.current = solids
     solids.forEach((solid, i) => mesh.setMatrixAt(i, matrixOf(solid)))
     mesh.instanceMatrix.needsUpdate = true
-    paintFaces(mesh, solids, down.current)
+    solids.forEach((solid, i) => mesh.setColorAt(i, solid.look.fill!))
+
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
     mesh.computeBoundingSphere()
     invalidate()
-  })
-
-  useFrame((state) => {
-    const mesh = ref.current
-
-    if (!mesh || !turns) return
-    const now = downOf(state.camera)
-
-    if (Math.abs(now - down.current) < 0.001) return
-    down.current = now
-    paintFaces(mesh, solids, now)
   })
 
   useEffect(() => {
@@ -306,17 +292,6 @@ function Faces({
       }
     />
   )
-}
-
-// Each solid's colour, `down` of the way to its 2D paint.
-function paintFaces(mesh: InstancedMesh, solids: readonly Solid[], down: number) {
-  solids.forEach((solid, i) => mesh.setColorAt(i, paintOf(solid.look.fill!, solid.look.flat, down)))
-
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-}
-
-function paintOf(fill: Color, flat: Color | undefined, down: number): Color {
-  return flat === undefined || down === 0 ? fill : PAINT.copy(fill).lerp(flat, down)
 }
 
 // The edges of solids sharing a look — the folds of their models, fixed to them, and the outline of their round
@@ -708,22 +683,7 @@ export function reducedMotion(): boolean {
 
 // A room's floor in the surface colour, unlit so it matches the 2D floor. Rooms are found from the walls, so a floor
 // is nothing to pick.
-export function Floor({
-  points,
-  color,
-  flat,
-}: {
-  points: readonly PlanPoint[]
-  color: Color
-  // The 2D view's paint, which the floor turns to as the camera looks straight down.
-  flat?: Color
-}) {
-  const ref = useRef<PaintedMesh>(null)
-  useFrame((state) => {
-    const mesh = ref.current
-
-    if (mesh && flat) paintFloor(mesh, color, flat, downOf(state.camera))
-  })
+export function Floor({ points, color }: { points: readonly PlanPoint[]; color: Color }) {
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null)
   useEffect(() => {
     // Drawn in x and −y, then laid down: y becomes z and the face looks up.
@@ -736,18 +696,14 @@ export function Floor({
   if (!geometry) return null
 
   return (
-    <mesh ref={ref} geometry={geometry}>
+    <mesh geometry={geometry}>
       <meshBasicMaterial color={color} polygonOffset polygonOffsetFactor={2} polygonOffsetUnits={2} />
     </mesh>
   )
 }
 
-// A mesh with one plain material — the floors and the texts.
+// A mesh with one plain material — a text.
 type PaintedMesh = Mesh<BufferGeometry, MeshBasicMaterial>
-
-function paintFloor(mesh: PaintedMesh, color: Color, flat: Color, down: number) {
-  mesh.material.color.copy(color).lerp(flat, down)
-}
 
 // Text drawn once into a canvas and shown on a plane (flat or upright) or a sprite (a sign facing the camera). The
 // steeper the camera looks down, the nearer each text comes to where and how large the 2D view writes it
@@ -966,5 +922,3 @@ const SCALE = new Vector3()
 const POINT = new Vector3()
 
 const AHEAD = new Vector3()
-
-const PAINT = new Color()

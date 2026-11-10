@@ -37,8 +37,9 @@
   text-align: center;
 }
 
-/* The marquee — a box on the screen, drawn like the 2D one (parts.tsx and globals.css). */
-.sweep {
+/* What the editor draws over the plan, in SVG over the canvas. Only its handles take the pointer — everything else
+   is pressed through to the scene. */
+.overlay {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -47,7 +48,28 @@
   pointer-events: none;
 }
 
-.sweep rect {
+.overlay [data-part='handle'] {
+  pointer-events: auto;
+}
+
+/* Laid on the floor: the camera's matrix, written by the view every time it moves (build-3d.tsx `layOverlay`) —
+   nothing shows before the first. */
+.floor {
+  transform: var(--floor, scale(0));
+}
+
+/* Written level at a point of the floor: the floor's turn and scale undone. */
+.level {
+  transform: var(--level);
+}
+
+/* The selection's frame traces its dashes, as on the 2D canvas (globals.css). */
+.overlay [data-part='frame'] polygon {
+  stroke-dasharray: 3 3;
+}
+
+/* The marquee — a box on the screen, drawn like the 2D one (parts.tsx and globals.css). */
+.sweep {
   fill: var(--ichno-accent);
   fill-opacity: 0.08;
   stroke: var(--ichno-accent);
@@ -56,7 +78,8 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .sweep rect {
+  .sweep,
+  .overlay [data-part='frame'] polygon {
     animation: ichno-march 0.6s linear infinite;
   }
 }

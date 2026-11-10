@@ -2,6 +2,7 @@
 
 import type { PlanObject, SeatPlan } from 'ichno'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { everyFrame } from './frames'
 
 // What stands on the plan settles when an edit lands: what the edit added pops in, what it removed shrinks away and
 // what it moved glides to where it goes. A drag or a preview is drawn as given — the hand moves it — and so is an edit
@@ -88,18 +89,17 @@ export function useSettledPlan<S extends string>(plan: SeatPlan<S>, committed: S
   useEffect(() => {
     if (run === null) return
 
-    let request = requestAnimationFrame(function tick(time) {
+    return everyFrame((time) => {
       if (time - run.start >= Math.max(ENTER_MS, LEAVE_MS, GLIDE_MS)) {
         setRun(null)
 
-        return
+        return false
       }
 
       setNow(time)
-      request = requestAnimationFrame(tick)
-    })
 
-    return () => cancelAnimationFrame(request)
+      return true
+    })
   }, [run])
 
   if (frame === null || run === null) return { plan, grow: NO_GROW, leaving: NO_IDS, settling: false, gliding: false }

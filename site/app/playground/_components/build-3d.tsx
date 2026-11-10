@@ -3,20 +3,27 @@
 import { Canvas, useFrame, useThree, type RootState } from '@react-three/fiber'
 import {
   GRID_CELL,
-  IDLE_GESTURE,
-  TOUCH_DRAG_THRESHOLD_PX,
-  gesture,
+  IDLE_EDGE_SCROLL,
+  IDLE_PRESS,
+  edgeScroll,
+  press,
   seatPlan,
+  type EdgeScrollState,
   type Fixture,
-  type GestureEvent,
-  type GestureState,
+  type PlanHandle,
   type PlanPoint,
   type PlanRect,
   type PlanTarget,
+  type PressEnv,
+  type PressEvent,
+  type PressPointer,
+  type PressResult,
+  type PressState,
   type ScreenPoint,
   type SeatPlan,
 } from 'ichno'
 import type { SeatPlanEditor } from 'ichno/editor'
+import { SeatMap, planTargetOf } from 'ichno/react'
 import {
   useEffect,
   useEffectEvent,
@@ -28,6 +35,8 @@ import {
   type RefObject,
 } from 'react'
 import { BufferGeometry, Plane, Raycaster, Vector2, Vector3 } from 'three'
+import { OFF_PX, TEXT_PX, dimensionLabelsOf, type Measured } from './dimensions'
+import { everyFrame } from './frames'
 import { HEIGHT, SIGN_HEIGHT, WALL_CUT, piecesOf, wallsOf, writingOf, type Piece, type Wall } from '../_lib/scene'
 import controls from './controls.module.css'
 import {
@@ -49,21 +58,25 @@ import {
 } from './drawing-3d'
 import { categoryWritingOf } from '../_lib/category-labels'
 import { LIFT, raised, useLifted } from './lifting'
-import { useSettledPlan } from './settling'
+import marks from './marks.module.css'
+import { useSettledPlan, type Settled } from './settling'
 import { Icon } from './icons'
 import styles from './build-3d.module.css'
 
 // The playground's editor in 3D — the same ichno editor the 2D canvas drives, seen from a corner the way a tycoon
 // game shows its park. The view turns a quarter at a time; a press goes through ichno's gesture core and comes out as
 // the editor's taps, drags and strokes, with plan points read off the floor under the pointer. A marquee is a box on
-// the screen — on the floor it would show as a diamond — and picks what it touches as it stands. Handles stay in 2D. Drawn like the 2D plan (./drawing-3d.tsx); loaded only when someone switches to it.
+// the screen — on the floor it would show as a diamond — and picks what it touches as it stands. What the editor draws
+// over the plan — outlines, handles, smart guides, a tool's stroke — is ichno's own <SeatMap.EditorOverlay>, laid on the
+// floor: an orthographic camera maps the floor to the screen with one matrix, so the SVG the 2D view draws lies on it
+// as it is. Drawn like the 2D plan (./drawing-3d.tsx).
 
 type Editor = SeatPlanEditor<string>
 
 // What a press means to the editor — <SeatMap.Viewport>'s handlers, with plan points read off the floor.
 type Handlers = Pick<Editor['viewportProps'], 'canDrag' | 'onTargetDrag' | 'onDraw'> & {
   onTap(target: PlanTarget<string> | null, info: { point: PlanPoint | null; additive: boolean }): void
-  onHover(point: PlanPoint | null, target: PlanTarget<string> | null): void
+  onHover(point: PlanPoint | null, target: PlanTarget<string> | null, info?: { pixel: number }): void
   // A marquee let go: every object it touched on the screen; `additive` adds them to the selection.
   onMarquee(ids: readonly string[], info: { additive: boolean }): void
 }
@@ -105,6 +118,8 @@ export type Build3DProps = {
   conflicts: readonly string[]
   status: Record<string, string>
   overlay: Editor['overlayProps']
+  // What there is to measure — the lengths are written beside it, as the 2D view writes them.
+  measured: Measured
   // The grid cell while snapping.
   grid: number | null
   // What a press does: select, draw with the editor's tool, or pan (the Hand).
@@ -148,20 +163,6 @@ type Motion = {
 
 type MoveOptions = Partial<Pick<Motion, 'ease' | 'fade' | 'done'>>
 
-type Press = {
-  target: PlanTarget<string> | null
-  // `dropped`: Escape let go of a marquee — the rest of the press does nothing.
-  mode: 'drag' | 'marquee' | 'pan' | 'draw' | 'dropped'
-  additive: boolean
-  // Where a drag or a stroke started, in plan units.
-  anchor: PlanPoint | null
-  // Where the press started and where the pointer last was, in the view's pixels.
-  start: ScreenPoint | null
-  at: ScreenPoint | null
-}
-
-const IDLE_PRESS: Press = { target: null, mode: 'pan', additive: false, anchor: null, start: null, at: null }
-
 export default function Build3D(props: Build3DProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const palette = usePalette(hostRef)
@@ -183,21 +184,30 @@ export default function Build3D(props: Build3DProps) {
   const reportedRef = useRef<BuildView | null>(null)
   // Shown in the turn control — the camera itself turns in the frame loop.
   const [quarter, setQuarter] = useState(() => props.cameraRef.current?.quarter ?? 0)
-  const gestureRef = useRef<GestureState>(IDLE_GESTURE)
-  const pressRef = useRef<Press>(IDLE_PRESS)
-  const keysRef = useRef({ constrain: false, fromCenter: false })
+  // Screen pixels per plan unit once the camera rests — what is written over the plan keeps its distance by it.
+  const [zoom, setZoom] = useState(1)
+  // The press under way — what it started on and what it does (ichno's `press`).
+  const pressRef = useRef<PressState<string>>(IDLE_PRESS)
   const originRef = useRef<{ left: number; top: number } | null>(null)
   const insideRef = useRef(false)
   const [spaceHeld, setSpaceHeld] = useState(false)
   const spaceRef = useRef(false)
   const [panning, setPanning] = useState(false)
+  // A drag or a stroke under way — the view scrolls while it is held near the edge.
+  const [edging, setEdging] = useState(false)
+  const edgeRef = useRef<EdgeScrollState>(IDLE_EDGE_SCROLL)
   // The marquee being drawn, corner to corner in the view's pixels.
   const [sweep, setSweep] = useState<{ from: ScreenPoint; to: ScreenPoint } | null>(null)
   // The place or object under the pointer — a place traces its dashes, anything shows the pointer cursor.
   const [over, setOver] = useState<PlanTarget<string> | null>(null)
+  // What the editor draws over the plan, in SVG over the canvas.
+  const overlayRef = useRef<SVGSVGElement>(null)
 
   const { plan, handlers } = props
   const home = seatPlan.drawingBoundsOf(plan)
+  // What an edit added, removed or moved settles (./settling.ts) — the scene is drawn from the plan part-way there,
+  // and what goes round the selection waits for it.
+  const settled = useSettledPlan(plan, props.committed)
 
   // ---------- Camera ----------
 
@@ -300,6 +310,7 @@ export default function Build3D(props: Build3DProps) {
     camera.zoom = aim.zoom
     camera.updateProjectionMatrix()
     camera.updateMatrixWorld()
+    layOverlay(overlayRef.current, state)
     state.invalidate()
     props.onCamera({ x: aim.x, z: aim.z, quarter: aim.quarter, angle: azimuthOf(aim.quarter), zoom: aim.zoom })
   }
@@ -494,6 +505,7 @@ export default function Build3D(props: Build3DProps) {
       last.canZoomOut !== view.canZoomOut
     ) {
       reportedRef.current = view
+      setZoom(aim.zoom)
       props.onViewChange(view)
     }
   }
@@ -536,7 +548,7 @@ export default function Build3D(props: Build3DProps) {
   // ---------- Pressing ----------
 
   // The pointer in the view's pixels. The view's place on the page is read once per gesture.
-  function pointerOf(e: PointerEvent<HTMLDivElement>, refresh = false) {
+  function pointerOf(e: PointerEvent<HTMLDivElement>, refresh = false): PressPointer {
     if (refresh || !originRef.current) {
       const rect = e.currentTarget.getBoundingClientRect()
       originRef.current = { left: rect.left, top: rect.top }
@@ -544,127 +556,80 @@ export default function Build3D(props: Build3DProps) {
 
     const origin = originRef.current
 
-    return { id: e.pointerId, x: e.clientX - origin.left, y: e.clientY - origin.top }
+    return {
+      id: e.pointerId,
+      x: e.clientX - origin.left,
+      y: e.clientY - origin.top,
+      type: e.pointerType,
+      button: e.button,
+      buttons: e.buttons,
+    }
   }
 
-  // Reports the drag, marquee or stroke under way where the pointer last was.
-  function report(phase: 'move' | 'end') {
-    const press = pressRef.current
+  // What a press means here (ichno's `press`): plan points are read off the floor, and a screen pixel spans what the
+  // camera's zoom makes it. Space and the Hand pan whatever is under the pointer.
+  function envOf(): PressEnv<string> {
+    return {
+      toPlan: floorAt,
+      pixel: 1 / aimRef.current.zoom,
+      draws: handlers.onDraw !== undefined,
+      marquees: true,
+      pans: true,
+      grabs: spaceRef.current || props.tool === 'hand',
+      canDrag: handlers.canDrag,
+    }
+  }
 
-    if (press.mode === 'marquee') {
-      if (!press.start || !press.at) return
-
-      if (phase === 'move') {
-        setSweep({ from: press.start, to: press.at })
-
-        return
-      }
-
+  // Hands a drag or a stroke on to the editor, and draws the marquee — a box on the screen — picking what it touches
+  // once it is let go.
+  function report(event: PressEvent<string>) {
+    if (event.type === 'drag') handlers.onTargetDrag(event.drag)
+    else if (event.type === 'draw')
+      handlers.onDraw?.(event.stroke, { phase: event.phase, ...event.keys, pixel: event.pixel })
+    else if (event.type === 'marquee' && event.phase !== 'end') setSweep({ from: event.from, to: event.to })
+    else if (event.type === 'marquee') {
       setSweep(null)
-      handlers.onMarquee(touchedBy(boxBetween(press.start, press.at)), { additive: press.additive })
-
-      return
-    }
-
-    const to = press.at && floorAt(press.at)
-
-    if (!press.anchor || !to) return
-    const keys = keysRef.current
-
-    if (press.mode === 'drag' && press.target) {
-      const total = { x: to.x - press.anchor.x, y: to.y - press.anchor.y }
-      handlers.onTargetDrag({ target: press.target, phase, total, constrain: keys.constrain, copy: keys.fromCenter })
-    } else if (press.mode === 'draw') {
-      handlers.onDraw?.({ start: press.anchor, end: to }, { phase, ...keys })
+      handlers.onMarquee(touchedBy(boxBetween(event.from, event.to)), { additive: event.additive })
     }
   }
 
-  function handle(events: GestureEvent[]) {
-    for (const event of events) {
-      const press = pressRef.current
+  // The view moved under a drag (the wheel, edge scrolling) — what is dragged keeps up with the pointer.
+  function restate() {
+    for (const event of press.restate(pressRef.current, envOf())) report(event)
+  }
 
+  // Takes a step of the press and acts on what it means.
+  function act(result: PressResult<string>) {
+    pressRef.current = result.state
+
+    for (const event of result.events) {
       switch (event.type) {
-        case 'tap': {
-          const point = floorAt(event.point)
-
-          if (press.mode === 'draw') {
-            if (point) handlers.onDraw?.({ start: point, end: point }, { phase: 'end', ...keysRef.current })
-            break
-          }
-
+        case 'tap':
           // The Hand only pans.
-          if (props.tool !== 'hand') handlers.onTap(press.target, { point, additive: press.additive })
+          if (props.tool !== 'hand') handlers.onTap(event.target, { point: event.point, additive: event.additive })
           break
-        }
+        case 'pan':
+          setPanning(event.phase !== 'end')
 
-        case 'dragstart': {
-          if (press.mode === 'pan') {
-            setPanning(true)
-            break
-          }
-
-          const anchor = floorAt(event.point)
-          pressRef.current = { ...press, anchor, start: event.point, at: event.point }
-
-          if (press.mode === 'marquee') {
-            setSweep({ from: event.point, to: event.point })
-            break
-          }
-
-          if (!anchor) break
-
-          if (press.mode === 'drag' && press.target) {
-            handlers.onTargetDrag({
-              target: press.target,
-              phase: 'start',
-              total: { x: 0, y: 0 },
-              constrain: keysRef.current.constrain,
-              copy: keysRef.current.fromCenter,
-            })
-          } else if (press.mode === 'draw') {
-            handlers.onDraw?.({ start: anchor, end: anchor }, { phase: 'start', ...keysRef.current })
-          }
-
-          break
-        }
-
-        case 'drag':
-          if (press.mode === 'pan') {
-            panBy(event.delta)
-            break
-          }
-
-          pressRef.current = { ...press, at: event.point }
-          report('move')
-          break
-        case 'dragend':
-          if (press.mode !== 'pan') {
-            pressRef.current = { ...press, at: event.point }
-            report('end')
-          }
-
-          setPanning(false)
-          // After a pinch the remaining finger pans — it never drags the target the gesture began on.
-          pressRef.current = IDLE_PRESS
+          if (event.phase === 'move') panBy(event.delta)
           break
         case 'pinch':
           zoomAbout(event.center, event.factor)
           panBy(event.delta)
           break
+        case 'hold':
+          // A marquee is a box on the screen — scrolling the floor under it would move what it began on.
+          setEdging(event.held && result.state.mode !== 'marquee')
+          break
+        default:
+          report(event)
       }
     }
   }
 
-  // Drops a stroke in progress — it must not create anything.
-  function cancelStroke() {
-    const press = pressRef.current
-    const end = press.at && floorAt(press.at)
-
-    if (press.mode === 'draw' && press.anchor && end) {
-      handlers.onDraw?.({ start: press.anchor, end }, { phase: 'cancel', ...keysRef.current })
-    }
-
-    pressRef.current = IDLE_PRESS
+  // What is under a point of the view: a handle is the overlay's own element, anything else is found in the scene.
+  function targetOn(element: EventTarget | null, at: ScreenPoint): PlanTarget<string> | null {
+    return planTargetOf<string>(element) ?? targetAt(at)
   }
 
   function handlePointerDown(e: PointerEvent<HTMLDivElement>) {
@@ -674,79 +639,41 @@ export default function Build3D(props: Build3DProps) {
     if (e.pointerType === 'mouse' && e.button !== 0 && !middleButton) return
 
     if (middleButton) e.preventDefault()
-    keysRef.current = keysOf(e)
-    const idle = gestureRef.current.kind === 'idle'
+    const idle = pressRef.current.gesture.kind === 'idle'
     const pointer = pointerOf(e, idle)
-
-    if (idle) {
-      const additive = e.shiftKey || e.metaKey || e.ctrlKey
-      const pan = middleButton || spaceRef.current || props.tool === 'hand'
-      const target = pan ? null : targetAt(pointer)
-
-      const mode: Press['mode'] = pan
-        ? 'pan'
-        : handlers.onDraw
-          ? 'draw'
-          : target !== null && handlers.canDrag(target)
-            ? 'drag'
-            : additive || target !== null || e.pointerType !== 'touch'
-              ? 'marquee'
-              : 'pan'
-
-      pressRef.current = { target, mode, additive, anchor: null, start: null, at: null }
-    } else if (pressRef.current.mode === 'draw') {
-      // A second finger turns the press into a pinch — the stroke is dropped, not drawn.
-      cancelStroke()
-    }
-
+    // Only the first pointer lands on something — a second one pinches.
+    const target = idle ? targetOn(e.target, pointer) : null
     e.currentTarget.setPointerCapture(e.pointerId)
-    const result = gesture.down(gestureRef.current, pointer, pressRef.current.target ? 'target' : null)
-    gestureRef.current = result.state
-    handle(result.events)
-
-    if (result.state.kind === 'pinching') {
-      pressRef.current = IDLE_PRESS
-      setSweep(null)
-    }
+    act(press.down(pressRef.current, pointer, target, press.keysOf(e), envOf()))
   }
 
   function handlePointerMove(e: PointerEvent<HTMLDivElement>) {
-    if (gestureRef.current.kind === 'idle') {
-      insideRef.current = true
-      const at = pointerOf(e, true)
-      const target = targetAt(at)
-      handlers.onHover(floorAt(at), target)
-      const next = target?.kind === 'place' || target?.kind === 'object' ? target : null
-      setOver((current) => (sameTarget(current, next) ? current : next))
+    if (pressRef.current.gesture.kind !== 'idle') {
+      act(press.move(pressRef.current, pointerOf(e), press.keysOf(e), envOf()))
 
       return
     }
 
-    keysRef.current = keysOf(e)
-    const threshold = e.pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD_PX : undefined
-    const result = gesture.move(gestureRef.current, pointerOf(e), threshold)
-    gestureRef.current = result.state
-    handle(result.events)
+    insideRef.current = true
+    const at = pointerOf(e, true)
+    const target = targetOn(e.target, at)
+    handlers.onHover(floorAt(at), target, { pixel: 1 / aimRef.current.zoom })
+    const next = target?.kind === 'place' || target?.kind === 'object' ? target : null
+    setOver((current) => (sameTarget(current, next) ? current : next))
   }
 
   function handlePointerUp(e: PointerEvent<HTMLDivElement>) {
-    keysRef.current = keysOf(e)
-    const result = gesture.up(gestureRef.current, pointerOf(e))
-    gestureRef.current = result.state
-    handle(result.events)
+    act(press.up(pressRef.current, pointerOf(e), press.keysOf(e), envOf()))
   }
 
-  function handlePointerCancel() {
-    if (pressRef.current.mode === 'draw') cancelStroke()
-    const result = gesture.cancel(gestureRef.current)
-    gestureRef.current = result.state
-    handle(result.events)
+  function handlePointerCancel(e: { pointerId: number }) {
+    act(press.cancel(pressRef.current, { id: e.pointerId }, envOf()))
   }
 
   function handlePointerLeave() {
     insideRef.current = false
 
-    if (gestureRef.current.kind !== 'idle') return
+    if (pressRef.current.gesture.kind !== 'idle') return
     handlers.onHover(null, null)
     setOver(null)
   }
@@ -765,12 +692,12 @@ export default function Build3D(props: Build3DProps) {
       const rect = host.getBoundingClientRect()
       const factor = Math.exp(-dy * (e.ctrlKey ? PINCH_ZOOM_RATE : WHEEL_ZOOM_RATE))
       zoomAbout({ x: e.clientX - rect.left, y: e.clientY - rect.top }, Math.min(1.1, Math.max(1 / 1.1, factor)))
-
-      return
+    } else {
+      // Shift turns a plain wheel sideways where the browser does not already.
+      panBy(e.shiftKey && dx === 0 ? { x: -dy, y: 0 } : { x: -dx, y: -dy })
     }
 
-    // Shift turns a plain wheel sideways where the browser does not already.
-    panBy(e.shiftKey && dx === 0 ? { x: -dy, y: 0 } : { x: -dx, y: -dy })
+    restate()
   })
 
   // Safari reports a trackpad pinch as gesture events — the scale since it began.
@@ -778,6 +705,9 @@ export default function Build3D(props: Build3DProps) {
 
   const onGesture = useEffectEvent((e: SafariGesture) => {
     e.preventDefault()
+
+    // On a touch screen Safari sends them too, for the fingers whose pointers already pinch.
+    if (pressRef.current.touches.length > 0) return
 
     if (e.type === 'gesturestart') pinchRef.current = 1
 
@@ -789,6 +719,7 @@ export default function Build3D(props: Build3DProps) {
     if (!host || !(factor > 0) || !Number.isFinite(factor)) return
     const rect = host.getBoundingClientRect()
     zoomAbout({ x: e.clientX - rect.left, y: e.clientY - rect.top }, factor)
+    restate()
   })
 
   useEffect(() => {
@@ -808,12 +739,11 @@ export default function Build3D(props: Build3DProps) {
     }
   }, [])
 
-  // Space held over the view pans whatever the tool; Shift and Alt pressed mid-drag reshape the drag at once.
+  // Space held over the view pans whatever the tool; Shift, Alt, ⌘ and Ctrl pressed or let go mid-drag reshape the
+  // drag at once.
   const onWindowKey = useEffectEvent((e: KeyboardEvent) => {
-    if (e.key === 'Shift' || e.key === 'Alt') {
-      keysRef.current = keysOf(e)
-
-      if (gestureRef.current.kind === 'dragging' && pressRef.current.mode !== 'pan') report('move')
+    if (e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta' || e.key === 'Control') {
+      act(press.keys(pressRef.current, press.keysOf(e), envOf()))
 
       return
     }
@@ -852,9 +782,11 @@ export default function Build3D(props: Build3DProps) {
   // Escape lets go of a marquee — the editor never sees this one, so the key is taken before its shortcuts would
   // clear the selection instead.
   const onEscape = useEffectEvent((e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || pressRef.current.mode !== 'marquee' || gestureRef.current.kind !== 'dragging') return
+    const current = pressRef.current
+
+    if (e.key !== 'Escape' || current.mode !== 'marquee' || current.gesture.kind !== 'dragging') return
     e.preventDefault()
-    pressRef.current = { ...pressRef.current, mode: 'dropped' }
+    pressRef.current = press.drop(current)
     setSweep(null)
   })
 
@@ -865,7 +797,38 @@ export default function Build3D(props: Build3DProps) {
     return () => window.removeEventListener('keydown', key, true)
   }, [])
 
+  // Edge scrolling, as on the 2D canvas: while a drag or a stroke is held near the edge the view moves toward it —
+  // as far as the camera stays over the drawing.
+  const onEdgeFrame = useEffectEvent((now: number) => {
+    const stepped = edgeScroll.step(edgeRef.current, pressRef.current.at, stage()?.size ?? null, now)
+    edgeRef.current = stepped.state
+
+    if (!stepped.scroll) return
+    panBy({ x: -stepped.scroll.x, y: -stepped.scroll.y })
+    restate()
+  })
+
+  useEffect(() => {
+    if (!edging) return
+    edgeRef.current = IDLE_EDGE_SCROLL
+
+    return everyFrame((now) => {
+      onEdgeFrame(now)
+
+      return true
+    })
+  }, [edging])
+
   const hoveredPlace = props.tool === 'select' && over?.kind === 'place' ? over.id : null
+  // From this corner: how a direction on the plan turns on the screen, and the way the bottom of the screen lies on
+  // the plan — lengths are written level, a box's size beyond its nearest corner.
+  const azimuth = azimuthOf(quarter)
+  const handles = props.overlay.handles.map((handle) => turnedHandle(handle, azimuth))
+
+  const lengths = dimensionLabelsOf(props.measured, OFF_PX / (zoom * Math.sin(TILT)), {
+    x: Math.sin(azimuth),
+    y: Math.cos(azimuth),
+  })
 
   return (
     <div
@@ -882,7 +845,7 @@ export default function Build3D(props: Build3DProps) {
       onPointerCancel={handlePointerCancel}
       onLostPointerCapture={(e) => {
         // Capture ends with every release; lost while a press still follows this pointer, the release is not coming.
-        if (holds(gestureRef.current, e.pointerId)) handlePointerCancel()
+        if (press.holds(pressRef.current, e.pointerId)) handlePointerCancel(e)
       }}
       onPointerLeave={handlePointerLeave}
       onContextMenu={(e) => {
@@ -906,16 +869,33 @@ export default function Build3D(props: Build3DProps) {
         >
           <Canvas orthographic frameloop="demand" flat dpr={[1, 2]} camera={{ near: 1, far: DISTANCE * 4 }}>
             <Stage stageRef={stageRef} onFrame={onFrame} />
-            {palette && <Scene {...props} palette={palette} picks={picks} hoveredPlace={hoveredPlace} />}
+            {palette && (
+              <Scene {...props} settled={settled} palette={palette} picks={picks} hoveredPlace={hoveredPlace} />
+            )}
           </Canvas>
         </Fallback>
       )}
 
-      {sweep && (
-        <svg className={styles.sweep} aria-hidden>
-          <rect {...rectAttributes(boxBetween(sweep.from, sweep.to))} />
-        </svg>
-      )}
+      {/* What the editor draws over the plan — ichno's own overlay, laid on the floor by the camera's matrix
+          (`layOverlay`), with the lengths written level beside what they measure. It waits for what it goes round to
+          get where an edit put it. The marquee is a box on the screen. */}
+      <svg ref={overlayRef} className={styles.overlay} aria-hidden>
+        {!settled.gliding && (
+          <g className={styles.floor}>
+            <SeatMap.EditorOverlay {...props.overlay} handles={handles} marquee={null} />
+            <g className={marks.dimensions} fontSize={TEXT_PX} strokeWidth={3}>
+              {lengths.map((length, i) => (
+                <g key={i} transform={`translate(${length.at.x} ${length.at.y})`}>
+                  <text className={styles.level} data-live={length.live || undefined}>
+                    {length.text}
+                  </text>
+                </g>
+              ))}
+            </g>
+          </g>
+        )}
+        {sweep && <rect className={styles.sweep} {...rectAttributes(boxBetween(sweep.from, sweep.to))} />}
+      </svg>
 
       <div className={styles.turn} role="group" aria-label="Turn the view">
         <button
@@ -968,13 +948,17 @@ function Stage({ stageRef, onFrame }: { stageRef: RefObject<(() => RootState) | 
 
 // ---------- Scene ----------
 
-type SceneProps = Build3DProps & { palette: Palette; picks: Picks; hoveredPlace: string | null }
+type SceneProps = Build3DProps & {
+  // The plan part-way to where an edit put it (./settling.ts).
+  settled: Settled<string>
+  palette: Palette
+  picks: Picks
+  hoveredPlace: string | null
+}
 
-function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }: SceneProps) {
-  // What an edit added, removed or moved settles (./settling.ts): the objects and what is written by them are drawn
-  // from the plan part-way there. Walls are drawn as they are — their stretches are numbered along the plan, so one
-  // more renumbers the rest.
-  const settled = useSettledPlan(plan, props.committed)
+function Scene({ plan, draft, refused, settled, palette, picks, hoveredPlace, ...props }: SceneProps) {
+  // The objects and what is written by them are drawn from the settling plan. Walls are drawn as they are — their
+  // stretches are numbered along the plan, so one more renumbers the rest.
   const pieces = piecesOf(settled.plan)
   // A door the tool would put in a wall opens it already — the draft holds that wall with the opening.
   const opened = new Map((draft?.walls ?? []).map((wall) => [wall.id, wall]))
@@ -1062,8 +1046,6 @@ function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }:
       <Shade solids={standing} />
       <Solids solids={solids} palette={palette} picks={picks} />
       <Solids solids={ghosts} palette={palette} ghost />
-      {/* Outlines are drawn where the edit ends — they wait for what they go round to get there. */}
-      {!settled.gliding && <Overlay overlay={props.overlay} palette={palette} />}
       {[...writingOf(settled.plan, pieces, props.fixtureName), ...categoryWritingOf(props.committed)].map(
         (writing, i) => (
           <Text
@@ -1109,58 +1091,6 @@ function wallOf(wall: Wall, index: number, look: Look, target?: PlanTarget<strin
     look,
     target,
   }
-}
-
-// What the editor draws over the 2D plan, laid on the floor: the selection's outlines tracing their dashes, what a
-// tap would select and a tool's stroke in still ones. The marquee is the view's own, on the screen.
-function Overlay({ overlay, palette }: { overlay: Editor['overlayProps']; palette: Palette }) {
-  const tracing = [...overlay.frames, ...(overlay.frame ? [overlay.frame] : [])]
-
-  const still = [
-    ...(overlay.hoverFrame ? [overlay.hoverFrame] : []),
-    ...(overlay.stroke && overlay.draw === 'box'
-      ? [cornersOf(rectBetween(overlay.stroke.start, overlay.stroke.end))]
-      : []),
-  ]
-
-  const line =
-    overlay.stroke && overlay.draw === 'line'
-      ? [[overlay.stroke.start, overlay.stroke.end]]
-      : overlay.stroke && (overlay.draw === 'polygon' || overlay.draw === 'path')
-        ? [overlay.stroke.points ?? []]
-        : []
-
-  return (
-    <>
-      <FloorLines segments={floorSegments(tracing, true)} palette={palette} march />
-      <FloorLines
-        segments={new Float32Array([...floorSegments(still, true), ...floorSegments(line, false)])}
-        palette={palette}
-      />
-    </>
-  )
-}
-
-function FloorLines({
-  segments,
-  palette,
-  march = false,
-}: {
-  segments: Float32Array
-  palette: Palette
-  march?: boolean
-}) {
-  const [geometry] = useState(() => new BufferGeometry())
-  const invalidate = useThree((state) => state.invalidate)
-  useEffect(() => () => geometry.dispose(), [geometry])
-  useLayoutEffect(() => {
-    setSegments(geometry, segments)
-    invalidate()
-  })
-
-  if (segments.length === 0) return null
-
-  return <Hairlines geometry={geometry} color={palette.ink} look={{ fill: null, line: 'ink', dash: true, march }} />
 }
 
 // The editor's grid on the floor, dashed like the 2D one.
@@ -1263,10 +1193,6 @@ function unionOf(rects: readonly PlanRect[]): PlanRect {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
 }
 
-function rectBetween(a: PlanPoint, b: PlanPoint): PlanRect {
-  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }
-}
-
 // The box between two points of the view, in its pixels.
 function boxBetween(a: ScreenPoint, b: ScreenPoint): PlanRect {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }
@@ -1274,6 +1200,36 @@ function boxBetween(a: ScreenPoint, b: ScreenPoint): PlanRect {
 
 function rectAttributes(box: PlanRect) {
   return { x: box.x, y: box.y, width: box.w, height: box.h }
+}
+
+// Lays the overlay on the floor. An orthographic camera maps the floor to the screen with one matrix — where the
+// plan's origin shows, and where a step along x and along y lead from it — so `--floor` puts plan units on the screen
+// whatever way the camera turns or tilts, and `--level` undoes its turn and its scale for text written level at a
+// point of the plan (build-3d.module.css reads both).
+function layOverlay(overlay: SVGSVGElement | null, state: RootState) {
+  if (!overlay) return
+  const origin = screenOf(ORIGIN, 0, state)
+  const alongX = screenOf(STEP_X, 0, state)
+  const alongY = screenOf(STEP_Y, 0, state)
+  const a = (alongX.x - origin.x) / STEP
+  const b = (alongX.y - origin.y) / STEP
+  const c = (alongY.x - origin.x) / STEP
+  const d = (alongY.y - origin.y) / STEP
+  const area = a * d - b * c
+  overlay.style.setProperty('--floor', `matrix(${a}, ${b}, ${c}, ${d}, ${origin.x}, ${origin.y})`)
+
+  if (Math.abs(area) > 1e-12) {
+    overlay.style.setProperty('--level', `matrix(${d / area}, ${-b / area}, ${-c / area}, ${a / area}, 0, 0)`)
+  }
+}
+
+// A handle whose cursor points the way it does on the screen: seen from the corner at `azimuth`, a direction on the
+// plan turns with the view and flattens with its tilt.
+function turnedHandle(handle: PlanHandle<string>, azimuth: number): PlanHandle<string> {
+  if (handle.angle === undefined) return handle
+  const turned = azimuth + (handle.angle * Math.PI) / 180
+
+  return { ...handle, angle: (Math.atan2(Math.sin(TILT) * Math.sin(turned), Math.cos(turned)) * 180) / Math.PI }
 }
 
 // Where a point of the room shows in the view, in its pixels.
@@ -1367,32 +1323,10 @@ function cornersOfStretch(stretch: Wall): PlanPoint[] {
   }))
 }
 
-function cornersOf(rect: PlanRect): PlanPoint[] {
-  return [
-    { x: rect.x, y: rect.y },
-    { x: rect.x + rect.w, y: rect.y },
-    { x: rect.x + rect.w, y: rect.y + rect.h },
-    { x: rect.x, y: rect.y + rect.h },
-  ]
-}
-
-// Whether a gesture still follows this pointer.
-function holds(state: GestureState, id: number): boolean {
-  if (state.kind === 'pressed' || state.kind === 'dragging') return state.pointer.id === id
-
-  if (state.kind === 'pinching') return state.pointers.some((pointer) => pointer.id === id)
-
-  return false
-}
-
 function sameTarget(a: PlanTarget<string> | null, b: PlanTarget<string> | null): boolean {
   if (a === null || b === null) return a === b
 
   return a.kind === b.kind && 'id' in a && 'id' in b && a.id === b.id
-}
-
-function keysOf(e: { shiftKey: boolean; altKey: boolean }) {
-  return { constrain: e.shiftKey, fromCenter: e.altKey }
 }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -1451,6 +1385,15 @@ declare global {
     gestureend: SafariGesture
   }
 }
+
+// The plan's origin and a long step along each of its axes — long, so the matrix read off them is exact.
+const STEP = 1000
+
+const ORIGIN: PlanPoint = { x: 0, y: 0 }
+
+const STEP_X: PlanPoint = { x: STEP, y: 0 }
+
+const STEP_Y: PlanPoint = { x: 0, y: STEP }
 
 const FLOOR = new Plane(new Vector3(0, 1, 0), 0)
 

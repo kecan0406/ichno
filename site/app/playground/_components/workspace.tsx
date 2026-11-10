@@ -14,6 +14,7 @@ import {
   type PlanRect,
   type PlanTarget,
   type PlanTemplate,
+  type PlanView,
   type ScreenPoint,
   type SeatPlan,
 } from 'ichno'
@@ -25,9 +26,17 @@ import {
   type EditorSelection,
   type ViewControls,
 } from 'ichno/editor'
-import { SeatMap, useSeatMapView } from 'ichno/react'
+import { SeatMap, planTargetOf, useSeatMapView } from 'ichno/react'
 import dynamic from 'next/dynamic'
-import { useEffect, useEffectEvent, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from 'react'
 import { describe } from '../../_demo/messages'
 import { fixtureNames } from '../../_demo/plans'
 import { DEFAULT_LINT, PRESETS, checksOf, copyDocument, downloadDocument, type Workbench } from '../_lib/documents'
@@ -49,7 +58,7 @@ import { CategoryLabels } from './category-labels'
 import { CanvasMenu, type CanvasMenuAt } from './context-menu'
 import controls from './controls.module.css'
 import { DesignPanel } from './design'
-import { Dimensions } from './dimensions'
+import { Dimensions, type Measured } from './dimensions'
 import { DocumentHead } from './file-menu'
 import { Resizer, usePanels } from './frame'
 import { Gliding } from './settling'
@@ -76,11 +85,9 @@ const Preview3D = dynamic(() => import('./preview-3d'), {
   loading: () => <p className={styles.loading}>Loading the 3D view…</p>,
 })
 
-// Editing in 3D is the site's as well — the same ichno editor, drawn by three.js and loaded the same way.
-const Build3D = dynamic(() => import('./build-3d'), {
-  ssr: false,
-  loading: () => <p className={styles.loading}>Loading the 3D view…</p>,
-})
+// Editing in 3D is the site's as well — the same ichno editor, drawn by three.js. It is what opens first, so while
+// it loads the 2D plan (drawn on the server) lies under it and hands over when it is ready.
+const Build3D = dynamic(() => import('./build-3d'), { ssr: false })
 
 const UNPASTABLE = 'What was copied holds places — paste it on the plan.'
 
@@ -139,9 +146,9 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const [dimension, setDimension] = useState<'2d' | '3d'>('3d')
   // The 3D preview was switched to from the 2D one — its camera comes down from above the plan.
   const [fromAbove, setFromAbove] = useState(false)
-  // The 2D view lies under the 3D editor while one gives way to the other: until the 3D canvas has faded in, and
-  // while it tilts back and fades away.
-  const [entering3D, setEntering3D] = useState(false)
+  // The 2D view lies under the 3D editor while one gives way to the other: until the 3D canvas has faded in — from
+  // the first paint, while three.js loads — and while it tilts back and fades away.
+  const [entering3D, setEntering3D] = useState(true)
   const [leaving3D, setLeaving3D] = useState(false)
   const building = mode === 'edit' && (dimension === '3d' || leaving3D)
   // The 3D editor's view, for the zoom menu and keys and the turn keys.
@@ -167,6 +174,14 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const zoom: BuildView = building
     ? buildView
     : { level: map.level, canZoomIn: map.canZoomIn, canZoomOut: map.canZoomOut }
+
+  // The first view hands over the way a switch from 2D does: the 3D editor starts straight above what the 2D view
+  // shows, then tilts into its corner.
+  useLayoutEffect(() => {
+    const element = canvasRef.current
+
+    if (element) handoff.current = handoffOf(map.view, map.level, element)
+  }, [])
 
   useSeatPlanEditorShortcuts(editor, { view })
   const [leftTab, setLeftTab] = useState<LeftTab>('layers')
@@ -533,8 +548,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         return
       }
 
-      const center = { x: map.view.x + map.view.w / 2, y: map.view.y + map.view.h / 2 }
-      handoff.current = { center, zoom: planView.scaleOf(map.view, size), level: map.level }
+      handoff.current = handoffOf(map.view, map.level, element)
       setEntering3D(true)
 
       return
@@ -582,25 +596,16 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // A right-click on the 2D canvas — on whatever its parts say is there.
   function openMenu(e: MouseEvent<SVGSVGElement>) {
     e.preventDefault()
-    const element = e.target instanceof Element ? e.target : null
-
-    const id =
-      element?.closest('[data-ichno-id]')?.getAttribute('data-ichno-id') ??
-      element?.closest('[data-ichno-object]')?.getAttribute('data-ichno-object') ??
-      null
-
-    const wall = element?.closest('[data-ichno-wall]')?.getAttribute('data-ichno-wall') ?? null
-    openMenuOn(
-      { x: e.clientX, y: e.clientY },
-      id !== null ? { kind: 'object', id } : wall !== null ? { kind: 'wall', id: wall } : null,
-    )
+    const target = planTargetOf<string>(e.target)
+    const on = target?.kind === 'handle' || target?.kind === 'section' ? null : target
+    openMenuOn({ x: e.clientX, y: e.clientY }, on ?? null)
   }
 
   // The pointer over the plan, 2D or 3D — where Paste lands, and what the tool previews (the Hand previews nothing).
-  function hover(point: PlanPoint | null, target: PlanTarget<string> | null) {
+  function hover(point: PlanPoint | null, target: PlanTarget<string> | null, info?: { pixel: number }) {
     pointRef.current = point
 
-    if (!hand) onHover(point, target)
+    if (!hand) onHover(point, target, info)
   }
 
   // Zooms to a level of the whole plan (1: all of it), about the middle of the view.
@@ -651,6 +656,17 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       : only?.kind === 'wall'
         ? (seatPlan.wallOf(editor.displayPlan, only.id) ?? null)
         : null
+
+  // What there is to measure — the lengths are written beside it, in 2D and in 3D.
+  const measured: Measured = {
+    stroke: editor.stroke,
+    draw: editor.tool?.draw,
+    corners: editor.corners,
+    pointer: editor.pointer,
+    typed: typedLength,
+    frame: measuredWall === null ? editor.overlayProps.frame : null,
+    wall: measuredWall,
+  }
 
   // What is selected, for the parts to mark — places and walls.
   const selectedMarks =
@@ -769,6 +785,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
             conflicts={movingStrays.length === 0 ? stillInvalid : [...stillInvalid, ...movingStrays]}
             status={bookedStatus}
             overlay={{ ...editor.overlayProps, hoverFrame: layerFrame ?? editor.overlayProps.hoverFrame }}
+            measured={measured}
             grid={snapping ? GRID_CELL : null}
             tool={canvasTool}
             handlers={{
@@ -860,16 +877,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                     {/* Outlines and lengths are drawn where the edit ends — they wait for what they go round. */}
                     {!gliding && (
                       <>
-                        <Dimensions
-                          stroke={editor.stroke}
-                          draw={editor.tool?.draw}
-                          corners={editor.corners}
-                          pointer={editor.pointer}
-                          typed={typedLength}
-                          frame={measuredWall === null ? editor.overlayProps.frame : null}
-                          wall={measuredWall}
-                          scale={frame.scale}
-                        />
+                        <Dimensions {...measured} scale={frame.scale} />
                         <SeatMap.EditorOverlay
                           {...editor.overlayProps}
                           hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame}
@@ -1172,6 +1180,18 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       <ShortcutsDialog />
     </div>
   )
+}
+
+// What the 3D editor takes over from the 2D view: the spot in its middle, its scale on the screen and how far in
+// it is.
+function handoffOf(view: PlanView, level: number, element: HTMLElement): Handoff {
+  const size = { width: element.clientWidth, height: element.clientHeight }
+
+  return {
+    center: { x: view.x + view.w / 2, y: view.y + view.h / 2 },
+    zoom: planView.scaleOf(view, size),
+    level,
+  }
 }
 
 function openDialog(id: string) {

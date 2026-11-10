@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState } from 'react'
 import type { Writing } from '../_lib/scene'
+import { everyFrame } from './frames'
 
 // What is selected — or picked, in the preview — stands a little off the floor. It rises and sets down eased, at once
 // under reduced motion, and not at all when more is chosen than anyone watches lift.
@@ -60,14 +61,10 @@ export function useLifted(ids: ReadonlySet<string>): ReadonlyMap<string, number>
     if (moves.size === 0) return
     const latest = Math.max(...[...moves.values()].map((move) => move.start))
 
-    let request = requestAnimationFrame(function tick(time) {
+    return everyFrame((time) => {
       setNow(time)
 
-      if (time - latest < LIFT_MS) {
-        request = requestAnimationFrame(tick)
-
-        return
-      }
+      if (time - latest < LIFT_MS) return true
 
       // What has set down is done with.
       setMoves((current) => {
@@ -75,9 +72,9 @@ export function useLifted(ids: ReadonlySet<string>): ReadonlyMap<string, number>
 
         return kept.size === current.size ? current : kept.size === 0 ? NONE : kept
       })
-    })
 
-    return () => cancelAnimationFrame(request)
+      return false
+    })
   }, [moves])
 
   if (moves.size === 0) return FLAT
