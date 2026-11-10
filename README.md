@@ -328,6 +328,35 @@ const seats = layout.arc({ start: { x: 552, y: 400 }, end: { x: 920, y: 400 }, c
 </button>
 ```
 
+The editor itself lives outside React: `createSeatPlanEditor(options)` is a store with every command on it
+(`editor.commands`), and the hook is that store bound to a component — it redraws with every change. `editor.store`
+is the same store, for the parts of an app that should not: `getState`, `getInitialState` and `subscribe` are the shape
+`useSyncExternalStore` and zustand's `useStore` take, so a panel follows one slice and stays still through a drag.
+What `getState()` answers with is what the hook returns, less the commands; whatever a change does not reach — the
+selection's lists, the still part of the plan — is the same object as before.
+
+```tsx
+import { useSyncExternalStore } from 'react'
+
+function UndoButton({ store }: { store: SeatPlanEditorStore<SectionId> }) {
+  const canUndo = useSyncExternalStore(
+    store.subscribe,
+    () => store.getState().canUndo,
+    () => false,
+  )
+  return (
+    <button disabled={!canUndo} onClick={store.commands.undo}>
+      Undo
+    </button>
+  )
+}
+
+// Without React — a test, a script:
+const editor = createSeatPlanEditor({ initialPlan })
+editor.commands.addFixtures([{ x: 100, y: 100, w: 200, h: 80 }], { role: 'stage' })
+editor.getState().plan // the document, with the stage in it
+```
+
 Tapping a grouped object selects its group; tapping it again selects the object alone (shift/⌘ adds to the
 selection). Dragging moves the selection with the snapping the commit will use — with Shift along one axis, with
 Alt a copy, leaving the original (`PlanDrag.copy`).

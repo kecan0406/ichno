@@ -5,6 +5,12 @@ export {
   type ViewControls,
 } from './use-seat-plan-editor'
 
+export { createSeatPlanEditor, type SeatPlanEditorStore } from './store'
+
+export type { SeatPlanEditorOptions } from './state'
+
+export type { EditorView } from './view'
+
 export {
   planEdits,
   type Added,

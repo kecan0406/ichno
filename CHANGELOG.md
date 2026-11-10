@@ -266,6 +266,14 @@ margin })` and a `home` prop on `SeatMap.Viewport` (the widest view, which `view
   from the parts' `data-ichno-*` attributes the way the viewport delegates its events.
 - `ichno`: `planView.toScreen(view, size, point)` — where a plan point shows in the viewport, `toPlan` the other way:
   the anchor for a tooltip or a popover you position over the plan.
+- `ichno/editor`: the editor lives outside React. `createSeatPlanEditor(options)` is a store — `getState`,
+  `getInitialState`, `subscribe` (the shape `useSyncExternalStore` and zustand's `useStore` take), `commands` and
+  `configure` — and `useSeatPlanEditor` is that store bound to a component: it returns what it returned before, plus
+  `store`, so a panel can follow one slice of the editor instead of redrawing with every frame of a drag. The
+  commands keep their identity for the editor's life and read the state as it is when they run. `lockedIds`,
+  `frozenIds` and `hiddenIds` are compared by what they hold, `snap` by its numbers, and handle sets (`handles`) by
+  their ids — handing over the same again changes nothing; an option that did change is drawn with after the render
+  that brought it, before the browser paints. New types `SeatPlanEditorStore`, `SeatPlanEditorOptions`, `EditorView`.
 - `ichno/react`: `SeatMap` is a module namespace instead of an object — used the same way (`SeatMap.Root`,
   `SeatMap.Viewport`, …), but a bundler now drops the members an app never names: a client bundle of `SeatMap.Root`
   and `SeatMap.Content` alone goes from 17.8 KB to 8.8 KB (min + gzip). `Object.keys(SeatMap)` and spreading it still

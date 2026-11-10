@@ -355,6 +355,17 @@ one.
 13. **Editor store** — history, selection, press, tool and hover as one state with a reducer, tested without React;
     selectors memoized on their inputs replace the `'use memo'` hooks; `useSeatPlanEditor` becomes a thin binding and
     its 83 members are grouped.
+
+    _Built_, with the store the Store row recommends — **still a proposal**: ichno's own, no dependency, in the
+    shape zustand's `useStore` takes. `src/editor/state.ts` is the state and its pure pieces, `view.ts` what is drawn
+    from it (each piece remembering its last answer, in place of the `'use memo'` hooks), `store.ts` the commands;
+    the hook is thirty lines. Tested without React (`store.test.ts`), the identity of what a drag leaves alone
+    included. A drag of a row of 100 among 20,000 seats in the playground measured 227 / 257 ms a step before and
+    209 / 223 after (p50 / p95, 2D; an idle step is 50), letting go 384 → 366 ms — the same within the noise.
+    **Not done, and proposed to stay so:** grouping the 83 members. The hook returns what it did, so nothing an
+    app wrote changes; the commands are apart from the state now (`store.commands`, `store.getState()`), which is the
+    grouping that pays. The site's own state did not need zustand — see phase 16.
+
 14. **Viewer split** — a viewport without the editor's code, exports that tree-shake, a section's and a wall's edge
     editing as one implementation.
 15. **Preview** — the booking screen in the reference look, the 3D preview in it too. Needs only the viewer, so it can
