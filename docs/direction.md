@@ -287,17 +287,22 @@ panels taken away. The goal is an editor and a preview that look finished and st
 published, so the hook's API and the shape of document v3 can still change without an upgrade path; v1 and v2
 documents must keep upgrading.
 
-Measured that day, minified and gzipped, without react and zod:
+Measured that day, minified and gzipped, without react and zod — and again on 2026-11-11 with what is built below:
 
-| What                                           | Size    |
-| ---------------------------------------------- | ------- |
-| `ichno`, everything                            | 11.3 KB |
-| `ichno/schema`                                 | 10.2 KB |
-| `ichno/react`, everything                      | 17.6 KB |
-| `SeatMap.Root` and `SeatMap.Content` alone     | 17.1 KB |
-| the same two from their own files              | 8.8 KB  |
-| `ichno/editor`, everything                     | 27.7 KB |
-| an editor app (`ichno/editor` + `ichno/react`) | 38.9 KB |
+| What                                           | 2026-11-10 | 2026-11-11 |
+| ---------------------------------------------- | ---------- | ---------- |
+| `ichno`, everything                            | 11.3 KB    | 12.9 KB    |
+| `ichno/schema`                                 | 10.2 KB    | 10.2 KB    |
+| `ichno/react`, everything                      | 17.6 KB    | 18.5 KB    |
+| `SeatMap.Root` and `SeatMap.Content` alone     | 17.1 KB    | 8.8 KB     |
+| the same two from their own files              | 8.8 KB     | 8.8 KB     |
+| `ichno/editor`, everything                     | 27.7 KB    | 25.0 KB    |
+| an editor app (`ichno/editor` + `ichno/react`) | 38.9 KB    | 37.1 KB    |
+
+`ichno` grew by what a press means (`press`, `edgeScroll`) and `ichno/react` with it; the editor shrank because its
+state machine is plain code now rather than one compiled hook. The playground's first load is 371 KB of script
+(gzip), three.js another 251 KB — fetched straight away now that the corner view opens first, with the 2D plan on
+screen meanwhile.
 
 `SeatMap` is one object, so any part brings the viewport and the editor overlay with it. The playground loads about
 363 KB of script (161 KB of it the page's own chunk) and three.js another 251 KB when 3D opens. What a press means —
@@ -316,10 +321,10 @@ drag, marquee, stroke or pan — is written twice, in `SeatMap.Viewport` (990 li
 | Dark theme  | the canvas keeps the look whatever the theme — only the panels turn dark                                                                                                                                                                                                                                                                                                                                                                                                             | a dark version of the look; the old two inks in the dark                                                                                                                                                                                               |
 | Motion      | objects move when the plan changes, the preview included (reverses the static decision of 2026-10-08): placing settles from above, removing sinks away, aligning, turning and undoing glide to where things go, a selection lifts a little, a picked seat lifts in the preview, the views hand over with a camera move. Never while dragging, and not under reduced motion. Cute, never too much, modern — effects and their curves taken from open-source practice, not invented    | motion only for placing, removing and selecting; motion in the editor only; none                                                                                                                                                                       |
 
-Open: whether exports that tree-shake
-replace the namespace objects (`SeatMap`, `seatPlan`, `planEdits`), which changes the "Namespaced exports" rule in
-`AGENTS.md`; and whether a place still needs a `section` when the playground's one section is the whole plan and
-hidden.
+Open: whether the viewport leaves `SeatMap` so a read-only plan ships no script at all (phase 14 — `SeatMap` itself
+tree-shakes now, as a module namespace); whether `seatPlan` and `planEdits` follow it, which changes the "Namespaced
+exports" rule in `AGENTS.md`; and whether a place still needs a `section` when the playground's one section is the
+whole plan and hidden.
 
 Proposed phases, not yet reviewed by the maintainer — each would end with `pnpm check`, the site's build and the
 sizes above measured again. On 2026-11-11 the maintainer asked for them to be carried out as far as they go without
@@ -368,6 +373,18 @@ one.
 
 14. **Viewer split** — a viewport without the editor's code, exports that tree-shake, a section's and a wall's edge
     editing as one implementation.
+
+    _Partly built._ `SeatMap` is a module namespace now (`export * as`, kept out of the bundle so the build leaves it
+    as written): it is used as before, and a bundler drops the parts an app never names — `Root` and `Content` alone
+    are 8.8 KB in a client bundle instead of 17.1. Pushing an edge is one implementation (`src/editor/edges.ts`).
+    **Found, and left open:** a read-only plan in a Next.js Server Component still loads the viewport's chunk
+    (15.4 KB gzip, measured with Next 16.3 and Turbopack on a page of `SeatMap.Root` and `SeatMap.Content` alone) —
+    whichever way `SeatMap` is exported, naming it imports the client viewport, and the bundler ships every client
+    module a server module imports. The README said such a plan ships no JavaScript; it now says only that the parts
+    are drawn on the server. Shipping none takes the viewport out of `SeatMap` — its own export, or its own entry
+    point — which changes how every app imports it: the maintainer's call. The viewport without the editor's presses
+    was not split either: after phase 12 what a press means is 1.6 KB of shared core, not worth a second component.
+
 15. **Preview** — the booking screen in the reference look, the 3D preview in it too. Needs only the viewer, so it can
     start once the look is confirmed.
 
@@ -382,7 +399,15 @@ one.
     total and the button and opens for the rest — the simplest sheet, not on the boards.
 
 16. **Editor** — the playground's workspace split by feature, its state in a store, its canvas in the same look.
-17. **Release 0.3.**
+
+    _Built_ as far as it paid: the 2D canvas, the two side panels, the booking panel and the hand-over between the
+    views are modules of their own, and `Workspace` holds the state they share (1,253 lines to 876). **Not done:**
+    moving that state into a store. The editor's own is in one now; what is left in `Workspace` — the mode, the
+    tabs, what is booked and picked — changes on clicks, not on every frame, so zustand would add a dependency
+    without removing a redraw.
+
+17. **Release 0.3.** Not started — the changelog's Unreleased section is up to date, the version and the tag wait
+    for the maintainer.
 
 ## Out of scope
 
