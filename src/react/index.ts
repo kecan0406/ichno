@@ -35,6 +35,8 @@ export const SeatMap = {
 
 export { useSeatMapView, type SeatMapView } from './client/use-seat-map-view'
 
+export { planTargetOf } from './target'
+
 export type { PlaceProps } from './parts'
 
 export type { EditorOverlayProps } from './overlay'

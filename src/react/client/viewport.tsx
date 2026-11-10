@@ -12,27 +12,23 @@ import {
   type ReactNode,
 } from 'react'
 import { seatPlan } from '../../core/geometry'
-import {
-  IDLE_GESTURE,
-  TOUCH_DRAG_THRESHOLD_PX,
-  gesture,
-  type GestureEvent,
-  type GestureState,
-  type ScreenPoint,
-} from '../../core/gesture'
 import { placeNavigation, type NavigationDirection } from '../../core/navigation'
-import type {
-  HandleOwner,
-  Place,
-  PlanDrag,
-  PlanPoint,
-  PlanRect,
-  PlanStroke,
-  PlanTarget,
-  SeatPlan,
-} from '../../core/types'
+import {
+  IDLE_EDGE_SCROLL,
+  IDLE_PRESS,
+  edgeScroll,
+  press,
+  type EdgeScrollState,
+  type PressEnv,
+  type PressEvent,
+  type PressPointer,
+  type PressResult,
+  type PressState,
+} from '../../core/press'
+import type { Place, PlanDrag, PlanPoint, PlanRect, PlanStroke, PlanTarget, SeatPlan } from '../../core/types'
 import { ZOOM_STEP, planView, type PlanView, type ViewportSize } from '../../core/view'
 import { FONT_VAR, cssVar } from '../../theme/vars'
+import { planTargetOf } from '../target'
 
 // What a render-function child gets to draw with: the area worth drawing (the view plus a margin — cull what lies
 // outside it) and the screen scale in quarter-octave steps (drop detail that would be too small to read). Both
@@ -98,28 +94,13 @@ type ViewportProps<S extends string> = Omit<
   ): void
 }
 
-type Press<S extends string> = {
-  target: PlanTarget<S> | null
-  mode: 'drag' | 'marquee' | 'pan' | 'draw'
-  additive: boolean
-  // Where a drag, a marquee or a stroke started, in plan units.
-  anchor: PlanPoint | null
-  // Where the pointer last was (viewport pixels) — reported again, on the view as it is then, when the view moves
-  // under it or Shift or Alt changes mid-drag.
-  at: ScreenPoint | null
-}
-
-// Shift constrains a drag or a stroke; Alt draws a stroke from the centre and drags a copy; ⌘ or Ctrl lets go of
-// smart guides.
-type Keys = { constrain: boolean; fromCenter: boolean; free: boolean }
-
 // The interactive plan — an <svg> that pans, zooms (wheel, pinch), reports taps, drags and strokes, and moves a
 // focus ring between places with the arrow keys. Children are the same server-safe parts <SeatMap.Root> takes;
 // events are delegated by their `data-ichno-*` attributes, so the parts carry no handlers. The svg carries
 // `data-pan` — `ready` while Space is held, `active` while panning — for grab cursors. Drags are followed in plan
 // units, so what is dragged stays under the pointer while the view moves; held near the edge, a drag, a marquee or a
 // stroke scrolls the plan toward it (like tldraw's edge scrolling and React Flow's auto-pan).
-// Behaviour comes from the renderer-independent core (gesture, placeNavigation, planView).
+// Behaviour comes from the renderer-independent core (press, placeNavigation, planView).
 export function Viewport<S extends string>({
   plan,
   view,
@@ -146,14 +127,9 @@ export function Viewport<S extends string>({
   ...rest
 }: ViewportProps<S>) {
   const svgRef = useRef<SVGSVGElement>(null)
-  const gestureRef = useRef<GestureState>(IDLE_GESTURE)
-  // What the current press started on, and whether it drags that target, draws a marquee or a stroke, or pans.
-  const pressRef = useRef<Press<S>>(IDLE_PRESS)
+  // The press under way — what it started on and whether it drags that, draws a marquee or a stroke, or pans.
+  const pressRef = useRef<PressState<S>>(IDLE_PRESS)
   const hoverRef = useRef<string | null>(null)
-  // Shift and Alt as last seen — they shape drags and strokes.
-  const keysRef = useRef<Keys>(NO_KEYS)
-  // Fingers on the plan — their pointers pinch, so Safari's gesture events for the same pinch are not zoomed again.
-  const touchesRef = useRef(new Set<number>())
   // Whether the pointer is over the viewport — Space then pans instead of scrolling the page.
   const insideRef = useRef(false)
   // Space held — presses pan while it is.
@@ -163,7 +139,7 @@ export function Viewport<S extends string>({
   // A drag, a marquee or a stroke under way — the plan scrolls while it is held near the edge. `since` is when the
   // pointer reached the edge, `last` the previous frame.
   const [edging, setEdging] = useState(false)
-  const edgeRef = useRef<{ since: number | null; last: number | null }>({ since: null, last: null })
+  const edgeRef = useRef<EdgeScrollState>(IDLE_EDGE_SCROLL)
   const idPrefix = useId()
 
   const homeView = home ?? planView.home(plan)
@@ -225,31 +201,25 @@ export function Viewport<S extends string>({
     return places.find((place) => place.id === id)
   }
 
-  // Reports the drag, marquee or stroke under way where the pointer last was, on the view as it is now — so what is
-  // dragged stays under the pointer when the view moves beneath it, and the keys held now shape it.
-  function report(phase: 'move' | 'end') {
-    const press = pressRef.current
-    const to = press.at && toPlan(press.at)
-
-    if (!press.anchor || !to) return
-    const keys = keysRef.current
-
-    if (press.mode === 'drag' && press.target) {
-      const total = { x: to.x - press.anchor.x, y: to.y - press.anchor.y }
-      onTargetDrag?.({
-        target: press.target,
-        phase,
-        total,
-        constrain: keys.constrain,
-        copy: keys.fromCenter,
-        free: keys.free,
-        pixel: unitsPerPixel(),
-      })
-    } else if (press.mode === 'marquee') {
-      onMarquee?.(rectBetween(press.anchor, to), { phase, additive: press.additive })
-    } else if (press.mode === 'draw') {
-      onDraw?.({ start: press.anchor, end: to }, { phase, ...keys, pixel: unitsPerPixel() })
+  // What a press means here, as the view is now (core `press`).
+  function envOf(): PressEnv<S> {
+    return {
+      toPlan,
+      pixel: unitsPerPixel(),
+      draws: onDraw !== undefined,
+      marquees: onMarquee !== undefined,
+      pans: pannable,
+      grabs: spaceRef.current && pannable,
+      canDrag: (target) => canDrag?.(target) ?? false,
     }
+  }
+
+  // Hands a drag, a marquee or a stroke on to whoever follows it.
+  function report(event: PressEvent<S>) {
+    if (event.type === 'drag') onTargetDrag?.(event.drag)
+    else if (event.type === 'marquee' && event.rect)
+      onMarquee?.(event.rect, { phase: event.phase, additive: event.additive })
+    else if (event.type === 'draw') onDraw?.(event.stroke, { phase: event.phase, ...event.keys, pixel: event.pixel })
   }
 
   function changeView(next: PlanView) {
@@ -259,136 +229,68 @@ export function Viewport<S extends string>({
     onViewChange?.(next)
 
     // The view moved under a drag (the wheel, edge scrolling) — what is dragged keeps up with the pointer.
-    if (gestureRef.current.kind === 'dragging' && pressRef.current.mode !== 'pan') report('move')
+    for (const event of press.restate(pressRef.current, envOf())) report(event)
   }
 
-  function handle(events: GestureEvent[]) {
-    for (const event of events) {
-      // Read per event — a marquee or a stroke sets its anchor on dragstart, and the drag in the same batch needs it.
-      const press = pressRef.current
+  // Takes a step of the press and acts on what it means — taps, drags, marquees and strokes go to the handlers, a
+  // pan and a pinch move the view.
+  function act(result: PressResult<S>) {
+    pressRef.current = result.state
 
+    for (const event of result.events) {
       switch (event.type) {
         case 'tap': {
-          const point = toPlan(event.point)
+          onTap?.(event.target, { point: event.point, additive: event.additive })
+          const place = event.target?.kind === 'place' ? placeById(event.target.id) : undefined
 
-          if (press.mode === 'draw') {
-            if (point)
-              onDraw?.({ start: point, end: point }, { phase: 'end', ...keysRef.current, pixel: unitsPerPixel() })
-            break
-          }
-
-          const target = press.target
-          onTap?.(target, { point, additive: press.additive })
-
-          if (target?.kind === 'place') {
-            const place = placeById(target.id)
-
-            if (place) {
-              setActiveId(place.id)
-              onPlaceClick?.(place)
-            }
+          if (place) {
+            setActiveId(place.id)
+            onPlaceClick?.(place)
           }
 
           break
         }
 
-        case 'dragstart': {
-          if (press.mode === 'pan') {
-            if (pannable) setPanning(true)
-            break
-          }
+        case 'pan': {
+          setPanning(event.phase !== 'end')
 
-          const anchor = toPlan(event.point)
-          pressRef.current = { ...press, anchor, at: event.point }
-
-          if (!anchor) break
-
-          if (press.mode === 'drag' && press.target) {
-            onTargetDrag?.({
-              target: press.target,
-              phase: 'start',
-              total: { x: 0, y: 0 },
-              constrain: keysRef.current.constrain,
-              copy: keysRef.current.fromCenter,
-              free: keysRef.current.free,
-              pixel: unitsPerPixel(),
-            })
-          } else if (press.mode === 'marquee') {
-            onMarquee?.({ ...anchor, w: 0, h: 0 }, { phase: 'start', additive: press.additive })
-          } else if (press.mode === 'draw') {
-            onDraw?.({ start: anchor, end: anchor }, { phase: 'start', ...keysRef.current, pixel: unitsPerPixel() })
-          }
-
-          if (pannable) setEdging(true)
+          if (event.phase !== 'move') break
+          const scale = unitsPerPixel()
+          changeView(planView.pan(viewRef.current, { x: -event.delta.x * scale, y: -event.delta.y * scale }))
           break
         }
 
-        case 'drag': {
-          if (press.mode === 'pan') {
-            const scale = unitsPerPixel()
-
-            if (pannable)
-              changeView(planView.pan(viewRef.current, { x: -event.delta.x * scale, y: -event.delta.y * scale }))
-            break
-          }
-
-          pressRef.current = { ...press, at: event.point }
-          report('move')
-          break
-        }
-
-        case 'dragend':
-          if (press.mode !== 'pan') {
-            pressRef.current = { ...press, at: event.point }
-            report('end')
-          }
-
-          setPanning(false)
-          setEdging(false)
-          // After a pinch the remaining finger pans — it never drags the target the gesture began on.
-          pressRef.current = IDLE_PRESS
-          break
         case 'pinch': {
-          const size = sizeRef.current
+          const viewport = sizeRef.current
 
-          if (zoomable && size) changeView(planView.pinch(viewRef.current, size, event, homeView))
+          if (zoomable && viewport) changeView(planView.pinch(viewRef.current, viewport, event, homeView))
           break
         }
+
+        case 'hold':
+          setEdging(event.held && pannable)
+          break
+        default:
+          report(event)
       }
     }
   }
 
-  // Drops a stroke in progress — it must not create anything.
-  function cancelStroke() {
-    const press = pressRef.current
-    const end = press.at && toPlan(press.at)
-
-    if (press.mode === 'draw' && press.anchor && end) {
-      onDraw?.({ start: press.anchor, end }, { phase: 'cancel', ...keysRef.current })
-    }
-
-    pressRef.current = IDLE_PRESS
-    setEdging(false)
-  }
-
-  // Shift or Alt changed mid-drag — report the drag or the stroke again, shaped by the keys held now.
-  function restate() {
-    if (gestureRef.current.kind === 'dragging' && pressRef.current.mode !== 'pan') report('move')
-  }
-
-  function pointerOf(e: PointerEvent<SVGSVGElement>, refresh = false) {
+  function pointerOf(e: PointerEvent<SVGSVGElement>, refresh = false): PressPointer {
     const origin = originOf(refresh) ?? { left: 0, top: 0 }
 
-    return { id: e.pointerId, x: e.clientX - origin.left, y: e.clientY - origin.top }
+    return {
+      id: e.pointerId,
+      x: e.clientX - origin.left,
+      y: e.clientY - origin.top,
+      type: e.pointerType,
+      button: e.button,
+      buttons: e.buttons,
+    }
   }
 
   function handlePointerCancel(e: { pointerId: number }) {
-    touchesRef.current.delete(e.pointerId)
-
-    if (pressRef.current.mode === 'draw') cancelStroke()
-    const result = gesture.cancel(gestureRef.current)
-    gestureRef.current = result.state
-    handle(result.events)
+    act(press.cancel(pressRef.current, { id: e.pointerId }, envOf()))
   }
 
   function handlePointerDown(e: PointerEvent<SVGSVGElement>) {
@@ -397,87 +299,40 @@ export function Viewport<S extends string>({
     if (e.pointerType === 'mouse' && e.button !== 0 && !middle) return
 
     if (middle) e.preventDefault() // no autoscroll
-
-    if (e.pointerType === 'touch') touchesRef.current.add(e.pointerId)
     setKeyboardFocus(false)
-    keysRef.current = keysOf(e)
-    const idle = gestureRef.current.kind === 'idle'
-    const pointer = pointerOf(e, idle)
-
-    if (idle) {
-      const additive = e.shiftKey || e.metaKey || e.ctrlKey
-      const pan = middle || (spaceRef.current && pannable)
-      const target = pan ? null : targetOf<S>(e.target)
-
-      const mode: Press<S>['mode'] = pan
-        ? 'pan'
-        : onDraw
-          ? 'draw'
-          : target !== null && (canDrag?.(target) ?? false)
-            ? 'drag'
-            : onMarquee && (additive || target !== null || e.pointerType !== 'touch')
-              ? 'marquee'
-              : 'pan'
-
-      pressRef.current = { target, mode, additive, anchor: null, at: null }
-    } else if (pressRef.current.mode === 'draw') {
-      // A second finger turns the press into a pinch — the stroke is dropped, not drawn.
-      cancelStroke()
-    }
-
+    // The viewport's place on the page is read once per gesture.
+    const pointer = pointerOf(e, pressRef.current.gesture.kind === 'idle')
     e.currentTarget.setPointerCapture(e.pointerId)
-    const result = gesture.down(gestureRef.current, pointer, pressRef.current.target ? 'target' : null)
-    gestureRef.current = result.state
-    handle(result.events)
-
-    // A second finger turns the press into a pinch, and whatever finger remains afterwards pans — the target the
-    // first finger landed on is let go even when no drag had started yet.
-    if (result.state.kind === 'pinching') pressRef.current = IDLE_PRESS
+    act(press.down(pressRef.current, pointer, planTargetOf<S>(e.target), press.keysOf(e), envOf()))
   }
 
   function handlePointerMove(e: PointerEvent<SVGSVGElement>) {
-    if (gestureRef.current.kind === 'idle') {
-      insideRef.current = true
-      const target = targetOf<S>(e.target)
-      const place = target?.kind === 'place' ? placeById(target.id) : undefined
-
-      if ((place?.id ?? null) !== hoverRef.current) {
-        hoverRef.current = place?.id ?? null
-        onPlaceHover?.(place ?? null)
-      }
-
-      onHover?.(toPlan(pointerOf(e)), target, { pixel: unitsPerPixel() })
+    if (pressRef.current.gesture.kind !== 'idle') {
+      act(press.move(pressRef.current, pointerOf(e), press.keysOf(e), envOf()))
 
       return
     }
 
-    // A button let go where the release never reached us (a menu opened mid-drag took it) — end the press where it
-    // last was, instead of dragging on with nothing held.
-    if (e.buttons === 0 && e.pointerType !== 'touch' && holds(gestureRef.current, e.pointerId)) {
-      handlePointerCancel(e)
+    insideRef.current = true
+    const target = planTargetOf<S>(e.target)
+    const place = target?.kind === 'place' ? placeById(target.id) : undefined
 
-      return
+    if ((place?.id ?? null) !== hoverRef.current) {
+      hoverRef.current = place?.id ?? null
+      onPlaceHover?.(place ?? null)
     }
 
-    keysRef.current = keysOf(e)
-    const threshold = e.pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD_PX : undefined
-    const result = gesture.move(gestureRef.current, pointerOf(e), threshold)
-    gestureRef.current = result.state
-    handle(result.events)
+    onHover?.(toPlan(pointerOf(e)), target, { pixel: unitsPerPixel() })
   }
 
   function handlePointerUp(e: PointerEvent<SVGSVGElement>) {
-    touchesRef.current.delete(e.pointerId)
-    keysRef.current = keysOf(e)
-    const result = gesture.up(gestureRef.current, pointerOf(e))
-    gestureRef.current = result.state
-    handle(result.events)
+    act(press.up(pressRef.current, pointerOf(e), press.keysOf(e), envOf()))
   }
 
   // Capture ends with every release. Lost while a press still follows the pointer, the release is not coming —
   // end the press rather than leave it stuck.
   function handleLostCapture(e: PointerEvent<SVGSVGElement>) {
-    if (holds(gestureRef.current, e.pointerId)) handlePointerCancel(e)
+    if (press.holds(pressRef.current, e.pointerId)) handlePointerCancel(e)
   }
 
   function handlePointerLeave() {
@@ -572,7 +427,7 @@ export function Viewport<S extends string>({
 
     // On a touch screen Safari sends them too, for the fingers whose pointers already pinch — zooming here as well
     // would zoom twice as far (tldraw and use-gesture listen to one or the other for the same reason).
-    if (touchesRef.current.size > 0) return
+    if (pressRef.current.touches.length > 0) return
     // SAFETY: only GESTURE_EVENTS reach this, and Safari sends them as GestureEvents (lib.dom has no type for them),
     // which carry the scale and the pointer's client position.
     const pinch = e as Event & { scale: number; clientX: number; clientY: number }
@@ -611,8 +466,7 @@ export function Viewport<S extends string>({
   // go mid-drag reshape the drag at once.
   const onWindowKey = useEffectEvent((e: globalThis.KeyboardEvent) => {
     if (e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta' || e.key === 'Control') {
-      keysRef.current = keysOf(e)
-      restate()
+      act(press.keys(pressRef.current, press.keysOf(e), envOf()))
 
       return
     }
@@ -698,34 +552,22 @@ export function Viewport<S extends string>({
   // speed past it, until the drawing's edge comes into view: nothing can be moved or drawn beyond it. Speed is per
   // 60 Hz frame and scaled by the time since the last one, so fast displays scroll alike.
   const onEdgeFrame = useEffectEvent((now: number) => {
-    const edge = edgeRef.current
-    const at = pressRef.current.at
     const size = sizeRef.current
-    const elapsed = edge.last === null ? 0 : Math.min(now - edge.last, EDGE_MAX_STEP_MS)
-    edge.last = now
-    const push = at && size ? edgePush(at, size) : null
+    const stepped = edgeScroll.step(edgeRef.current, pressRef.current.at, size, now)
+    edgeRef.current = stepped.state
 
-    if (!push || !size) {
-      edge.since = null
-
-      return
-    }
-
-    if (edge.since === null) edge.since = now
-    const held = now - edge.since - EDGE_DELAY_MS
-
-    if (held <= 0) return
-    const units = EDGE_SPEED_PX * Math.min(1, held / EDGE_EASE_MS) * (elapsed / FRAME_MS) * unitsPerPixel()
+    if (!stepped.scroll || !size) return
+    const scale = unitsPerPixel()
     const shown = planView.visible(viewRef.current, size)
-    const dx = towardEdge(push.x * units, shown.x, shown.w, homeView.x, homeView.w)
-    const dy = towardEdge(push.y * units, shown.y, shown.h, homeView.y, homeView.h)
+    const dx = towardEdge(stepped.scroll.x * scale, shown.x, shown.w, homeView.x, homeView.w)
+    const dy = towardEdge(stepped.scroll.y * scale, shown.y, shown.h, homeView.y, homeView.h)
 
     if (dx !== 0 || dy !== 0) changeView(planView.pan(viewRef.current, { x: dx, y: dy }))
   })
 
   useEffect(() => {
     if (!edging) return
-    edgeRef.current = { since: null, last: null }
+    edgeRef.current = IDLE_EDGE_SCROLL
 
     return everyFrame((now) => onEdgeFrame(now))
   }, [edging])
@@ -780,7 +622,7 @@ export function Viewport<S extends string>({
       onPointerLeave={handlePointerLeave}
       onContextMenu={(e) => {
         // A menu opened mid-drag would take the release with it.
-        if (gestureRef.current.kind !== 'idle') e.preventDefault()
+        if (pressRef.current.gesture.kind !== 'idle') e.preventDefault()
         onContextMenu?.(e)
       }}
       onKeyDown={handleKeyDown}
@@ -829,50 +671,6 @@ function isRenderProp(children: ViewportProps<string>['children']): children is 
   return typeof children === 'function'
 }
 
-// The handle, place, object, wall or section an element belongs to — the nearest part with an ichno data attribute.
-function targetOf<S extends string>(element: EventTarget | null): PlanTarget<S> | null {
-  if (!(element instanceof Element)) return null
-  const handle = element.closest('[data-ichno-handle]')
-
-  if (handle) {
-    const id = handle.getAttribute('data-ichno-owner') ?? ''
-    const kind = handle.getAttribute('data-ichno-owner-kind')
-
-    // SAFETY: a section handle belongs to one of the plan's sections, whose ids are `S`; HandlesPart writes that id.
-    const owner: HandleOwner<S> =
-      kind === 'selection'
-        ? { kind: 'selection' }
-        : kind === 'section'
-          ? { kind: 'section', id: id as S }
-          : { kind: kind === 'group' ? 'group' : kind === 'wall' ? 'wall' : 'object', id }
-
-    return { kind: 'handle', owner, name: handle.getAttribute('data-ichno-handle')! }
-  }
-
-  const place = element.closest('[data-ichno-id]')
-
-  if (place) return { kind: 'place', id: place.getAttribute('data-ichno-id')! }
-  const object = element.closest('[data-ichno-object]')
-
-  if (object) return { kind: 'object', id: object.getAttribute('data-ichno-object')! }
-  const wall = element.closest('[data-ichno-wall]')
-
-  if (wall) return { kind: 'wall', id: wall.getAttribute('data-ichno-wall')! }
-  const section = element.closest('[data-ichno-section]')
-
-  if (section) {
-    // SAFETY: the element matched `[data-ichno-section]`, so the attribute is there, and SectionPart writes it from
-    // one of the plan's section ids, which are `S`.
-    return { kind: 'section', id: section.getAttribute('data-ichno-section') as S }
-  }
-
-  return null
-}
-
-function keysOf(e: { shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): Keys {
-  return { constrain: e.shiftKey, fromCenter: e.altKey, free: e.metaKey || e.ctrlKey }
-}
-
 // Calls `frame` on every animation frame until the returned function stops it.
 function everyFrame(frame: (now: number) => void): () => void {
   let id = requestAnimationFrame(function tick(now) {
@@ -881,37 +679,6 @@ function everyFrame(frame: (now: number) => void): () => void {
   })
 
   return () => cancelAnimationFrame(id)
-}
-
-// Whether a gesture still follows this pointer.
-function holds(state: GestureState, pointerId: number): boolean {
-  if (state.kind === 'pressed' || state.kind === 'dragging') return state.pointer.id === pointerId
-
-  if (state.kind === 'pinching') return state.pointers.some((pointer) => pointer.id === pointerId)
-
-  return false
-}
-
-// The rectangle between two plan points.
-function rectBetween(a: PlanPoint, b: PlanPoint): PlanRect {
-  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }
-}
-
-// How hard a pointer (viewport pixels) pushes toward each edge — 0 clear of the edge band, up to ±1 at the edge and
-// beyond it. null when it pushes toward none.
-function edgePush(at: ScreenPoint, size: ViewportSize): PlanPoint | null {
-  const x = pushAlong(at.x, size.width)
-  const y = pushAlong(at.y, size.height)
-
-  return x === 0 && y === 0 ? null : { x, y }
-}
-
-function pushAlong(at: number, length: number): number {
-  if (at < EDGE_PX) return -Math.min(1, (EDGE_PX - at) / EDGE_PX)
-
-  if (at > length - EDGE_PX) return Math.min(1, (at - (length - EDGE_PX)) / EDGE_PX)
-
-  return 0
 }
 
 // A scroll of `delta` plan units along one axis, cut short where what is shown (`start`, `length`) reaches the edge
@@ -973,22 +740,3 @@ const WHEEL_LINE_PX = 33
 const WHEEL_PAGE_PX = 800
 
 const GESTURE_EVENTS = ['gesturestart', 'gesturechange', 'gestureend'] as const
-
-// Edge scrolling: the band along each edge (screen pixels) where a held pointer scrolls, how long it waits there
-// before scrolling and how long it takes to reach full speed — at most EDGE_SPEED_PX per 60 Hz frame.
-const EDGE_PX = 24
-
-const EDGE_DELAY_MS = 200
-
-const EDGE_EASE_MS = 300
-
-const EDGE_SPEED_PX = 18
-
-const FRAME_MS = 1000 / 60
-
-// A frame late by more than this (a background tab) scrolls as if it were not — no leap on return.
-const EDGE_MAX_STEP_MS = 50
-
-const IDLE_PRESS: Press<never> = { target: null, mode: 'pan', additive: false, anchor: null, at: null }
-
-const NO_KEYS: Keys = { constrain: false, fromCenter: false, free: false }

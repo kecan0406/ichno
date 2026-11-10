@@ -177,6 +177,12 @@ Pure building blocks any renderer can share:
 - `spatialIndex.create(items)` / `.at(index, point)` / `.query(index, rect)` — hit-testing and area selection
 - `gesture.down/move/up/cancel` — a pointer state machine that turns pointer events into `tap`, `drag`
   (`target: null` means pan) and `pinch`
+- `press.down/move/up/cancel` — what a press on the plan means, on top of `gesture`: a tap, a target dragged, a
+  marquee, a tool's stroke, a pan or a pinch, with points handed back in plan units through the view's own `toPlan`.
+  `press.keys` and `press.restate` report a drag again when a key changes or the view moves under it. It is what
+  `SeatMap.Viewport` runs on; a renderer of your own (a canvas, a 3D view reading the floor under the pointer) feeds
+  it the same way and gets the same presses
+- `edgeScroll.step(state, pointer, size, now)` — how far a view scrolls this frame while a press is held at its edge
 - `placeNavigation.next(items, fromId, 'left')` — arrow-key movement between places
 
 ## Draw
@@ -253,6 +259,8 @@ pressed; `onDraw(stroke, info)` turns every press into a stroke for a creation t
 `navigable={false}` turns the arrow-key focus off — the editor does while the arrows move its selection.
 Drags are followed in plan units: what is dragged stays under the pointer while the view zooms or scrolls, and a
 drag, marquee or stroke held near the edge scrolls the plan toward it until the drawing's edge is in view.
+Events are delegated by the parts' `data-ichno-*` attributes; `planTargetOf(element)` reads the same way — what a
+right-click landed on, or a handle in an overlay you draw yourself.
 
 **Views** are viewBoxes in plan units (`planView.home(plan)`, `planView.zoom`, `planView.pan`, `planView.pinch`,
 `planView.fitTo` for zoom-to-places), so nothing is measured while rendering. Zoom goes from the home view (the

@@ -255,6 +255,15 @@ margin })` and a `home` prop on `SeatMap.Viewport` (the widest view, which `view
   them never closed with whole-metre edges. The schema takes wall corners that are not whole; `addWall`, `buildWall`,
   `reshapeWall` (without snapping), joined walls that follow a reshaped one and a path tool's corner on a wall keep
   them to a hundredth.
+- `ichno`: `press` — what a press on the plan means, as pure functions on top of `gesture`: `down`, `move`, `up`
+  and `cancel` take pointer events with what each landed on and answer with a tap, a target dragged, a marquee, a
+  tool's stroke, a pan or a pinch, points in plan units through the view's own `toPlan`; `keys` and `restate` report
+  a drag again when a modifier changes or the view moves under it. `edgeScroll.step` is the scrolling of a press held
+  at a view's edge. `SeatMap.Viewport` runs on both, and a renderer of your own gets the same presses from them (the
+  playground's 3D editor does). New types `PressState`, `PressEvent`, `PressEnv`, `PressKeys`, `PressMode`,
+  `PressPointer`, `PressResult`, `EdgeScrollState`, `EdgeScrollStep`.
+- `ichno/react`: `planTargetOf(element)` — the handle, place, object, wall or section an element belongs to, read
+  from the parts' `data-ichno-*` attributes the way the viewport delegates its events.
 
 ## 0.2.1 — 2026-09-25
 

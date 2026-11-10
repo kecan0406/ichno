@@ -78,6 +78,22 @@ export {
   type ScreenPoint,
 } from './core/gesture'
 
+export {
+  IDLE_EDGE_SCROLL,
+  IDLE_PRESS,
+  edgeScroll,
+  press,
+  type EdgeScrollState,
+  type EdgeScrollStep,
+  type PressEnv,
+  type PressEvent,
+  type PressKeys,
+  type PressMode,
+  type PressPointer,
+  type PressResult,
+  type PressState,
+} from './core/press'
+
 export { placeNavigation, type NavigationDirection, type NavigationItem } from './core/navigation'
 
 export { themeVars, type ThemeVar } from './theme/vars'
