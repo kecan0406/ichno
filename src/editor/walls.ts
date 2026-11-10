@@ -1,7 +1,8 @@
 import { seatPlan } from '../core/geometry'
-import { outlineOf, polygonContains, signedArea } from '../core/math'
+import { polygonContains, signedArea } from '../core/math'
 import type { PlanHandle, PlanObject, PlanPoint, SeatPlan, Wall, WallOpening } from '../core/types'
 import { distanceToEdge, isClosed, wallEdgesOf, wallOutlineOf } from '../core/walls'
+import { against, onLine, pushRange } from './edges'
 import type { Snap } from './operations'
 
 // Wall edits — adding walls and their openings, what a closed wall carries when it moves, and reshaping a wall from
@@ -297,7 +298,7 @@ function pushedEdge<S extends string>(
   const next = (index + 1) % points.length
   const across = { x: -edge.along.y, y: edge.along.x }
   const step = wallStepOf(snap)
-  const [low, high] = pushRange(plan, points, index, next, edge.a, edge.along, edge.length, across, step)
+  const [low, high] = pushRange(plan, points, index, next, edge, across, step)
   const wanted = Math.min(high, Math.max(low, total.x * across.x + total.y * across.y))
   const level = across.x === 0 || across.y === 0
   let push = level ? onLine(edge.a, across, wanted, step) : wanted
@@ -312,9 +313,7 @@ function pushedEdge<S extends string>(
 
   const carried = new Set<PlanObject<S>>(
     plan.objects.flatMap((o) =>
-      o.kind === 'fixture' && o.group === undefined && against(o, edge.a, edge.along, edge.length, across, reach)
-        ? [o]
-        : [],
+      o.kind === 'fixture' && o.group === undefined && against(o, edge, across, reach) ? [o] : [],
     ),
   )
 
@@ -546,74 +545,6 @@ export function fitted(wall: Wall): Wall {
 
 function withWall<S extends string>(plan: SeatPlan<S>, wall: Wall): SeatPlan<S> {
   return { ...plan, walls: plan.walls.map((w) => (w.id === wall.id ? wall : w)) }
-}
-
-// How far an edge can be pushed across itself (negative: the other way) — a step short of every other corner of the
-// wall it would pass over, and no further than the plan's edge. Staying put is always in range.
-function pushRange(
-  plan: Pick<SeatPlan, 'width' | 'height'>,
-  points: readonly PlanPoint[],
-  index: number,
-  next: number,
-  a: PlanPoint,
-  along: PlanPoint,
-  length: number,
-  across: PlanPoint,
-  step: number,
-): [number, number] {
-  let low = -Infinity
-  let high = Infinity
-  points.forEach((p, i) => {
-    if (i === index || i === next) return
-    const u = (p.x - a.x) * along.x + (p.y - a.y) * along.y
-    const v = (p.x - a.x) * across.x + (p.y - a.y) * across.y
-
-    if (u < -EPSILON || u > length + EPSILON) return
-
-    if (v > EPSILON) high = Math.min(high, v - step)
-    else if (v < -EPSILON) low = Math.max(low, v + step)
-  })
-
-  for (const p of [a, { x: a.x + along.x * length, y: a.y + along.y * length }]) {
-    for (const [n, start, extent] of [
-      [across.x, p.x, plan.width],
-      [across.y, p.y, plan.height],
-    ] as const) {
-      if (Math.abs(n) < EPSILON) continue
-      const [t1, t2] = [-start / n, (extent - start) / n]
-      low = Math.max(low, Math.min(t1, t2))
-      high = Math.min(high, Math.max(t1, t2))
-    }
-  }
-
-  return [Math.min(low, 0), Math.max(high, 0)]
-}
-
-// The push `wanted` from `a` across a level or upright edge, landing the edge on the nearest step line.
-function onLine(a: PlanPoint, across: PlanPoint, wanted: number, step: number): number {
-  const axis = across.x === 0 ? 'y' : 'x'
-  const sign = across[axis]
-
-  return (roundTo(a[axis] + wanted * sign, step) - a[axis]) * sign
-}
-
-// Whether a fixture stands against a wall's edge or across it — its outline within `reach` of the centre line, its
-// centre beside the edge rather than past one end.
-function against(
-  object: PlanObject,
-  a: PlanPoint,
-  along: PlanPoint,
-  length: number,
-  across: PlanPoint,
-  reach: number,
-): boolean {
-  const center = seatPlan.centerOf(object)
-  const u = (center.x - a.x) * along.x + (center.y - a.y) * along.y
-
-  if (u < 0 || u > length) return false
-  const offsets = outlineOf(object, 'rect').map((p) => (p.x - a.x) * across.x + (p.y - a.y) * across.y)
-
-  return Math.min(...offsets) <= reach && Math.max(...offsets) >= -reach
 }
 
 // A point on the step grid, on the plan.

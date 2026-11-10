@@ -10,6 +10,7 @@ import type {
   SeatPlan,
   Section,
 } from '../core/types'
+import { against, onLine, pushRange } from './edges'
 import type { EditorSelection } from './selection'
 import type { Snap } from './operations'
 import { boxOf, turnObjects, withGroupRotation } from './turn'
@@ -71,8 +72,6 @@ const MERGE_PX = 8
 
 // How close (plan units) a fixture comes to an edge's line to stand against it — a side snapped onto it.
 const TOUCH = 1
-
-const EPSILON = 1e-9
 
 // The handles a selection shows. `turn` turns a selection's knob (and `frame` its box) while the knob is dragged —
 // pass `selectionTurn` with the plan as it was, so both follow the pointer.
@@ -375,7 +374,7 @@ function pushedEdge<S extends string>(
   const edge = { a, along: { x: (b.x - a.x) / length, y: (b.y - a.y) / length }, length }
   const across = { x: -edge.along.y, y: edge.along.x }
   const step = snap ? snap.cell : 1
-  const [low, high] = pushRange(plan, points, index, edge, across, step)
+  const [low, high] = pushRange(plan, points, index, (index + 1) % points.length, edge, across, step)
   const wanted = clamp(total.x * across.x + total.y * across.y, low, high)
   const level = across.x === 0 || across.y === 0
   // On a level or upright edge the push lands on a cell line — stepped back inside the range if rounding passed it.
@@ -389,7 +388,9 @@ function pushedEdge<S extends string>(
   if (d.x === 0 && d.y === 0) return plan
 
   const carried = new Set<PlanObject<S>>(
-    plan.objects.flatMap((o) => (o.kind === 'fixture' && o.group === undefined && against(o, edge, across) ? [o] : [])),
+    plan.objects.flatMap((o) =>
+      o.kind === 'fixture' && o.group === undefined && against(o, edge, across, TOUCH) ? [o] : [],
+    ),
   )
 
   return {
@@ -404,67 +405,6 @@ function pushedEdge<S extends string>(
         ? plan.objects
         : plan.objects.map((o) => (carried.has(o) ? seatPlan.translate(o, d.x, d.y) : o)),
   }
-}
-
-type Edge = { a: PlanPoint; along: PlanPoint; length: number }
-
-// How far an edge can be pushed across itself (negative: the other way) — a step short of every corner it would pass
-// over, and no further than the plan's edge. Staying put is always in range.
-function pushRange(
-  plan: Pick<SeatPlan, 'width' | 'height'>,
-  points: readonly PlanPoint[],
-  index: number,
-  { a, along, length }: Edge,
-  across: PlanPoint,
-  step: number,
-): [number, number] {
-  let low = -Infinity
-  let high = Infinity
-  points.forEach((p, i) => {
-    if (i === index || i === (index + 1) % points.length) return
-    const u = (p.x - a.x) * along.x + (p.y - a.y) * along.y
-    const v = (p.x - a.x) * across.x + (p.y - a.y) * across.y
-
-    if (u < -EPSILON || u > length + EPSILON) return
-
-    if (v > EPSILON) high = Math.min(high, v - step)
-    else if (v < -EPSILON) low = Math.max(low, v + step)
-  })
-  const ends = [a, { x: a.x + along.x * length, y: a.y + along.y * length }]
-
-  for (const p of ends) {
-    for (const [n, start, extent] of [
-      [across.x, p.x, plan.width],
-      [across.y, p.y, plan.height],
-    ] as const) {
-      if (Math.abs(n) < EPSILON) continue
-      const [t1, t2] = [-start / n, (extent - start) / n]
-      low = Math.max(low, Math.min(t1, t2))
-      high = Math.min(high, Math.max(t1, t2))
-    }
-  }
-
-  return [Math.min(low, 0), Math.max(high, 0)]
-}
-
-// The push `wanted` from `a` across a level or upright edge, landing the edge on the nearest cell line.
-function onLine(a: PlanPoint, across: PlanPoint, wanted: number, step: number): number {
-  const axis = across.x === 0 ? 'y' : 'x'
-  const sign = across[axis]
-
-  return (roundTo(a[axis] + wanted * sign, step) - a[axis]) * sign
-}
-
-// Whether a fixture stands against an edge or across it — its outline touches the edge's line, its centre beside the
-// edge rather than past one end.
-function against(object: PlanObject, { a, along, length }: Edge, across: PlanPoint): boolean {
-  const center = seatPlan.centerOf(object)
-  const u = (center.x - a.x) * along.x + (center.y - a.y) * along.y
-
-  if (u < 0 || u > length) return false
-  const offsets = outlineOf(object, 'rect').map((p) => (p.x - a.x) * across.x + (p.y - a.y) * across.y)
-
-  return Math.min(...offsets) <= TOUCH && Math.max(...offsets) >= -TOUCH
 }
 
 function middle(a: PlanPoint, b: PlanPoint): PlanPoint {
