@@ -56,6 +56,11 @@ Namespaced exports follow one shape: the object (`seatPlan`, `layout`) at the to
 `function` declarations below it (hoisting makes that work; `const` arrows would hit the TDZ). File-private helpers
 stay out of the object.
 
+`SeatMap` is the exception: a module namespace (`export * as SeatMap from './seat-map.js'` in `src/react/index.ts`),
+so consumers' bundlers drop the parts they do not name. The build must leave that line as written — `seat-map` is an
+entry of its own and kept out of the bundle in `tsdown.config.ts`; bundled, it turns back into one object holding
+every part. A new part goes in `src/react/seat-map.ts`.
+
 ## Principles
 
 - **No copy.** The library never contains user-facing text in any language. Labels come in through props/callbacks

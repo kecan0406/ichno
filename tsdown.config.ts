@@ -6,9 +6,15 @@ export default defineConfig({
     index: 'src/index.ts',
     'schema/index': 'src/schema/index.ts',
     'react/index': 'src/react/index.ts',
+    // `SeatMap`'s members — an entry of its own so `ichno/react` can re-export it as a namespace (see `external`).
+    'react/seat-map': 'src/react/seat-map.ts',
     'editor/index': 'src/editor/index.ts',
   },
   format: 'esm',
+  // Left as written in `src/react/index.ts`, so the build keeps `export * as SeatMap from './seat-map.js'` — a real
+  // module namespace, whose unused members a consumer's bundler drops. Bundled, it would become one object holding
+  // every part, and a read-only plan would ship the viewport with it.
+  deps: { neverBundle: ['./seat-map.js'] },
   platform: 'neutral',
   dts: true,
   // One output file per source file — keeps each module's 'use client' directive and lets consumers

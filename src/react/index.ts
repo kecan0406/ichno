@@ -1,37 +1,7 @@
-import { Viewport } from './client/viewport'
-import { Content } from './content'
-import { EditorOverlay } from './overlay'
-import {
-  FixturePart,
-  GridPart,
-  HandlesPart,
-  LabelPart,
-  MarqueePart,
-  OutlinePart,
-  PlacePart,
-  Root,
-  RoomPart,
-  SectionPart,
-  WallPart,
-} from './parts'
-
-// Headless seat map components. Every part but `Viewport` renders as a React Server Component.
-export const SeatMap = {
-  Root,
-  Viewport,
-  Content,
-  Section: SectionPart,
-  Room: RoomPart,
-  Wall: WallPart,
-  Place: PlacePart,
-  Fixture: FixturePart,
-  Label: LabelPart,
-  Grid: GridPart,
-  Handles: HandlesPart,
-  Outline: OutlinePart,
-  Marquee: MarqueePart,
-  EditorOverlay,
-}
+// Headless seat map components — `SeatMap.Root`, `SeatMap.Viewport`, `SeatMap.Content` and the parts. Every one but
+// `Viewport` renders as a React Server Component. A namespace of a module rather than an object, so what an app does
+// not name is left out of its bundle.
+export * as SeatMap from './seat-map.js'
 
 export { useSeatMapView, type SeatMapView } from './client/use-seat-map-view'
 

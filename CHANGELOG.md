@@ -266,6 +266,10 @@ margin })` and a `home` prop on `SeatMap.Viewport` (the widest view, which `view
   from the parts' `data-ichno-*` attributes the way the viewport delegates its events.
 - `ichno`: `planView.toScreen(view, size, point)` — where a plan point shows in the viewport, `toPlan` the other way:
   the anchor for a tooltip or a popover you position over the plan.
+- `ichno/react`: `SeatMap` is a module namespace instead of an object — used the same way (`SeatMap.Root`,
+  `SeatMap.Viewport`, …), but a bundler now drops the members an app never names: a client bundle of `SeatMap.Root`
+  and `SeatMap.Content` alone goes from 17.8 KB to 8.8 KB (min + gzip). `Object.keys(SeatMap)` and spreading it still
+  list every part.
 
 ## 0.2.1 — 2026-09-25
 

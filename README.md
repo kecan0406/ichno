@@ -190,7 +190,7 @@ Pure building blocks any renderer can share:
 ```tsx
 import { SeatMap } from 'ichno/react'
 
-// Read-only — a Server Component; no JavaScript ships for it.
+// Read-only — a Server Component: these parts are drawn on the server and never run in the browser.
 ;<SeatMap.Root plan={plan} aria-label="Floor plan">
   <SeatMap.Content
     plan={plan}
@@ -216,6 +216,10 @@ const map = useSeatMapView(plan) // the view, and zoom controls for the buttons 
 <button onClick={map.fit}>{Math.round(map.level * 100)}%</button>
 <button onClick={map.zoomIn} disabled={!map.canZoomIn}>+</button>
 ```
+
+`SeatMap` is a module namespace, so a bundler leaves out the members an app never names — a client bundle of
+`SeatMap.Root` and `SeatMap.Content` alone is 8.8 KB (min + gzip) rather than 17.8 with the viewport and the editor's
+overlay.
 
 `SeatMap.Content` is a convenience — sections, the floors of the rooms the walls close, the walls, then the objects;
 compose the parts yourself when you need something else — `SeatMap.Section`, `SeatMap.Room`, `SeatMap.Wall`,
