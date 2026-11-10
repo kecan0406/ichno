@@ -45,12 +45,14 @@ import {
 import { METRE, WALL_STEP } from '../_lib/units'
 import { AssetsPanel } from './assets'
 import type { BuildCamera, BuildControls, BuildView, Handoff } from './build-3d'
+import { CategoryLabels } from './category-labels'
 import { CanvasMenu, type CanvasMenuAt } from './context-menu'
 import controls from './controls.module.css'
 import { DesignPanel } from './design'
 import { Dimensions } from './dimensions'
 import { DocumentHead } from './file-menu'
 import { Resizer, usePanels } from './frame'
+import { Gliding } from './settling'
 import { Icon } from './icons'
 import { LayersPanel } from './layers'
 import { MenuButton, MenuItem, MenuSeparator } from './menu'
@@ -89,6 +91,9 @@ const NO_STRAYS: string[] = []
 // The steps a typed edge keeps to, toward the pointer — 15°, as Shift keeps a corner.
 const EDGE_STEP = Math.PI / 12
 
+// Room left round the plan in the 2D views — a metre, so its walls keep off the canvas's edges.
+const VIEW_MARGIN = METRE
+
 // Seat numbers drawn smaller than this on screen are left out (`SeatMap.Content` defaults to 9).
 const LABEL_MIN_PX = 6
 
@@ -124,13 +129,16 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   })
 
   // One view for both modes — switching keeps where you were looking.
-  const map = useSeatMapView(editor.plan)
+  const map = useSeatMapView(editor.plan, { margin: VIEW_MARGIN })
   const { onTap, onHover, ...viewportProps } = editor.viewportProps
   const panels = usePanels()
 
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
-  // The plan as ichno draws it (2D), or stood up by the site in 3D — to edit or to preview.
-  const [dimension, setDimension] = useState<'2d' | '3d'>('2d')
+  // The plan stood up by the site in 3D, seen from a corner — what opens first — or as ichno draws it (2D), a switch
+  // away for exact work. To edit or to preview.
+  const [dimension, setDimension] = useState<'2d' | '3d'>('3d')
+  // The 3D preview was switched to from the 2D one — its camera comes down from above the plan.
+  const [fromAbove, setFromAbove] = useState(false)
   // The 2D view lies under the 3D editor while one gives way to the other: until the 3D canvas has faded in, and
   // while it tilts back and fades away.
   const [entering3D, setEntering3D] = useState(false)
@@ -452,6 +460,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 
   function switchMode(next: 'edit' | 'preview') {
     setMode(next)
+    setFromAbove(false)
     setNotice(null)
     setMenu(null)
     setLayerHover(null)
@@ -510,6 +519,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   function switchDimension(next: '2d' | '3d') {
     if (next === dimension) return
     setDimension(next)
+    setFromAbove(mode === 'preview' && next === '3d')
     const element = canvasRef.current
 
     if (mode !== 'edit' || !element) return
@@ -534,7 +544,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 
     if (!camera || !build.current) return
     // The 2D view over the 3D camera's spot, zoomed in as far.
-    const home = planView.home(plan)
+    const home = planView.home(plan, VIEW_MARGIN)
     const center = { x: camera.x, y: camera.z }
     const around = { x: center.x - home.w / 2, y: center.y - home.h / 2, w: home.w, h: home.h }
     const target = planView.zoom(around, buildView.level, center, home)
@@ -601,7 +611,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       return
     }
 
-    const home = planView.home(plan)
+    const home = planView.home(plan, VIEW_MARGIN)
     const current = map.view
     const middle = { x: current.x + current.w / 2, y: current.y + current.h / 2 }
     map.setView(planView.zoom(current, (level * current.w) / home.w, middle, home))
@@ -752,6 +762,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         {building && (
           <Build3D
             plan={editor.displayPlan}
+            committed={editor.plan}
             draft={editor.draft}
             refused={refusedSample}
             selected={[...editor.selectedObjects.map((object) => object.id), ...editor.selectedWallIds]}
@@ -796,66 +807,78 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
             aria-label="Seat plan editor"
           >
             {(frame) => (
-              <>
-                {/* The grid only reads the plan's size — the saved plan's does not change mid-drag. */}
-                {snapping && <SeatMap.Grid plan={editor.plan} />}
-                {/* What a drag leaves alone keeps its identity, so this layer is drawn once per drag. Numbers smaller
-                    than 6 screen pixels are left out — unreadable anyway, and SVG text is what large plans pay for. */}
-                <SeatMap.Content
-                  plan={editor.stillPlan}
-                  selected={selectedMarks}
-                  invalid={stillInvalid}
-                  status={bookedStatus}
-                  isDisabled={never}
-                  fixtureLabel={fixtureLabel}
-                  fixtureVariant={fixtureVariant}
-                  region={frame.region}
-                  scale={frame.scale}
-                  minLabelPx={LABEL_MIN_PX}
-                />
-                {editor.movingPlan && (
-                  <SeatMap.Content
-                    plan={editor.movingPlan}
-                    selected={selectedMarks}
-                    invalid={movingInvalid}
-                    status={bookedStatus}
-                    isDisabled={never}
-                    fixtureLabel={fixtureLabel}
-                    fixtureVariant={fixtureVariant}
-                    scale={frame.scale}
-                    minLabelPx={LABEL_MIN_PX}
-                  />
-                )}
-                {editor.draft && (
-                  <g className={styles.draft}>
+              // What an edit moved glides to where it goes (./settling.ts) — a drag is drawn as the hand moves it.
+              <Gliding plan={editor.stillPlan} committed={editor.plan}>
+                {(still, gliding) => (
+                  <>
+                    {/* The grid only reads the plan's size — the saved plan's does not change mid-drag. */}
+                    {snapping && <SeatMap.Grid plan={editor.plan} />}
+                    {/* What a drag leaves alone keeps its identity, so this layer is drawn once per drag. Numbers
+                        smaller than 6 screen pixels are left out — unreadable anyway, and SVG text is what large
+                        plans pay for. */}
                     <SeatMap.Content
-                      plan={editor.draft}
-                      invalid={editor.conflictIds}
+                      plan={still}
+                      selected={selectedMarks}
+                      invalid={stillInvalid}
+                      status={bookedStatus}
+                      isDisabled={never}
                       fixtureLabel={fixtureLabel}
                       fixtureVariant={fixtureVariant}
+                      region={frame.region}
+                      scale={frame.scale}
+                      minLabelPx={LABEL_MIN_PX}
                     />
-                  </g>
+                    {editor.movingPlan && (
+                      <SeatMap.Content
+                        plan={editor.movingPlan}
+                        selected={selectedMarks}
+                        invalid={movingInvalid}
+                        status={bookedStatus}
+                        isDisabled={never}
+                        fixtureLabel={fixtureLabel}
+                        fixtureVariant={fixtureVariant}
+                        scale={frame.scale}
+                        minLabelPx={LABEL_MIN_PX}
+                      />
+                    )}
+                    <CategoryLabels plan={editor.plan} scale={frame.scale} />
+                    {editor.draft && (
+                      <g className={styles.draft}>
+                        <SeatMap.Content
+                          plan={editor.draft}
+                          invalid={editor.conflictIds}
+                          fixtureLabel={fixtureLabel}
+                          fixtureVariant={fixtureVariant}
+                        />
+                      </g>
+                    )}
+                    {refusedSample && (
+                      <g className={marks.refused} data-refused="">
+                        <SeatMap.Content plan={refusedSample} fixtureVariant={fixtureVariant} minLabelPx={Infinity} />
+                      </g>
+                    )}
+                    {/* Outlines and lengths are drawn where the edit ends — they wait for what they go round. */}
+                    {!gliding && (
+                      <>
+                        <Dimensions
+                          stroke={editor.stroke}
+                          draw={editor.tool?.draw}
+                          corners={editor.corners}
+                          pointer={editor.pointer}
+                          typed={typedLength}
+                          frame={measuredWall === null ? editor.overlayProps.frame : null}
+                          wall={measuredWall}
+                          scale={frame.scale}
+                        />
+                        <SeatMap.EditorOverlay
+                          {...editor.overlayProps}
+                          hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame}
+                        />
+                      </>
+                    )}
+                  </>
                 )}
-                {refusedSample && (
-                  <g className={marks.refused}>
-                    <SeatMap.Content plan={refusedSample} fixtureVariant={fixtureVariant} minLabelPx={Infinity} />
-                  </g>
-                )}
-                <Dimensions
-                  stroke={editor.stroke}
-                  draw={editor.tool?.draw}
-                  corners={editor.corners}
-                  pointer={editor.pointer}
-                  typed={typedLength}
-                  frame={measuredWall === null ? editor.overlayProps.frame : null}
-                  wall={measuredWall}
-                  scale={frame.scale}
-                />
-                <SeatMap.EditorOverlay
-                  {...editor.overlayProps}
-                  hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame}
-                />
-              </>
+              </Gliding>
             )}
           </SeatMap.Viewport>
         ) : threeD ? (
@@ -866,6 +889,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
             isDisabled={(place) => picking === 'pick' && booked.includes(place.id)}
             fixtureName={fixtureLabel}
             onPlaceTap={previewTap}
+            fromAbove={fromAbove}
           />
         ) : (
           <SeatMap.Viewport
@@ -884,6 +908,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
               fixtureLabel={fixtureLabel}
               fixtureVariant={fixtureVariant}
             />
+            <CategoryLabels plan={plan} />
           </SeatMap.Viewport>
         )}
 
@@ -1159,11 +1184,13 @@ function never(): boolean {
   return false
 }
 
-// A template centred on `at` — what a tool would drop there, to draw (no section; the ids it was kept with).
+// A template centred on `at` — what a tool would drop there, to draw: the objects alone (no sections, and none of the
+// plan's walls — they are not what is refused), with the ids they were kept with.
 function sampleAt(template: PlanTemplate, at: PlanPoint, plan: SeatPlan<string>): SeatPlan<string> {
   return {
     ...plan,
     sections: [],
+    walls: [],
     groups: template.groups,
     objects: template.objects.map((object): PlanObject<string> => {
       const moved = seatPlan.translate(object, at.x, at.y)

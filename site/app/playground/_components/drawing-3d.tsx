@@ -8,9 +8,11 @@ import {
   BufferGeometry,
   CanvasTexture,
   Color,
+  InstancedBufferAttribute,
   Matrix4,
   MeshLambertMaterial,
   OrthographicCamera,
+  PlaneGeometry,
   Quaternion,
   ShapeGeometry,
   Shape as Outline,
@@ -37,15 +39,21 @@ import type { Writing } from '../_lib/scene'
 
 export type Palette = {
   ground: Color
-  surface: Color
+  // What stands on the plan, as the 2D canvases paint it (the `--plan-*` tokens): the faces, their edges, what is
+  // written on them, the floor they stand on, lettering on that floor, and the selection.
+  solid: Color
+  edge: Color
+  onSolid: Color
+  floor: Color
+  text: Color
+  accent: Color
+  // What the editor draws over the plan — outlines, strokes, the mark under a place.
   ink: Color
   label: Color
   grid: Color
   warning: Color
   // Faces of places that overlap.
   warningFill: Color
-  // Faces of places in a category, tinted like the 2D view's.
-  categories: Record<string, Color>
   font: string
 }
 
@@ -94,17 +102,21 @@ function paletteOf(host: HTMLElement): Palette {
     return new Color().setRGB(r / 255, g / 255, b / 255, SRGBColorSpace)
   }
 
-  const mix = (a: string, share: number) => read(`color-mix(in srgb, ${a} ${share}%, var(--ichno-surface))`)
+  const mix = (a: string, share: number) => read(`color-mix(in srgb, ${a} ${share}%, var(--plan-solid))`)
 
   const palette: Palette = {
-    ground: read('var(--theme-bg)'),
-    surface: read('var(--ichno-surface)'),
+    ground: read('var(--plan-ground)'),
+    solid: read('var(--plan-solid)'),
+    edge: read('var(--plan-edge)'),
+    onSolid: read('var(--plan-solid-fg)'),
+    floor: read('var(--plan-floor)'),
+    text: read('var(--plan-text)'),
+    accent: read('var(--plan-accent)'),
     ink: read('var(--ichno-ink)'),
     label: read('var(--ichno-label)'),
     grid: read('var(--ichno-grid)'),
     warning: read('var(--ichno-warning)'),
     warningFill: mix('var(--ichno-warning)', 18),
-    categories: { premium: mix('var(--theme-premium)', 14), access: mix('var(--theme-access)', 14) },
     font: getComputedStyle(host).getPropertyValue('--ichno-font').trim() || 'sans-serif',
   }
 
@@ -131,8 +143,8 @@ const LIGHT_FROM = new Vector3(0.25, 1, 0.45)
 
 // ---------- Solids ----------
 
-// The ink a hairline is drawn in — `paper` over an ink fill.
-export type Ink = 'ink' | 'paper' | 'label' | 'warning' | 'grid'
+// The ink a hairline is drawn in — `edge` round what stands on the plan, `ink` for what the editor draws over it.
+export type Ink = 'ink' | 'edge' | 'label' | 'warning' | 'grid'
 
 // How a solid is drawn: its faces' colour (null for none — only its edges), its edges' ink, dashed or solid, and
 // whether the dashes march (as the 2D view's outlines do under the pointer and round the selection). `flat` is the
@@ -152,6 +164,10 @@ export type Solid = {
   d: number
   yaw: number
   h?: number
+  // Its size about its foot while it settles in or away (./settling.ts) — 1 when left out.
+  grow?: number
+  // How far off the floor it stands while it is selected or picked (./lifting.ts), in plan units — 0 when left out.
+  lift?: number
   look: Look
   target?: PlanTarget<string>
 }
@@ -387,9 +403,11 @@ function outlineSegments(solids: readonly Solid[], camera: Camera): Float32Array
     const lx = vx * cos - vz * sin
     const lz = vx * sin + vz * cos
 
+    const grow = solid.grow ?? 1
+
     for (const pole of poles) {
-      const a = pole.r * Math.max(solid.w, 1)
-      const b = pole.r * Math.max(solid.d, 1)
+      const a = pole.r * Math.max(solid.w, 1) * grow
+      const b = pole.r * Math.max(solid.d, 1) * grow
       const t = Math.atan2(-b * lx, a * lz)
 
       for (const side of [1, -1]) {
@@ -397,8 +415,9 @@ function outlineSegments(solids: readonly Solid[], camera: Camera): Float32Array
         const pz = side * b * Math.sin(t)
         const x = solid.x + px * cos + pz * sin
         const z = solid.z - px * sin + pz * cos
-        const h = solid.h ?? 1
-        lines.push(x, pole.y0 * h, z, x, pole.y1 * h, z)
+        const h = (solid.h ?? 1) * grow
+        const lift = solid.lift ?? 0
+        lines.push(x, pole.y0 * h + lift, z, x, pole.y1 * h + lift, z)
       }
     }
   }
@@ -407,15 +426,17 @@ function outlineSegments(solids: readonly Solid[], camera: Camera): Float32Array
 }
 
 function matrixOf(solid: Solid): Matrix4 {
+  const grow = solid.grow ?? 1
+
   return MATRIX.compose(
-    POSITION.set(solid.x, 0, solid.z),
+    POSITION.set(solid.x, solid.lift ?? 0, solid.z),
     TURN.setFromAxisAngle(UP, solid.yaw),
-    SCALE.set(Math.max(solid.w, 1), solid.h ?? 1, Math.max(solid.d, 1)),
+    SCALE.set(Math.max(solid.w, 1) * grow, (solid.h ?? 1) * grow, Math.max(solid.d, 1) * grow),
   )
 }
 
 function signatureOf(solid: Solid): string {
-  return `${solid.model}:${solid.round}:${solid.x}:${solid.z}:${solid.w}:${solid.d}:${solid.yaw}:${solid.h ?? 1}`
+  return `${solid.model}:${solid.round}:${solid.x}:${solid.z}:${solid.w}:${solid.d}:${solid.yaw}:${solid.h ?? 1}:${solid.grow ?? 1}:${solid.lift ?? 0}`
 }
 
 function lookKey(look: Look): string {
@@ -426,8 +447,8 @@ export function inkOf(palette: Palette, ink: Ink): Color {
   switch (ink) {
     case 'ink':
       return palette.ink
-    case 'paper':
-      return palette.surface
+    case 'edge':
+      return palette.edge
     case 'label':
       return palette.label
     case 'warning':
@@ -436,6 +457,103 @@ export function inkOf(palette: Palette, ink: Ink): Color {
       return palette.grid
   }
 }
+
+// ---------- Shade ----------
+
+// A soft patch of shade on the floor under each solid, so what stands there reads as standing on it. One draw call: a
+// patch over each footprint and SHADE_REACH past it, fading from the footprint's edge outward — the same width round
+// a seat and round a stage. It stays on the floor while a solid lifts.
+export function Shade({ solids }: { solids: readonly Solid[] }) {
+  const ref = useRef<InstancedMesh>(null)
+  const invalidate = useThree((state) => state.invalidate)
+  const [material] = useState(shadeMaterial)
+  // Its own geometry — which of the patches are round is written on it.
+  const [plane] = useState(() => new PlaneGeometry(1, 1).rotateX(-Math.PI / 2))
+
+  useEffect(
+    () => () => {
+      material.dispose()
+      plane.dispose()
+    },
+    [material, plane],
+  )
+
+  useLayoutEffect(() => {
+    const mesh = ref.current
+
+    if (!mesh) return
+    const round = new Float32Array(solids.length)
+    solids.forEach((solid, i) => {
+      const grow = solid.grow ?? 1
+      round[i] = solid.round ? 1 : 0
+      mesh.setMatrixAt(
+        i,
+        MATRIX.compose(
+          POSITION.set(solid.x, SHADE_Y, solid.z),
+          TURN.setFromAxisAngle(UP, solid.yaw),
+          SCALE.set(Math.max(solid.w, 1) * grow + SHADE_REACH * 2, 1, Math.max(solid.d, 1) * grow + SHADE_REACH * 2),
+        ),
+      )
+    })
+    plane.setAttribute('round', new InstancedBufferAttribute(round, 1))
+    mesh.instanceMatrix.needsUpdate = true
+    mesh.computeBoundingSphere()
+    invalidate()
+  })
+
+  if (solids.length === 0) return null
+
+  // A new count is a new mesh.
+  return <instancedMesh key={solids.length} ref={ref} args={[plane, material, solids.length]} />
+}
+
+// The footprint is the patch less SHADE_REACH all round; the shade is full over it and gone SHADE_REACH away — from a
+// rectangle's edge, or an ellipse's for what is round.
+function shadeMaterial(): ShaderMaterial {
+  return new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: { strength: { value: SHADE_STRENGTH }, reach: { value: SHADE_REACH } },
+    vertexShader: `
+      attribute float round;
+      uniform float reach;
+      varying vec2 vAt;
+      varying vec2 vHalf;
+      varying float vRound;
+
+      void main() {
+        vec2 size = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[2].xyz));
+        vAt = (uv - 0.5) * size;
+        vHalf = size * 0.5 - reach;
+        vRound = round;
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float strength;
+      uniform float reach;
+      varying vec2 vAt;
+      varying vec2 vHalf;
+      varying float vRound;
+
+      void main() {
+        float away = vRound > 0.5
+          ? (length(vAt / vHalf) - 1.0) * min(vHalf.x, vHalf.y)
+          : length(max(abs(vAt) - vHalf, 0.0));
+        float shade = 1.0 - smoothstep(0.0, reach, away);
+        gl_FragColor = vec4(0.0, 0.0, 0.0, strength * shade * shade);
+      }
+    `,
+  })
+}
+
+// How dark the shade is at a footprint's edge, how far past the footprint it reaches (plan units), and how high off
+// the floor it lies — over the grid, under everything else.
+const SHADE_STRENGTH = 0.22
+
+const SHADE_REACH = 22
+
+const SHADE_Y = 0.4
 
 // ---------- Hairlines ----------
 

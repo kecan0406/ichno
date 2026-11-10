@@ -195,7 +195,19 @@
   grid-column: 2;
   min-width: 0;
   min-height: 0;
-  background: var(--theme-bg);
+  background: var(--plan-ground);
+
+  /* The canvas keeps its look whatever the theme — only the panels turn dark — so ichno's contract is mapped here
+     onto the plan's own colours, not the theme's: what the editor draws over the plan in the lettering's ink, the
+     grid a shade off the ground. */
+  --ichno-surface: var(--plan-floor);
+  --ichno-ink: var(--plan-text);
+  --ichno-ink-foreground: var(--plan-edge);
+  --ichno-label: var(--plan-text);
+  --ichno-accent: var(--plan-text);
+  --ichno-accent-foreground: var(--plan-edge);
+  --ichno-guide: var(--plan-guide);
+  --ichno-grid: color-mix(in srgb, var(--plan-text) 18%, var(--plan-ground));
 }
 
 .viewport {
@@ -216,10 +228,40 @@
   display: none;
 }
 
-/* The grid sits under the drawing — let it show through a room's floor, which only darkens it a shade: walls that
+/* The grid sits under the drawing — let it show through a room's floor, a shade lighter than the ground: walls that
    meet close a room, and the floor shows it. */
 .canvas [data-part='room'] [data-part='floor'] {
-  fill: color-mix(in srgb, var(--ichno-ink) 4%, transparent);
+  fill: color-mix(in srgb, var(--plan-floor) 70%, transparent);
+}
+
+/* What stands on the plan, painted the way the 3D views stand it up: matte charcoal with a light edge, what is
+   written on it in white, the selection the one colour. A place that cannot be picked stays an empty dashed outline
+   (globals.css), and what a tool cannot make keeps its own marking (marks.module.css). */
+.canvas [data-ichno-id]:not([data-selected], [data-disabled], [data-refused] *) [data-part='shape'],
+.canvas [data-ichno-object][data-kind='fixture']:not([data-refused] *) [data-part='shape'],
+.canvas [data-ichno-wall][data-kind='wall']:not([data-selected]) [data-part='shape'] {
+  fill: var(--plan-solid);
+  stroke: var(--plan-edge);
+}
+
+.canvas [data-ichno-id]:not([data-selected], [data-disabled], [data-refused] *) [data-part='label'],
+.canvas [data-ichno-object][data-kind='fixture']:not([data-refused] *) [data-part='label'] {
+  fill: var(--plan-solid-fg);
+}
+
+.canvas [data-ichno-id][data-selected] [data-part='shape'],
+.canvas [data-ichno-wall][data-kind='wall'][data-selected] [data-part='shape'] {
+  fill: var(--plan-accent);
+  stroke: var(--plan-edge);
+}
+
+.canvas [data-ichno-id][data-selected] [data-part='label'] {
+  fill: var(--plan-accent-fg);
+}
+
+/* Places that overlap keep their warning edge over the paint above. */
+.canvas [data-ichno-id][data-invalid]:not([data-disabled]) [data-part='shape'] {
+  stroke: var(--ichno-warning);
 }
 
 .canvas :is([data-ichno-id]:not([data-disabled]), [data-ichno-wall]) {
@@ -255,18 +297,6 @@
 
 .canvas [data-status='booked'] [data-part='shape'] {
   stroke-dasharray: 4 3;
-}
-
-.canvas [data-ichno-id]:not([data-selected]):not([data-disabled]) [data-part='shape'] {
-  fill: color-mix(in srgb, var(--cat, transparent) 14%, var(--ichno-surface));
-}
-
-.canvas [data-category='premium'] {
-  --cat: var(--theme-premium);
-}
-
-.canvas [data-category='access'] {
-  --cat: var(--theme-access);
 }
 
 .app[data-mode='preview'] [data-status='booked']:not([data-disabled]) [data-part='shape'] {
@@ -339,7 +369,7 @@
   display: grid;
   place-items: center;
   margin: 0;
-  color: var(--theme-muted);
+  color: var(--plan-text);
   font-size: 13px;
 }
 

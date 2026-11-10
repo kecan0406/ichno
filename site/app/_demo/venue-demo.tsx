@@ -4,6 +4,7 @@ import { seatPlan, validateSelection, type Place } from 'ichno'
 import { SeatMap, useSeatMapView } from 'ichno/react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
+import { CategoryLabels } from '../playground/_components/category-labels'
 import styles from './demo.module.css'
 import { selectionIssueKey, selectionIssueText } from './messages'
 import { fixtureNames, venuePlan, venueSectionNames, venueStatus, type VenueSection } from './plans'
@@ -16,7 +17,10 @@ const unavailable = Object.keys(venueStatus)
 
 const MAX_PICK = 8
 
+// The first is the playground's look — every place painted alike, its category read from a label on the plan — and
+// the rest paint the categories, each in its own colours: the same document under different CSS.
 const PALETTES = [
+  { id: 'charcoal', name: 'Charcoal' },
   { id: 'site', name: 'Site' },
   { id: 'forest', name: 'Forest' },
   { id: 'ember', name: 'Ember' },
@@ -28,7 +32,7 @@ type Palette = (typeof PALETTES)[number]['id']
 export function VenueDemo() {
   const [selected, setSelected] = useState<string[]>([])
   const map = useSeatMapView(venuePlan)
-  const [palette, setPalette] = useState<Palette>('site')
+  const [palette, setPalette] = useState<Palette>('charcoal')
 
   const issues = validateSelection(venuePlan, { selected, unavailable }, { max: MAX_PICK, noOrphans: true })
   const guests = selected.reduce((sum, id) => sum + (placeById.get(id)?.capacity ?? 0), 0)
@@ -55,12 +59,21 @@ export function VenueDemo() {
     <div className={styles.demo} data-palette={palette}>
       <div className={styles.toolbar}>
         <div className={styles.legend} aria-hidden>
-          <span className={styles.swatch} data-tone="premium" />
-          Premium
-          <span className={styles.swatch} data-tone="standard" />
-          Standard
-          <span className={styles.swatch} data-tone="access" />
-          Accessible
+          {palette === 'charcoal' ? (
+            <>
+              <span className={styles.swatch} data-tone="standard" />
+              Available
+            </>
+          ) : (
+            <>
+              <span className={styles.swatch} data-tone="premium" />
+              Premium
+              <span className={styles.swatch} data-tone="standard" />
+              Standard
+              <span className={styles.swatch} data-tone="access" />
+              Accessible
+            </>
+          )}
           <span className={styles.swatch} data-tone="taken" />
           Taken
         </div>
@@ -94,15 +107,18 @@ export function VenueDemo() {
           aria-multiselectable
         >
           {(frame) => (
-            <SeatMap.Content
-              plan={venuePlan}
-              status={venueStatus}
-              selected={selected}
-              sectionLabel={(section) => venueSectionNames[section.id]}
-              fixtureLabel={(fixture) => fixtureNames.get(fixture.role ?? '') ?? null}
-              region={frame.region}
-              scale={frame.scale}
-            />
+            <>
+              <SeatMap.Content
+                plan={venuePlan}
+                status={venueStatus}
+                selected={selected}
+                sectionLabel={(section) => venueSectionNames[section.id]}
+                fixtureLabel={(fixture) => fixtureNames.get(fixture.role ?? '') ?? null}
+                region={frame.region}
+                scale={frame.scale}
+              />
+              {palette === 'charcoal' && <CategoryLabels plan={venuePlan} scale={frame.scale} />}
+            </>
           )}
         </SeatMap.Viewport>
       </div>

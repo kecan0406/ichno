@@ -30,7 +30,20 @@ import {
   type Sight,
 } from '../_lib/scene'
 import { METRE } from '../_lib/units'
-import { Daylight, Fallback, Floor, Solids, Text, usePalette, type Look, type Palette, type Solid } from './drawing-3d'
+import {
+  Daylight,
+  Fallback,
+  Floor,
+  Shade,
+  Solids,
+  Text,
+  usePalette,
+  type Look,
+  type Palette,
+  type Solid,
+} from './drawing-3d'
+import { categoryWritingOf } from '../_lib/category-labels'
+import { LIFT, useLifted } from './lifting'
 import ui from './controls.module.css'
 import styles from './preview-3d.module.css'
 
@@ -49,6 +62,8 @@ export type Preview3DProps = {
   isDisabled(place: Place<string>): boolean
   fixtureName(fixture: Fixture): string | null
   onPlaceTap(place: Place<string>): void
+  // Opened from the 2D plan: the camera starts straight above it and comes down to its corner.
+  fromAbove: boolean
 }
 
 export default function Preview3D(props: Preview3DProps) {
@@ -157,7 +172,13 @@ export default function Preview3D(props: Preview3DProps) {
                 onTap={tap}
               />
             )}
-            <CameraRig overview={overview} sight={sight} viewing={viewing} controlsRef={controlsRef} />
+            <CameraRig
+              overview={overview}
+              sight={sight}
+              viewing={viewing}
+              fromAbove={props.fromAbove}
+              controlsRef={controlsRef}
+            />
           </Canvas>
         </Fallback>
       )}
@@ -221,6 +242,8 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
   const mark = marked === null ? undefined : pieces.find((piece) => piece.id === marked)
   const overhead = useOverhead()
   const places = new Map(pieces.flatMap((piece) => (piece.place ? [[piece.id, piece.place] as const] : [])))
+  // What is picked stands a little off the floor (./lifting.ts).
+  const lifted = useLifted(new Set(props.picked))
 
   const solids = pieces.map((piece): Solid => ({
     id: piece.id,
@@ -231,6 +254,7 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
     w: piece.w,
     d: piece.d,
     yaw: piece.yaw,
+    lift: (lifted.get(piece.id) ?? 0) * LIFT,
     look: lookOf(piece, palette, props),
   }))
 
@@ -246,7 +270,7 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
     d: wall.d,
     yaw: wall.yaw,
     h: overhead ? WALL_CUT : WALL_HEIGHT,
-    look: { fill: palette.surface, line: 'ink' },
+    look: { fill: palette.solid, line: 'edge' },
   }))
 
   return (
@@ -259,8 +283,9 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
         <meshBasicMaterial color={palette.ground} />
       </mesh>
       {seatPlan.roomsOf(plan).map((room, i) => (
-        <Floor key={i} points={room.points} color={palette.surface} />
+        <Floor key={i} points={room.points} color={palette.floor} />
       ))}
+      <Shade solids={solids} />
       <Solids solids={walls} palette={palette} />
       <Solids
         solids={solids}
@@ -272,12 +297,13 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
           if (place) props.onTap(place)
         }}
       />
-      {writingOf(plan, pieces, fixtureName).map((writing, i) =>
+      {[...writingOf(plan, pieces, fixtureName), ...categoryWritingOf(plan)].map((writing, i) =>
         writing.overhead && !overhead ? null : (
           <Text
             key={i}
             writing={writing}
-            color={writing.tone === 'ink' ? palette.ink : palette.label}
+            // What is written on something that stands there, or on the floor itself.
+            color={writing.on === undefined ? palette.text : palette.onSolid}
             font={palette.font}
           />
         ),
@@ -287,8 +313,8 @@ function Scene({ plan, pieces, overview, palette, marked, fixtureName, ...props 
   )
 }
 
-// A place as the 2D preview draws it: picked filled with the ink, one that cannot be picked a dashed outline, the
-// one under the pointer tracing its dashes; a category tints the rest. Furniture and fixtures are plain.
+// A place as the 2D preview draws it: picked filled with the accent, one that cannot be picked a dashed outline, the
+// one under the pointer tracing its dashes. A category is read from its label, not from a place's paint.
 function lookOf(
   piece: Piece,
   palette: Palette,
@@ -296,14 +322,15 @@ function lookOf(
 ): Look {
   const place = piece.place
 
-  if (!place) return { fill: palette.surface, line: 'ink' }
+  if (!place) return { fill: palette.solid, line: 'edge' }
 
-  if (picked.includes(place.id)) return { fill: palette.ink, line: 'paper' }
+  if (picked.includes(place.id)) return { fill: palette.accent, line: 'edge' }
 
   if (isDisabled(place)) return { fill: null, line: 'label', dash: true }
-  const fill = (place.category === undefined ? undefined : palette.categories[place.category]) ?? palette.surface
 
-  return hovered === place.id ? { fill, line: 'ink', dash: true, march: true } : { fill, line: 'ink' }
+  return hovered === place.id
+    ? { fill: palette.solid, line: 'edge', dash: true, march: true }
+    : { fill: palette.solid, line: 'edge' }
 }
 
 // The place a solid stands for, when it can be picked.
@@ -349,11 +376,13 @@ function CameraRig({
   overview,
   sight,
   viewing,
+  fromAbove,
   controlsRef,
 }: {
   overview: Overview
   sight: Sight | null
   viewing: string | null
+  fromAbove: boolean
   controlsRef: RefObject<CameraControls | null>
 }) {
   const camera = useThree((state) => state.camera)
@@ -387,9 +416,10 @@ function CameraRig({
     invalidate()
   })
 
-  // The first view is set at once; later ones fly.
+  // The first view is set at once — or, coming from the 2D plan, flown to from straight above it; later ones fly.
   useEffect(() => {
-    fly(flown.current)
+    const down = !flown.current && fromAbove && above(controls, overview)
+    fly(flown.current || down)
     flown.current = true
   }, [viewing])
 
@@ -427,22 +457,37 @@ function flyOver(controls: CameraControls, overview: Overview, animate: boolean)
 
   // The Canvas makes a perspective camera — the only kind with a field of view to fit the drawing in.
   if (!(camera instanceof PerspectiveCamera)) return
-  const distance = fitDistance(camera, overview)
-  const x = overview.x + distance * Math.sin(HOME_TILT) * Math.sin(overview.azimuth)
-  const z = overview.z + distance * Math.sin(HOME_TILT) * Math.cos(overview.azimuth)
+  // From a corner, as the editor's first view is — a quarter of a half-turn round from where the room faces.
+  const azimuth = overview.azimuth + CORNER
+  const distance = fitDistance(camera, overview, azimuth)
+  const x = overview.x + distance * Math.sin(HOME_TILT) * Math.sin(azimuth)
+  const z = overview.z + distance * Math.sin(HOME_TILT) * Math.cos(azimuth)
   controls.normalizeRotations()
-  controls.zoomTo(1, animate && !reducedMotion())
+  controls.zoomTo(LENS, animate && !reducedMotion())
   controls.setLookAt(x, distance * Math.cos(HOME_TILT), z, overview.x, 0, overview.z, animate && !reducedMotion())
+}
+
+// Puts the camera straight above the drawing, north up, as the 2D plan shows it. false when it cannot.
+function above(controls: CameraControls, overview: Overview): boolean {
+  const camera = controls.camera
+
+  if (!(camera instanceof PerspectiveCamera) || reducedMotion()) return false
+  const distance = fitDistance(camera, overview, 0)
+  controls.zoomTo(LENS, false)
+  // A hair south of straight above, so the top of the screen is north.
+  controls.setLookAt(overview.x, distance, overview.z + distance * 0.001, overview.x, 0, overview.z, false)
+
+  return true
 }
 
 // How far back the overview stands to show the whole drawing. The drawing's near edge is the closest to the camera,
 // so it is the widest and the lowest on screen: its corners must fit the sides of the view and its middle the
 // bottom.
-function fitDistance(camera: PerspectiveCamera, overview: Overview): number {
-  const vertical = Math.tan((camera.fov * Math.PI) / 360)
+function fitDistance(camera: PerspectiveCamera, overview: Overview, azimuth: number): number {
+  const vertical = Math.tan((camera.fov * Math.PI) / 360) / LENS
   const horizontal = vertical * camera.aspect
-  const sin = Math.abs(Math.sin(overview.azimuth))
-  const cos = Math.abs(Math.cos(overview.azimuth))
+  const sin = Math.abs(Math.sin(azimuth))
+  const cos = Math.abs(Math.cos(azimuth))
   const across = (overview.w / 2) * cos + (overview.h / 2) * sin
   const along = (overview.w / 2) * sin + (overview.h / 2) * cos
   const near = along * Math.sin(HOME_TILT)
@@ -472,6 +517,8 @@ function flyTo(controls: CameraControls, sight: Sight, animate: boolean) {
   controls.touches.three = CameraControls.ACTION.NONE
   controls.setBoundary()
   controls.normalizeRotations()
+  // A guest's eyes, not the overview's long lens.
+  controls.zoomTo(1, animate && !reducedMotion())
   controls.setLookAt(
     eye.x,
     eye.y,
@@ -491,8 +538,15 @@ function reducedMotion(): boolean {
 
 const FOV = 40
 
-// The overview's tilt from straight down, and how far a drag may tip it toward the horizon.
-const HOME_TILT = (48 * Math.PI) / 180
+// The overview's tilt from straight down — the editor's corner view, 35° above the floor — and how far a drag may tip
+// it toward the horizon.
+const HOME_TILT = (55 * Math.PI) / 180
+
+// How far round from the way the room faces the overview stands: at a corner.
+const CORNER = Math.PI / 4
+
+// The overview's zoom: a long lens from further back, which flattens the room toward the editor's drawing of it.
+const LENS = 2
 
 const MAX_TILT = (80 * Math.PI) / 180
 

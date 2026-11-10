@@ -3,7 +3,7 @@
 .scene3d {
   position: absolute;
   inset: 0;
-  background: var(--theme-bg);
+  background: var(--plan-ground);
 }
 
 .scene3d[data-hover] canvas {

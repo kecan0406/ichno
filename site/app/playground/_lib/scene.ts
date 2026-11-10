@@ -118,6 +118,8 @@ export type Writing = {
   yaw: number
   anchor: 'start' | 'middle'
   overhead: boolean
+  // The piece it is written on, when it is — it rises with that piece (a fixture's name on its top).
+  on?: string
   // Where and how the 2D view writes it, seen from straight above: the middle of its line (its start, for `anchor:
   // 'start'`) at `y` — upright text lies down there — its size and turn. The 3D views bring each text toward this as
   // the camera looks down; straight down they write what the 2D view writes, so switching views changes no text.
@@ -255,6 +257,7 @@ export function writingOf(
           yaw: piece.yaw,
           anchor: 'middle',
           overhead: false,
+          on: piece.id,
           plan: written,
         },
       ]
@@ -273,6 +276,7 @@ export function writingOf(
         yaw,
         anchor: 'middle',
         overhead: false,
+        on: piece.id,
         plan: written,
       },
     ]

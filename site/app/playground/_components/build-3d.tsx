@@ -27,7 +27,7 @@ import {
   type PointerEvent,
   type RefObject,
 } from 'react'
-import { BufferGeometry, Plane, Raycaster, Vector2, Vector3, type Color } from 'three'
+import { BufferGeometry, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import { HEIGHT, SIGN_HEIGHT, WALL_CUT, piecesOf, wallsOf, writingOf, type Piece, type Wall } from '../_lib/scene'
 import controls from './controls.module.css'
 import {
@@ -39,6 +39,7 @@ import {
   Text,
   floorSegments,
   reducedMotion,
+  Shade,
   setSegments,
   usePalette,
   type Look,
@@ -46,6 +47,9 @@ import {
   type Picks,
   type Solid,
 } from './drawing-3d'
+import { categoryWritingOf } from '../_lib/category-labels'
+import { LIFT, raised, useLifted } from './lifting'
+import { useSettledPlan } from './settling'
 import { Icon } from './icons'
 import styles from './build-3d.module.css'
 
@@ -92,6 +96,8 @@ export type Build3DProps = {
   // The plan as drawn (the drag in progress applied), what the tool would make, and what it would have dropped
   // where it can make nothing (drawn in the colour of what cannot be had).
   plan: SeatPlan<string>
+  // The plan as history holds it — it changes when an edit lands, and what the edit changed settles (./settling.ts).
+  committed: SeatPlan<string>
   draft: SeatPlan<string> | null
   refused: SeatPlan<string> | null
   // Every selected object — grouped ones through their group.
@@ -965,49 +971,60 @@ function Stage({ stageRef, onFrame }: { stageRef: RefObject<(() => RootState) | 
 type SceneProps = Build3DProps & { palette: Palette; picks: Picks; hoveredPlace: string | null }
 
 function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }: SceneProps) {
-  const pieces = piecesOf(plan)
+  // What an edit added, removed or moved settles (./settling.ts): the objects and what is written by them are drawn
+  // from the plan part-way there. Walls are drawn as they are — their stretches are numbered along the plan, so one
+  // more renumbers the rest.
+  const settled = useSettledPlan(plan, props.committed)
+  const pieces = piecesOf(settled.plan)
   // A door the tool would put in a wall opens it already — the draft holds that wall with the opening.
   const opened = new Map((draft?.walls ?? []).map((wall) => [wall.id, wall]))
   const walls = wallsOf(opened.size === 0 ? plan : { ...plan, walls: plan.walls.map((w) => opened.get(w.id) ?? w) })
   const selected = new Set(props.selected)
+  // What is selected stands a little off the floor (./lifting.ts).
+  const lifted = useLifted(selected)
   const conflicts = new Set(props.conflicts)
   const reach = Math.hypot(plan.width, plan.height)
 
-  // `flat`: how the 2D view paints it, where that differs — what it turns to as the camera looks straight down.
-  const lookOf = (id: string, place: Piece['place'], flat?: Color): Look => {
+  // The 2D editor paints everything on the plan as this view does (workspace.module.css), so nothing changes its
+  // paint as the camera looks straight down.
+  const lookOf = (id: string, place: Piece['place']): Look => {
     // An overlap shows on a selected place too — it is what a drag is about to settle.
-    if (selected.has(id)) return { fill: palette.ink, line: conflicts.has(id) ? 'warning' : 'paper' }
+    if (selected.has(id)) return { fill: palette.accent, line: conflicts.has(id) ? 'warning' : 'edge' }
 
     if (conflicts.has(id)) return { fill: palette.warningFill, line: 'warning' }
-    const fill = (place?.category === undefined ? undefined : palette.categories[place.category]) ?? palette.surface
 
-    if (place && props.status[id] !== undefined) return { fill, line: 'ink', dash: true }
+    if (place && props.status[id] !== undefined) return { fill: palette.solid, line: 'edge', dash: true }
 
-    if (id === hoveredPlace) return { fill, line: 'ink', dash: true, march: true }
+    if (id === hoveredPlace) return { fill: palette.solid, line: 'edge', dash: true, march: true }
 
-    return flat ? { fill, line: 'ink', flat } : { fill, line: 'ink' }
+    return { fill: palette.solid, line: 'edge' }
   }
 
-  // The 2D editor paints places, chairs and table tops (globals.css) and leaves other fixtures unpainted, the page
-  // showing through — as it does through the floor.
-  const flatOf = (piece: Piece) =>
-    piece.place || piece.model === 'chair' || piece.model === 'table' ? undefined : palette.ground
+  // What stands on the floor — it casts the shade; the walls, which run the floor's length, do not.
+  const standing = pieces.map((piece): Solid => {
+    const solid = solidOf(
+      piece,
+      lookOf(piece.id, piece.place),
+      // What is on its way out is no longer there to pick.
+      settled.leaving.has(piece.id) ? undefined : { kind: piece.place ? 'place' : 'object', id: piece.id },
+    )
+
+    const grow = settled.grow.get(piece.id)
+    const lift = lifted.get(piece.id)
+
+    return grow === undefined && lift === undefined ? solid : { ...solid, grow, lift: (lift ?? 0) * LIFT }
+  })
 
   const solids = [
-    ...pieces.map((piece) =>
-      solidOf(piece, lookOf(piece.id, piece.place, flatOf(piece)), {
-        kind: piece.place ? 'place' : 'object',
-        id: piece.id,
-      }),
-    ),
-    // Cut down so the rooms show; in hairlines, as the 2D drawing draws a wall's band.
+    ...standing,
+    // Cut down so the rooms show.
     ...walls.map((wall, i) => wallOf(wall, i, lookOf(wall.id, null), { kind: 'wall', id: wall.id })),
   ]
 
   const ghostLook = (id: string): Look =>
     conflicts.has(id)
       ? { fill: palette.warningFill, line: 'warning', dash: true }
-      : { fill: palette.surface, line: 'ink', dash: true }
+      : { fill: palette.solid, line: 'edge', dash: true }
 
   const refusedLook: Look = { fill: palette.warningFill, line: 'warning', dash: true }
 
@@ -1039,20 +1056,25 @@ function Scene({ plan, draft, refused, palette, picks, hoveredPlace, ...props }:
         <meshBasicMaterial color={palette.ground} />
       </mesh>
       {seatPlan.roomsOf(plan).map((room, i) => (
-        <Floor key={i} points={room.points} color={palette.surface} flat={palette.ground} />
+        <Floor key={i} points={room.points} color={palette.floor} />
       ))}
       {props.grid !== null && <Grid plan={plan} cell={props.grid} palette={palette} />}
+      <Shade solids={standing} />
       <Solids solids={solids} palette={palette} picks={picks} />
       <Solids solids={ghosts} palette={palette} ghost />
-      <Overlay overlay={props.overlay} palette={palette} />
-      {writingOf(plan, pieces, props.fixtureName).map((writing, i) => (
-        <Text
-          key={i}
-          writing={writing}
-          color={writing.tone === 'ink' ? palette.ink : palette.label}
-          font={palette.font}
-        />
-      ))}
+      {/* Outlines are drawn where the edit ends — they wait for what they go round to get there. */}
+      {!settled.gliding && <Overlay overlay={props.overlay} palette={palette} />}
+      {[...writingOf(settled.plan, pieces, props.fixtureName), ...categoryWritingOf(props.committed)].map(
+        (writing, i) => (
+          <Text
+            key={i}
+            writing={raised(writing, lifted)}
+            // What is written on something that stands there, or on the floor itself.
+            color={writing.on === undefined ? palette.text : palette.onSolid}
+            font={palette.font}
+          />
+        ),
+      )}
     </>
   )
 }

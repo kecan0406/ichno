@@ -301,8 +301,8 @@ type HallSection = 'H'
 
 // The playground's first document: an 18 × 13 m hall walled round with a door at the back, a stage, six straight rows
 // of fourteen facing it (45 cm seats, 50 cm apart, rows 90 cm apart), a round table for six on either side and a bar
-// against the back wall. Its one section is the whole plan — the playground never shows it. Every place is standard,
-// so nothing is tinted until a category is assigned.
+// against the back wall. Its one section is the whole plan — the playground never shows it. The two rows nearest the
+// stage are premium and the ends of the last row accessible, so there are categories to tell apart.
 export const hallPlan: SeatPlan<HallSection> = assemble<HallSection>(
   {
     width: 1800,
@@ -334,7 +334,7 @@ export const hallPlan: SeatPlan<HallSection> = assemble<HallSection>(
         seats: Array.from({ length: 14 }, (_, n) => ({
           id: `${letter}${n + 1}`,
           label: String(n + 1),
-          category: 'standard',
+          category: i < 2 ? 'premium' : i === 5 && (n < 2 || n > 11) ? 'access' : 'standard',
         })),
       }),
     ),

@@ -29,6 +29,19 @@
   --page-width: 1120px;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
+  /* What stands on the playground's canvases, 2D and 3D alike: matte charcoal volumes with a light edge on a warm
+     light-grey floor, lettering on that floor, one accent kept for the selection. The same in the dark theme — only
+     the panels turn dark. */
+  --plan-ground: #d5d2cb;
+  --plan-floor: #dedbd4;
+  --plan-solid: #4a4a4c;
+  --plan-solid-fg: #ffffff;
+  --plan-edge: #f3f1ec;
+  --plan-text: #3a3a3c;
+  --plan-accent: #74b8b4;
+  --plan-accent-fg: #17302f;
+  --plan-guide: #4f46e5;
+
   /* ichno's theme contract, mapped onto the tokens above. Two inks only — the selection is the foreground, not the
      page accent. */
   --ichno-surface: var(--theme-surface);

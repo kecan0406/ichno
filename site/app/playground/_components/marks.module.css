@@ -5,7 +5,7 @@
 .dimensions {
   font-family: var(--ichno-number-font);
   fill: var(--ichno-label);
-  stroke: var(--theme-bg);
+  stroke: var(--plan-ground);
   stroke-linejoin: round;
   paint-order: stroke;
   text-anchor: middle;
@@ -17,6 +17,14 @@
 .dimensions [data-live] {
   fill: var(--ichno-guide);
   font-weight: 600;
+}
+
+/* A category's name, written on the floor above the places that share it. */
+.categories {
+  font-family: var(--ichno-font);
+  font-weight: 700;
+  fill: var(--plan-text);
+  pointer-events: none;
 }
 
 /* What the tool in use cannot make where the pointer is — its sample, dashed in the colour of what cannot be had. */

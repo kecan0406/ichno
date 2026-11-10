@@ -73,6 +73,38 @@
   overflow: hidden;
 }
 
+/* The playground's look: matte charcoal on a warm light-grey floor, the selection the one colour. Every place is
+   painted alike — a category is read from its label on the plan. */
+.demo[data-palette='charcoal'] {
+  --ichno-surface: var(--plan-floor);
+  --ichno-label: var(--plan-text);
+  --ichno-ink: var(--plan-text);
+  --ichno-accent: var(--plan-accent);
+  --ichno-accent-foreground: var(--plan-accent-fg);
+  --cat-premium: var(--plan-solid);
+  --cat-standard: var(--plan-solid);
+  --cat-access: var(--plan-solid);
+}
+
+.demo[data-palette='charcoal'] .stage {
+  background: var(--plan-ground);
+}
+
+.demo[data-palette='charcoal'] [data-ichno-id]:not([data-selected]):not([data-disabled]) [data-part='shape'],
+.demo[data-palette='charcoal'] [data-kind='fixture'] [data-part='shape'] {
+  fill: var(--plan-solid);
+  stroke: var(--plan-edge);
+}
+
+.demo[data-palette='charcoal'] [data-ichno-id]:not([data-selected]):not([data-disabled]) [data-part='label'],
+.demo[data-palette='charcoal'] [data-kind='fixture'] [data-part='label'] {
+  fill: var(--plan-solid-fg);
+}
+
+.demo[data-palette='charcoal'] .swatch[data-tone='standard'] {
+  background: var(--plan-solid);
+}
+
 .demo[data-palette='forest'] {
   --ichno-accent: #16a34a;
   --ichno-accent-foreground: #ffffff;
@@ -205,6 +237,14 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
+  background: var(--theme-accent);
+}
+
+[data-palette-chip='charcoal'] .paletteDot {
+  background: var(--plan-solid);
+}
+
+[data-palette-chip='site'] .paletteDot {
   background: var(--theme-accent);
 }
 
