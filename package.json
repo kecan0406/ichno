@@ -40,6 +40,7 @@
     "lint": "oxlint",
     "check:compiler": "node scripts/check-compiler.mjs",
     "check:pkg": "publint && attw --pack . --profile esm-only",
+    "release": "node scripts/release.mjs",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm check:compiler && pnpm build && pnpm check:pkg",
     "prepublishOnly": "pnpm check"
   },

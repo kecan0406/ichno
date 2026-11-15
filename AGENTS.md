@@ -12,16 +12,17 @@ renderer.
 
 ## Commands
 
-| Command               | What it does                                                        |
-| --------------------- | ------------------------------------------------------------------- |
-| `pnpm check`          | Everything CI runs, in order. Run it before handing work back.      |
-| `pnpm test`           | vitest (`src/**/*.test.ts`)                                         |
-| `pnpm lint`           | oxlint with the vendored anti-slop rules                            |
-| `pnpm typecheck`      | `tsc --noEmit`                                                      |
-| `pnpm check:compiler` | Fails if React Compiler bails out of any client component or hook   |
-| `pnpm build`          | tsdown → `dist/` (one file per source file, React Compiler applied) |
-| `pnpm check:pkg`      | publint + are-the-types-wrong on the packed tarball                 |
-| `pnpm format`         | prettier (no semicolons, single quotes, width 120)                  |
+| Command               | What it does                                                              |
+| --------------------- | ------------------------------------------------------------------------- |
+| `pnpm check`          | Everything CI runs, in order. Run it before handing work back.            |
+| `pnpm test`           | vitest (`src/**/*.test.ts`)                                               |
+| `pnpm lint`           | oxlint with the vendored anti-slop rules                                  |
+| `pnpm typecheck`      | `tsc --noEmit`                                                            |
+| `pnpm check:compiler` | Fails if React Compiler bails out of any client component or hook         |
+| `pnpm build`          | tsdown → `dist/` (one file per source file, React Compiler applied)       |
+| `pnpm check:pkg`      | publint + are-the-types-wrong on the packed tarball                       |
+| `pnpm format`         | prettier (no semicolons, single quotes, width 120)                        |
+| `pnpm release`        | Release `## Unreleased`: version, check, tag, push, watch npm — see below |
 
 The anti-slop rules are vendored in `tools/oxlint/anti-slop`; its `UPSTREAM.md` records the source commit and the two
 places ichno's configuration departs from it. Fix what they report instead of disabling them. A type assertion that has
@@ -122,7 +123,8 @@ Semver, pre-1.0: a breaking change bumps the minor (0.1 → 0.2), anything else 
 renaming or removing an export, a CSS variable or an issue code, changing a component prop, tightening validation,
 and changing the stored-geometry conventions above.
 
-Record every user-visible change under `## Unreleased` in `CHANGELOG.md` in the same commit. Releasing follows the
-`releasing-ichno` skill (`.claude/skills/releasing-ichno/SKILL.md`). Pushing a `v<version>` tag publishes it from
-GitHub Actions (`.github/workflows/release.yml`, npm trusted publishing — no token or one-time password), so an agent
-prepares the release commit and pushes the tag only once the maintainer confirms.
+Record every user-visible change under `## Unreleased` in `CHANGELOG.md` in the same commit, and start a breaking
+entry with `Breaking —` — `pnpm release` picks the version from that word. Releasing follows the `releasing-ichno`
+skill (`.claude/skills/releasing-ichno/SKILL.md`): `pnpm release` checks, commits, tags and pushes, and the tag push
+publishes from GitHub Actions (`.github/workflows/release.yml`, npm trusted publishing — no token or one-time
+password), so an agent runs it only once the maintainer confirms the version.

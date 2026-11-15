@@ -1,35 +1,32 @@
 ---
 name: releasing-ichno
-description: Use when releasing ichno to npm — "release", "publish", "배포", "새 버전", bumping the version, or updating a consumer to a new ichno version. Walks version choice, changelog, checks, the tag push that publishes from GitHub Actions, and consumer updates.
+description: Use when releasing ichno to npm — "release", "publish", "배포", "새 버전", bumping the version, or updating a consumer to a new ichno version. Runs `pnpm release`, which picks the version from the changelog, checks, tags and pushes — the tag push publishes from GitHub Actions — then handles a failed run and consumer updates.
 ---
 
 # Releasing ichno
 
-Publishing is outward-facing and permanent for that version number. Pushing the tag in step 4 is what publishes —
-confirm with the maintainer before it.
+Publishing is outward-facing and permanent for that version number. `pnpm release` pushes the tag that publishes —
+confirm the version with the maintainer before running it.
 
-1. **Pick the version** from `## Unreleased` in `CHANGELOG.md` (semver, pre-1.0):
-   - breaking → bump the minor (0.1.x → 0.2.0): removed/renamed export, CSS variable or issue code; changed
-     component props; tightened validation; changed grid constants
-   - anything else → bump the patch
-     If `Unreleased` is empty, there is nothing to release — stop and say so.
-2. **Prepare the commit**: set `version` in `package.json`, rename `## Unreleased` to `## <version> — <YYYY-MM-DD>`
-   and add a fresh empty `## Unreleased` above it. Commit as `release: v<version>`.
-3. **Check**: `pnpm check` must pass (format, types, tests, compiler bailouts, build, package shape). The same runs
-   again in `prepublishOnly`.
-4. **Tag and push — this publishes.** `git tag -a v<version> -m "v<version>"`, then
-   `git push origin main v<version>`. The tag starts `.github/workflows/release.yml`, which checks that the tag
-   matches `package.json`, runs `pnpm check` (`prepublishOnly`) and publishes with npm trusted publishing — no token,
-   no one-time password, provenance attached.
-5. **Confirm**: `gh run watch` on the Release run, then `npm view ichno version`. If the run fails before publishing,
-   fix it on `main`, and with the maintainer's go-ahead move the tag (`git tag -d v<version>`,
-   `git push origin :refs/tags/v<version>`, tag again, push). An authentication error means the trusted publisher on
-   npmjs.com (package settings: `kecan0406` / `ichno` / `release.yml`) is missing or no longer matches the workflow;
-   `E403 … OIDC permission denied for this action` means it only allows staged publishing — npm's default for
-   connections made after 2026-09-03. Connections cannot be edited: the maintainer deletes it and recreates it with
-   `npm publish` allowed, then `gh run rerun <run id>` publishes from the same tag.
-6. **Consumers**: each consumer bumps its dependency (`pnpm add ichno@^<version>` in the consuming package) and runs
-   its own checks. For a breaking release, list what consumers must change in the changelog entry.
+1. **Read `## Unreleased`** in `CHANGELOG.md` and tell the maintainer the version it gives: an entry marked
+   `Breaking` bumps the minor before 1.0 (the major after), anything else the patch. Empty means there is nothing to
+   release — say so and stop. A breaking entry lists what consumers must change.
+2. **Run `pnpm release`** once confirmed (`pnpm release <x.y.z>` when the maintainer wants another version). From a
+   clean `main` that is not behind `origin/main`, it dates the section, sets `package.json`, runs `pnpm check`
+   (undoing both files if it fails), commits `release: v<version>`, tags, pushes `main` and the tag, watches the
+   Release run (`.github/workflows/release.yml`) and waits until npm serves the version.
+3. **If the run fails**, the tag is already pushed. Read it with `gh run view <id> --log-failed`, fix the cause and
+   `gh run rerun <id>` — it publishes from the same tag. Move a tag only when the fix must change the tagged commit,
+   and only with the maintainer's go-ahead: `git tag -d v<version>`, `git push origin :refs/tags/v<version>`, tag
+   again, push.
+   - `E403 … OIDC permission denied for this action` — the trusted publisher on npmjs.com
+     (https://www.npmjs.com/package/ichno/access) is missing, or it was created without "Allow npm publish" (then
+     it allows only staged publishing). Connections cannot be edited: delete it and create GitHub Actions /
+     `kecan0406` / `ichno` / `release.yml` / no environment / "Allow npm publish" checked. npm asks for the
+     maintainer's security key for the page and again for saving. The working connection was created 2026-11-15.
+   - Renaming `release.yml` breaks the connection — npm matches the workflow file name.
+4. **Consumers**: each consumer bumps its dependency (`pnpm add ichno@^<version>` in the consuming package) and runs
+   its own checks.
 
 Before a release, a consumer can be tested against unpublished work with `pnpm pack` and a `file:` install of the
 tarball — never commit a `file:` dependency.
