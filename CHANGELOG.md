@@ -4,6 +4,8 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+## 0.3.1 — 2026-11-15
+
 - `ichno`: the home view takes room at single sides on top of its margin — `planView.home(plan, margin, room)` and
   `useSeatMapView(plan, { room })`, with `room` as `{ top, right, bottom, left }` in plan units (new type `Sides`).
   `planView.roomFor(plan, size, clear)` gives the room that keeps `clear` pixels clear at each side of a viewport,
