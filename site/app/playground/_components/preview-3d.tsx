@@ -63,7 +63,8 @@ export type Preview3DProps = {
   plan: SeatPlan<string>
   status: Record<string, string>
   picked: readonly string[]
-  isDisabled(place: Place<string>): boolean
+  // Places that cannot be picked.
+  disabled: readonly string[]
   onPlaceTap(place: Place<string>): void
   // Opened from the 2D plan: the camera starts straight above it and comes down to its corner.
   fromAbove: boolean
@@ -169,7 +170,7 @@ export default function Preview3D(props: Preview3DProps) {
                 picked={props.picked}
                 hovered={hovered}
                 marked={viewing === null ? focus : null}
-                isDisabled={props.isDisabled}
+                disabled={props.disabled}
                 onHover={(next) => setPointed((current) => (samePointed(current, next) ? current : next))}
                 onTap={tap}
               />
@@ -234,7 +235,7 @@ export default function Preview3D(props: Preview3DProps) {
 // The place under the pointer and where the top of it shows, in the view's pixels.
 type Pointed = { id: string; at: TipAt }
 
-type SceneProps = Pick<Preview3DProps, 'plan' | 'picked' | 'isDisabled'> & {
+type SceneProps = Pick<Preview3DProps, 'plan' | 'picked' | 'disabled'> & {
   pieces: Piece[]
   overview: Overview
   palette: Palette
@@ -253,6 +254,7 @@ function Scene({ plan, pieces, overview, palette, marked, ...props }: SceneProps
   const places = new Map(pieces.flatMap((piece) => (piece.place ? [[piece.id, piece.place] as const] : [])))
   // What is picked stands a little off the floor (./lifting.ts).
   const lifted = useLifted(new Set(props.picked))
+  const disabled = new Set(props.disabled)
 
   const solids = pieces.map((piece): Solid => ({
     id: piece.id,
@@ -264,7 +266,7 @@ function Scene({ plan, pieces, overview, palette, marked, ...props }: SceneProps
     d: piece.d,
     yaw: piece.yaw,
     lift: (lifted.get(piece.id) ?? 0) * LIFT,
-    look: lookOf(piece, palette, props),
+    look: lookOf(piece, palette, props, disabled),
   }))
 
   // Cut down while the camera is up high, so it sees into the rooms, and at full height once it is down among the
@@ -300,11 +302,11 @@ function Scene({ plan, pieces, overview, palette, marked, ...props }: SceneProps
         solids={solids}
         palette={palette}
         onHover={(solid) => {
-          const place = placeOf(solid, places, props.isDisabled)
+          const place = placeOf(solid, places, disabled)
           props.onHover(place && solid ? { id: place.id, at: topOf(solid, get()) } : null)
         }}
         onTap={(solid) => {
-          const place = placeOf(solid, places, props.isDisabled)
+          const place = placeOf(solid, places, disabled)
 
           if (place) props.onTap(place)
         }}
@@ -330,7 +332,8 @@ function Scene({ plan, pieces, overview, palette, marked, ...props }: SceneProps
 function lookOf(
   piece: Piece,
   palette: Palette,
-  { picked, hovered, isDisabled }: Pick<SceneProps, 'picked' | 'hovered' | 'isDisabled'>,
+  { picked, hovered }: Pick<SceneProps, 'picked' | 'hovered'>,
+  disabled: ReadonlySet<string>,
 ): Look {
   const place = piece.place
 
@@ -338,7 +341,7 @@ function lookOf(
 
   if (picked.includes(place.id)) return { fill: palette.accent, line: 'edge' }
 
-  if (isDisabled(place)) return { fill: null, line: 'label', dash: true }
+  if (disabled.has(place.id)) return { fill: null, line: 'label', dash: true }
 
   return hovered === place.id
     ? { fill: palette.solid, line: 'edge', dash: true, march: true }
@@ -364,11 +367,11 @@ function samePointed(a: Pointed | null, b: Pointed | null): boolean {
 function placeOf(
   solid: Solid | null,
   places: ReadonlyMap<string, Place<string>>,
-  isDisabled: (place: Place<string>) => boolean,
+  disabled: ReadonlySet<string>,
 ): Place<string> | null {
   const place = solid === null ? null : (places.get(solid.id) ?? null)
 
-  return place && !isDisabled(place) ? place : null
+  return place && !disabled.has(place.id) ? place : null
 }
 
 // Whether the camera is up high — over the walls, looking into the rooms — rather than down among the seats.

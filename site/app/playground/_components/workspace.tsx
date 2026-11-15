@@ -77,7 +77,7 @@ const UNPASTABLE = 'What was copied holds places — paste it on the plan.'
 
 const NO_IDS: ReadonlySet<string> = new Set()
 
-const NO_STRAYS: string[] = []
+const NO_ID_LIST: readonly string[] = []
 
 // The steps a typed edge keeps to, toward the pointer — 15°, as Shift keeps a corner.
 const EDGE_STEP = Math.PI / 12
@@ -153,6 +153,8 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const plan = editor.plan
   const checks = checksOf(plan, lint)
   const bookedStatus = Object.fromEntries(booked.map((id) => [id, 'booked']))
+  // Booked places cannot be picked — but while booking, a tap on one frees it.
+  const unpickable = picking === 'pick' ? booked : NO_ID_LIST
   const places = seatPlan.placesOf(plan)
   const pickIssues = validateSelection(plan, { selected: picked, unavailable: booked }, rules)
 
@@ -509,10 +511,10 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   // Checks has the warning off. The playground's section is the whole plan, so only an imported document has any. A
   // drag drawn in one layer (walls, or most of the plan) is all in `stillPlan`.
   const strayOff = lint.outside_section === 'off'
-  const strays = strayOff ? NO_STRAYS : straysOf(editor.stillPlan.objects, editor.stillPlan)
+  const strays = strayOff ? NO_ID_LIST : straysOf(editor.stillPlan.objects, editor.stillPlan)
 
   const movingStrays =
-    strayOff || editor.movingPlan === null ? NO_STRAYS : straysOf(editor.movingPlan.objects, editor.stillPlan)
+    strayOff || editor.movingPlan === null ? NO_ID_LIST : straysOf(editor.movingPlan.objects, editor.stillPlan)
 
   const stillInvalid = strays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...strays]
   const movingInvalid = movingStrays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...movingStrays]
@@ -652,7 +654,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                 plan={plan}
                 status={bookedStatus}
                 picked={picked}
-                isDisabled={(place) => picking === 'pick' && booked.includes(place.id)}
+                disabled={unpickable}
                 onPlaceTap={previewTap}
                 fromAbove={views.fromAbove}
               />
@@ -662,7 +664,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
                 map={map}
                 status={bookedStatus}
                 picked={picked}
-                bookable={picking === 'book'}
+                disabled={unpickable}
                 onPlaceTap={previewTap}
               />
             )}

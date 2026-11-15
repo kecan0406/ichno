@@ -14,16 +14,17 @@ import {
 
 type ContentProps<S extends string> = {
   plan: SeatPlan<S>
-  // Place id → the consumer's status word. Exposed as data-status.
+  // Place id → the consumer's status word. Exposed as data-status, never read — what a status means for picking is
+  // yours to say with `disabled`.
   status?: Readonly<Record<string, string>>
   // Places and walls drawn selected.
   selected?: readonly string[]
+  // Places that cannot be picked — drawn filled with ink.
+  disabled?: readonly string[]
   highlighted?: readonly string[]
   dimmed?: readonly string[]
   // Place ids in conflict (the editor's `conflictIds`) — marked.
   invalid?: readonly string[]
-  // Places that cannot be picked. Defaults to every place with a status.
-  isDisabled?(place: Place<S>, status: string | undefined): boolean
   // Name above each section. Defaults to the section id on plans with more than one section, none otherwise.
   sectionLabel?(section: Section<S>): ReactNode
   // What a group's labels say. Defaults to the group's label, or its id.
@@ -55,7 +56,7 @@ function ContentOf<S extends string>({
   highlighted,
   dimmed,
   invalid,
-  isDisabled = hasStatus,
+  disabled,
   sectionLabel,
   groupLabel = defaultGroupLabel,
   fixtureLabel,
@@ -67,6 +68,7 @@ function ContentOf<S extends string>({
 }: ContentProps<S>) {
   const readable = (fontSize: number) => scale === undefined || fontSize * scale >= minLabelPx
   const selectedSet = new Set(selected)
+  const disabledSet = new Set(disabled)
   const highlightedSet = new Set(highlighted)
   const dimmedSet = new Set(dimmed)
   const invalidSet = new Set(invalid)
@@ -95,13 +97,11 @@ function ContentOf<S extends string>({
 
         switch (object.kind) {
           case 'place': {
-            const placeStatus = status?.[object.id]
-
             const props: PlaceProps = {
               place: object,
-              status: placeStatus,
+              status: status?.[object.id],
               selected: selectedSet.has(object.id),
-              disabled: isDisabled(object, placeStatus),
+              disabled: disabledSet.has(object.id),
               highlighted: highlightedSet.has(object.id),
               dimmed: dimmedSet.has(object.id),
               invalid: invalidSet.has(object.id),
@@ -141,10 +141,6 @@ function ContentOf<S extends string>({
 
 function intersects(a: PlanRect, b: PlanRect): boolean {
   return a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h
-}
-
-function hasStatus(_place: Place, status: string | undefined): boolean {
-  return status !== undefined
 }
 
 function defaultGroupLabel(group: Group): ReactNode {

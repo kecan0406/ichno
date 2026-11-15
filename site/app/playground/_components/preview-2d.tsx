@@ -18,12 +18,12 @@ type Props = {
   map: SeatMapView
   status: Record<string, string>
   picked: readonly string[]
-  // Booked places can be tapped too — a tap frees them (the playground's way to set what is taken).
-  bookable: boolean
+  // Places that cannot be picked.
+  disabled: readonly string[]
   onPlaceTap(place: Place<string>): void
 }
 
-export function Preview2D({ plan, map, status, picked, bookable, onPlaceTap }: Props) {
+export function Preview2D({ plan, map, status, picked, disabled, onPlaceTap }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState<ViewportSize | null>(null)
   const [pointed, setPointed] = useState<string | null>(null)
@@ -49,6 +49,7 @@ export function Preview2D({ plan, map, status, picked, bookable, onPlaceTap }: P
         plan={plan}
         {...map.viewProps}
         onPlaceClick={onPlaceTap}
+        disabled={disabled}
         onPlaceHover={(over) => setPointed(over?.id ?? null)}
         className={styles.viewport}
         aria-label="Seat plan preview"
@@ -58,7 +59,7 @@ export function Preview2D({ plan, map, status, picked, bookable, onPlaceTap }: P
           plan={plan}
           status={status}
           selected={picked}
-          isDisabled={bookable ? never : undefined}
+          disabled={disabled}
           fixtureLabel={fixtureLabel}
           fixtureVariant={fixtureVariant}
         />
@@ -96,7 +97,3 @@ function tipAt(view: PlanView, size: ViewportSize, bounds: PlanRect): TipAt {
 
 // The room a tip needs above a place, in screen pixels.
 const TIP_ROOM_PX = 64
-
-function never(): boolean {
-  return false
-}

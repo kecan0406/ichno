@@ -276,6 +276,9 @@ export const venueStatus: Record<string, string> = Object.fromEntries(
   ),
 )
 
+// What cannot be picked — this site's reading of that status.
+export const venueTaken = Object.keys(venueStatus)
+
 type RoomSection = 'R'
 
 export const roomPlan: SeatPlan<RoomSection> = assemble<RoomSection>(

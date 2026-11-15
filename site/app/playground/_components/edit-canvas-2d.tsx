@@ -84,7 +84,6 @@ export function EditCanvas2D({
                 selected={selected}
                 invalid={stillInvalid}
                 status={status}
-                isDisabled={never}
                 fixtureLabel={fixtureLabel}
                 fixtureVariant={fixtureVariant}
                 region={frame.region}
@@ -97,7 +96,6 @@ export function EditCanvas2D({
                   selected={selected}
                   invalid={movingInvalid}
                   status={status}
-                  isDisabled={never}
                   fixtureLabel={fixtureLabel}
                   fixtureVariant={fixtureVariant}
                   scale={frame.scale}
@@ -133,8 +131,4 @@ export function EditCanvas2D({
       )}
     </SeatMapViewport>
   )
-}
-
-function never(): boolean {
-  return false
 }

@@ -11,7 +11,7 @@ export const themeVars = {
   grid: { name: '--ichno-grid', fallback: '#e4e4e7' },
   // Furniture outlines, seat numbers, fixture names.
   label: { name: '--ichno-label', fallback: '#71717a' },
-  // Walls, taken places, focus and selection rings — the darkest ink on the plan.
+  // Walls, places that cannot be picked, focus and selection rings — the darkest ink on the plan.
   ink: { name: '--ichno-ink', fallback: '#18181b' },
   // Labels drawn on ink-filled places.
   inkForeground: { name: '--ichno-ink-foreground', fallback: '#ffffff' },

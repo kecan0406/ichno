@@ -282,6 +282,11 @@ margin })` and a `home` prop on `SeatMap.Viewport` (the widest view, which `view
 - `ichno/react`: `SeatMap` is a module namespace instead of an object — used the same way (`SeatMap.Root`,
   `SeatMap.Content`, …), but a bundler drops the members an app never names. `Object.keys(SeatMap)` and spreading it
   still list every part.
+- Breaking — `ichno/react`: `SeatMap.Content` takes `disabled` (the place ids that cannot be picked) instead of
+  `isDisabled`, and a status no longer disables a place. `status` is only exposed as `data-status`; a booking screen
+  that drew booked places in ink passes them as `disabled` too (`Object.keys(status)`, held as steady as `status` itself).
+- `ichno/react/client`: `SeatMapViewport` takes the same `disabled` list — a tap, Enter or Space on one of those
+  places calls no `onPlaceClick` (the focus ring still reaches it, and `onTap` still reports it).
 
 ## 0.2.1 — 2026-09-25
 

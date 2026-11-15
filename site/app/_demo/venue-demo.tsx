@@ -8,13 +8,11 @@ import { useState } from 'react'
 import { CategoryLabels } from '../playground/_components/category-labels'
 import styles from './demo.module.css'
 import { selectionIssueKey, selectionIssueText } from './messages'
-import { fixtureNames, venuePlan, venueSectionNames, venueStatus, type VenueSection } from './plans'
+import { fixtureNames, venuePlan, venueSectionNames, venueStatus, venueTaken, type VenueSection } from './plans'
 
 const places = seatPlan.placesOf(venuePlan)
 
 const placeById = new Map(places.map((place) => [place.id, place]))
-
-const unavailable = Object.keys(venueStatus)
 
 const MAX_PICK = 8
 
@@ -35,7 +33,7 @@ export function VenueDemo() {
   const map = useSeatMapView(venuePlan)
   const [palette, setPalette] = useState<Palette>('charcoal')
 
-  const issues = validateSelection(venuePlan, { selected, unavailable }, { max: MAX_PICK, noOrphans: true })
+  const issues = validateSelection(venuePlan, { selected, unavailable: venueTaken }, { max: MAX_PICK, noOrphans: true })
   const guests = selected.reduce((sum, id) => sum + (placeById.get(id)?.capacity ?? 0), 0)
   // Zoomed in past the whole plan — it pans then, and can go back.
   const zoomed = map.canZoomOut
@@ -103,6 +101,7 @@ export function VenueDemo() {
           pannable={zoomed}
           zoomable={false}
           onPlaceClick={toggle}
+          disabled={venueTaken}
           className={styles.viewport}
           aria-label="Demo venue — pick places"
           aria-multiselectable
@@ -112,6 +111,7 @@ export function VenueDemo() {
               <SeatMap.Content
                 plan={venuePlan}
                 status={venueStatus}
+                disabled={venueTaken}
                 selected={selected}
                 sectionLabel={(section) => venueSectionNames[section.id]}
                 fixtureLabel={(fixture) => fixtureNames.get(fixture.role ?? '') ?? null}

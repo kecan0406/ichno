@@ -3,7 +3,7 @@ import pkg from 'ichno/package.json'
 import { SeatMap } from 'ichno/react'
 import { createSeatPlanSchema } from 'ichno/schema'
 import Link from 'next/link'
-import { fixtureNames, hallPlan, roomPlan, venuePlan, venueSectionIds, venueStatus } from './_demo/plans'
+import { fixtureNames, hallPlan, roomPlan, venuePlan, venueSectionIds, venueStatus, venueTaken } from './_demo/plans'
 import { VenueDemo } from './_demo/venue-demo'
 import { CodeTabs, type CodeTab } from './_ui/code-tabs'
 import { InstallCommand } from './_ui/install-command'
@@ -99,6 +99,7 @@ import { SeatMapViewport } from 'ichno/react/client'
   <SeatMap.Content
     plan={plan}
     status={{ A2: 'booked' }}   // your words, exposed as data-status
+    disabled={['A2']}           // what cannot be picked
     selected={picked}
     sectionLabel={(section) => names[section.id]}
   />
@@ -246,6 +247,7 @@ export default function Home() {
                   <SeatMap.Content
                     plan={lounge}
                     status={venueStatus}
+                    disabled={venueTaken}
                     fixtureLabel={(fixture) => fixtureNames.get(fixture.role ?? '') ?? null}
                   />
                 </SeatMap.Root>

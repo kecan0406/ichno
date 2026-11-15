@@ -127,7 +127,7 @@ export type PlaceProps = GProps & {
   // The consumer's status word (e.g. 'booked', 'held') — exposed as data-status, never interpreted.
   status?: string
   selected?: boolean
-  // Cannot be picked — drawn filled with ink (booked, blocked, another zone's place).
+  // Cannot be picked — drawn filled with ink. Which places those are is the consumer's rule.
   disabled?: boolean
   // Emphasised from elsewhere (a list row under the pointer) — drawn like a hover.
   highlighted?: boolean

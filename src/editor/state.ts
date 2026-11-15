@@ -23,7 +23,7 @@ import type { EditorTool } from './tools'
 
 export type SeatPlanEditorOptions<S extends string> = {
   initialPlan: SeatPlan<S>
-  // Ids your other records reference (booked seats, active sessions). Objects holding one cannot be removed,
+  // Ids your other records reference (a booking, an order). Objects holding one cannot be removed,
   // renamed or turned into fixtures; labels stay free to change.
   lockedIds?: Iterable<string>
   // Snap to a grid while editing — sections to cell corners, objects and strokes to half cells, turns to 15°. Off

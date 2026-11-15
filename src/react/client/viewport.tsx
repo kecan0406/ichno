@@ -60,8 +60,11 @@ type ViewportProps<S extends string> = Omit<
   // Arrow keys move a focus ring between places and Enter or Space picks the focused one. On by default; an editor
   // turns it off while the arrow keys move its selection.
   navigable?: boolean
-  // A tap, Enter or Space on a place.
+  // A tap, Enter or Space on a place that is not `disabled`.
   onPlaceClick?(place: Place<S>): void
+  // Places that cannot be picked — the list <SeatMap.Content> draws as `disabled`. A tap, Enter or Space on one
+  // calls no `onPlaceClick`; the focus ring still reaches it and `onTap` still reports it.
+  disabled?: readonly string[]
   // Pointer entering and leaving places.
   onPlaceHover?(place: Place<S> | null): void
   // Any tap — a place, a non-place object, a wall, a section, or empty floor (null) — with the plan point and whether
@@ -112,6 +115,7 @@ export function Viewport<S extends string>({
   wheel = 'zoom',
   navigable = true,
   onPlaceClick,
+  disabled,
   onPlaceHover,
   onTap,
   onHover,
@@ -126,6 +130,7 @@ export function Viewport<S extends string>({
   onContextMenu,
   ...rest
 }: ViewportProps<S>) {
+  const disabledSet = new Set(disabled)
   const svgRef = useRef<SVGSVGElement>(null)
   // The press under way — what it started on and whether it drags that, draws a marquee or a stroke, or pans.
   const pressRef = useRef<PressState<S>>(IDLE_PRESS)
@@ -245,7 +250,8 @@ export function Viewport<S extends string>({
 
           if (place) {
             setActiveId(place.id)
-            onPlaceClick?.(place)
+
+            if (!disabledSet.has(place.id)) onPlaceClick?.(place)
           }
 
           break
@@ -368,7 +374,8 @@ export function Viewport<S extends string>({
     if (navigable && (e.key === 'Enter' || e.key === ' ') && active && keyboardFocus) {
       e.preventDefault()
       onTap?.({ kind: 'place', id: active.id }, { point: seatPlan.centerOf(active), additive: e.shiftKey })
-      onPlaceClick?.(active)
+
+      if (!disabledSet.has(active.id)) onPlaceClick?.(active)
 
       return
     }

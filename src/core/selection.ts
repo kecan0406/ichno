@@ -10,7 +10,8 @@ export type SelectionRules = {
   max?: number
   // Selected places in groups must sit side by side in one group.
   consecutive?: boolean
-  // A selection must not leave a single free place stranded between taken places or a group's end.
+  // A selection must not leave a single free place stranded between taken places or a group's end — the ticketing
+  // trade's orphan seat, hence the code's name.
   noOrphans?: boolean
 }
 

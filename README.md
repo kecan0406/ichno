@@ -75,7 +75,7 @@ type Wall = {
 }
 ```
 
-- **Ids are booking keys.** A place's `id` (1–8 characters) is what your other records (bookings, sessions) point
+- **Ids are booking keys.** A place's `id` (1–8 characters) is what your other records (bookings, orders) point
   at — keep it stable. `label` is what people read and may change freely; it defaults to the id. Objects, groups and
   walls share one id namespace.
 - **Places are stored as they are drawn.** A seat in a curved row is a place with its own box; `layout` (below)
@@ -196,7 +196,8 @@ import { SeatMap } from 'ichno/react'
 ;<SeatMap.Root plan={plan} aria-label="Floor plan">
   <SeatMap.Content
     plan={plan}
-    status={{ A2: 'booked' }} // your words — exposed as data-status; places with a status are disabled
+    status={{ A2: 'booked' }} // your words — exposed as data-status, never read
+    disabled={['A2']} // what cannot be picked — drawn in ink; which places those are is yours to say
     selected={['B4']}
     sectionLabel={(section) => names[section.id]}
     groupLabel={(group) => group.label} // what a group's labels say (defaults to its label, or id)
@@ -212,8 +213,15 @@ import { SeatMapViewport, useSeatMapView } from 'ichno/react/client'
 
 // Interactive — pan, wheel/pinch zoom, taps, arrow keys (Enter/Space picks), the same children.
 const map = useSeatMapView(plan) // the view, and zoom controls for the buttons you draw
-<SeatMapViewport plan={plan} {...map.viewProps} onPlaceClick={(place) => toggle(place.id)} className="h-[480px]">
-  <SeatMap.Content plan={plan} selected={picked} />
+// `disabled` goes to both: Content draws those places in ink, the viewport calls no onPlaceClick for them.
+<SeatMapViewport
+  plan={plan}
+  {...map.viewProps}
+  onPlaceClick={(place) => toggle(place.id)}
+  disabled={taken}
+  className="h-[480px]"
+>
+  <SeatMap.Content plan={plan} selected={picked} disabled={taken} />
 </SeatMapViewport>
 <button onClick={map.zoomOut} disabled={!map.canZoomOut}>−</button>
 <button onClick={map.fit}>{Math.round(map.level * 100)}%</button>
@@ -431,7 +439,7 @@ redraws every place in view on every move.
 </SeatMapViewport>
 ```
 
-Whatever else you pass `Content` (`status`, label functions) must keep its identity too — compile your app with the
+Whatever else you pass `Content` (`status`, `disabled` and the other id lists, label functions) must keep its identity too — compile your app with the
 React Compiler, or hold them steady yourself.
 
 ### Creation tools
@@ -608,7 +616,7 @@ defaults (`themeVars` lists them). Classes on parts override them outright.
 | `--ichno-fixture`           | fixture faces                                   |
 | `--ichno-grid`              | editor grid                                     |
 | `--ichno-label`             | outlines, seat numbers, group and fixture names |
-| `--ichno-ink`               | walls, taken places, selection rings            |
+| `--ichno-ink`               | walls, disabled places, selection rings         |
 | `--ichno-ink-foreground`    | numbers on ink-filled places                    |
 | `--ichno-accent`            | picked places, editor selection                 |
 | `--ichno-accent-foreground` | numbers on accent-filled places                 |
