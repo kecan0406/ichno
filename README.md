@@ -281,7 +281,10 @@ right-click landed on, or a handle in an overlay you draw yourself.
 `planView.fitTo` for zoom-to-places), so nothing is measured while rendering. Zoom goes from the home view (the
 whole drawing) in to 6×, and zooming out stops at the home view exactly. `planView.home(plan, margin)` leaves that
 many plan units round the drawing; give the viewport that view as `home`, or `useSeatMapView(plan, { margin })`,
-and the drawing keeps off the edges. A viewport of another shape shows more
+and the drawing keeps off the edges. When a toolbar or a panel floats over the plan, give the home view room at
+that side too: `planView.roomFor(plan, size, { left: 320, top: 80 })` turns the pixels to keep clear — at each side
+of a viewport of `size` — into plan units for `planView.home(plan, margin, room)` or
+`useSeatMapView(plan, { room })`, and the whole drawing shows in what is left. A viewport of another shape shows more
 than its view — `planView.visible(view, size)` is what it shows. `planView.toScreen(view, size, point)` is where a
 plan point shows in the viewport, in pixels from its top-left — the anchor for a tooltip above a place or a popover
 beside a table, following the view as it moves. Leave `view` out and the viewport keeps its own.

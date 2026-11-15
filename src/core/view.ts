@@ -11,6 +11,9 @@ export type PlanView = PlanRect
 // The viewport's size in CSS pixels.
 export type ViewportSize = { width: number; height: number }
 
+// An amount at each side — a side left out is none.
+export type Sides = { top?: number; right?: number; bottom?: number; left?: number }
+
 // One wheel tick, and how far the zoom goes in, relative to the home view (the whole drawing). It goes no further out
 // than the home view itself: a step cut short at a limit below it would leave every later step off the home view
 // (90% × 1.1 = 99%), so zooming in and back out would never come back to it.
@@ -20,6 +23,7 @@ const ZOOM_MAX_FACTOR = 6
 
 export const planView = {
   home,
+  roomFor,
   zoom,
   pan,
   pinch,
@@ -35,14 +39,44 @@ export const planView = {
 
 // The view that shows the whole drawing — the default and the reset target. It covers the drawn extent, not
 // the document size (walls and the name band reach outside), and `margin` plan units more on every side, so the
-// drawing does not touch the viewport's edges.
+// drawing does not touch the viewport's edges — and `room` more at single sides, for what stands over the plan there.
 function home(
   plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pick<SeatPlan, 'walls'>>,
   margin = 0,
+  room: Sides = {},
 ): PlanView {
   const drawn = seatPlan.drawingBoundsOf(plan)
+  const left = margin + (room.left ?? 0)
+  const top = margin + (room.top ?? 0)
 
-  return { x: drawn.x - margin, y: drawn.y - margin, w: drawn.w + margin * 2, h: drawn.h + margin * 2 }
+  return {
+    x: drawn.x - left,
+    y: drawn.y - top,
+    w: drawn.w + left + margin + (room.right ?? 0),
+    h: drawn.h + top + margin + (room.bottom ?? 0),
+  }
+}
+
+// The room, in plan units, that keeps `clear` CSS pixels clear at each side of a viewport of `size` — for toolbars
+// and panels floating over the plan. The whole drawing (with its `margin`) is fitted into what they leave, and each
+// side's room is that many pixels at that scale; give it to `home`, and the home view shows the drawing in the
+// middle of what is left clear. No room where they leave nothing to draw in.
+function roomFor(
+  plan: Pick<SeatPlan, 'width' | 'height' | 'sections'> & Partial<Pick<SeatPlan, 'walls'>>,
+  size: ViewportSize,
+  clear: Sides,
+  margin = 0,
+): Required<Sides> {
+  const drawn = home(plan, margin)
+  const top = clear.top ?? 0
+  const right = clear.right ?? 0
+  const bottom = clear.bottom ?? 0
+  const left = clear.left ?? 0
+  const scale = Math.min((size.width - left - right) / drawn.w, (size.height - top - bottom) / drawn.h)
+
+  if (!(scale > 0)) return { top: 0, right: 0, bottom: 0, left: 0 }
+
+  return { top: top / scale, right: right / scale, bottom: bottom / scale, left: left / scale }
 }
 
 // Zoom by `factor` (> 1 zooms in) keeping `center` (a plan point, e.g. under the cursor) fixed, from `homeView` in

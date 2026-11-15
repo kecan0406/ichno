@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { GRID_CELL } from '../../core/grid'
 import type { PlanPoint, PlanRect, SeatPlan } from '../../core/types'
-import { planView, type PlanView } from '../../core/view'
+import { planView, type PlanView, type Sides } from '../../core/view'
 
 export type SeatMapView = ReturnType<typeof useSeatMapView>
 
@@ -17,6 +17,9 @@ type Options = {
   // Room left round the whole plan, in plan units: the view opens on the drawing with this much about it, and zooms
   // out no further. None by default — the drawing fills the view.
   margin?: number
+  // More room at single sides, in plan units, on top of `margin` — for a toolbar or a panel floating over the plan
+  // there (`planView.roomFor` turns its pixels into this).
+  room?: Sides
 }
 
 // The view of a <SeatMap.Viewport>, with the controls people expect around it — zoom in and out about the middle, back
@@ -25,9 +28,9 @@ type Options = {
 // write it the way your app writes zoom.
 export function useSeatMapView(
   plan: Pick<SeatPlan, 'width' | 'height' | 'sections'>,
-  { initialView, step = ZOOM_BUTTON_STEP, padding = ZOOM_TO_PADDING, margin = 0 }: Options = {},
+  { initialView, step = ZOOM_BUTTON_STEP, padding = ZOOM_TO_PADDING, margin = 0, room }: Options = {},
 ) {
-  const home = planView.home(plan, margin)
+  const home = planView.home(plan, margin, room)
   const [view, setView] = useState<PlanView>(() => initialView ?? home)
   const middle = middleOf(view)
 

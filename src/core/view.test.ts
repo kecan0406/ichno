@@ -35,6 +35,45 @@ describe('planView — screen and plan coordinates without reading layout', () =
     expect(planView.home(plan, 50)).toEqual({ x: drawn.x - 50, y: drawn.y - 50, w: drawn.w + 100, h: drawn.h + 100 })
   })
 
+  it('leaves more room at single sides, on top of the margin — a side left out gets none', () => {
+    const plan = { width: 1000, height: 500, sections: [] }
+    const drawn = planView.home(plan)
+    expect(planView.home(plan, 10, { left: 300, top: 40 })).toEqual({
+      x: drawn.x - 310,
+      y: drawn.y - 50,
+      w: drawn.w + 320,
+      h: drawn.h + 60,
+    })
+  })
+
+  it('finds the room that keeps pixels clear at each side of the viewport', () => {
+    const plan = { width: 1000, height: 500, sections: [] }
+    const drawn = planView.home(plan)
+    const size = { width: 1400, height: 900 }
+    const clear = { top: 100, right: 60, bottom: 120, left: 320 }
+    const home = planView.home(plan, 0, planView.roomFor(plan, size, clear))
+    const from = planView.toScreen(home, size, { x: drawn.x, y: drawn.y })
+    const to = planView.toScreen(home, size, { x: drawn.x + drawn.w, y: drawn.y + drawn.h })
+
+    // The width is the tighter side here: the drawing runs from the left room to the right room exactly…
+    expect(from.x).toBeCloseTo(clear.left)
+    expect(to.x).toBeCloseTo(size.width - clear.right)
+    // …and sits in the middle of what the top and bottom room leave.
+    expect(from.y).toBeGreaterThan(clear.top)
+    expect(to.y).toBeLessThan(size.height - clear.bottom)
+    expect(from.y - clear.top).toBeCloseTo(size.height - clear.bottom - to.y)
+  })
+
+  it('asks for no room where nothing is left to draw in', () => {
+    const plan = { width: 1000, height: 500, sections: [] }
+    expect(planView.roomFor(plan, { width: 300, height: 600 }, { left: 200, right: 100 })).toEqual({
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    })
+  })
+
   it('zooms out no further than the whole drawing, so zooming in and out comes back to it exactly', () => {
     const home = { x: 0, y: 0, w: 1000, h: 500 }
     const center = { x: 500, y: 250 }
