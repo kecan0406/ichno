@@ -4,6 +4,8 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+## 0.3.0 — 2026-11-15
+
 Breaking — document version 3: primitives instead of built-in object kinds (see `docs/direction.md`).
 
 - `ichno`: document v3 — `objects` hold `place`s (anything bookable, with `shape`, `capacity` and an optional
