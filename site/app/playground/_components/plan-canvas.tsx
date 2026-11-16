@@ -7,9 +7,11 @@ import {
   IDLE_PRESS,
   edgeScroll,
   press,
+  projection,
   seatPlan,
   type EdgeScrollState,
   type Fixture,
+  type FloorMatrix,
   type PlanHandle,
   type PlanPoint,
   type PlanRect,
@@ -19,8 +21,10 @@ import {
   type PressPointer,
   type PressResult,
   type PressState,
+  type Projection,
   type ScreenPoint,
   type SeatPlan,
+  type ViewportSize,
 } from 'ichno'
 import type { SeatPlanEditor } from 'ichno/editor'
 import { SeatMap, planTargetOf } from 'ichno/react'
@@ -32,18 +36,31 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent,
+  type ReactNode,
   type RefObject,
 } from 'react'
-import { BufferGeometry, Plane, Raycaster, Vector2, Vector3 } from 'three'
+import { BufferGeometry, Raycaster, Vector2 } from 'three'
 import { OFF_PX, TEXT_PX, dimensionLabelsOf, type Measured } from './dimensions'
 import { everyFrame } from './frames'
-import { HEIGHT, SIGN_HEIGHT, WALL_CUT, piecesOf, wallsOf, writingOf, type Piece, type Wall } from '../_lib/scene'
+import {
+  HEIGHT,
+  SIGN_HEIGHT,
+  WALL_CUT,
+  heightOf,
+  numbersOf,
+  piecesOf,
+  wallsOf,
+  writingOf,
+  type Piece,
+  type Wall,
+} from '../_lib/scene'
 import controls from './controls.module.css'
 import {
   Daylight,
   Fallback,
   Floor,
   Hairlines,
+  Numbers,
   Solids,
   Text,
   floorSegments,
@@ -59,21 +76,23 @@ import {
 import { categoryWritingOf } from '../_lib/category-labels'
 import { LIFT, raised, useLifted } from './lifting'
 import marks from './marks.module.css'
+import type { TipAt } from './preview-chrome'
 import { useSettledPlan, type Settled } from './settling'
 import { Icon } from './icons'
-import styles from './build-3d.module.css'
+import styles from './plan-canvas.module.css'
 
-// The playground's editor in 3D — the same ichno editor the 2D canvas drives, seen from a corner the way a tycoon
-// game shows its park. The view turns a quarter at a time; a press goes through ichno's gesture core and comes out as
-// the editor's taps, drags and strokes, with plan points read off the floor under the pointer. A marquee is a box on
-// the screen — on the floor it would show as a diamond — and picks what it touches as it stands. What the editor draws
-// over the plan — outlines, handles, smart guides, a tool's stroke — is ichno's own <SeatMap.EditorOverlay>, laid on the
-// floor: an orthographic camera maps the floor to the screen with one matrix, so the SVG the 2D view draws lies on it
-// as it is. Drawn like the 2D plan (./drawing-3d.tsx).
+// The playground's one canvas — the plan drawn by three.js through ichno's `projection`, to edit and to preview. One
+// orthographic camera holds two views of the same room: the plan view, straight down, and the isometric view, from a
+// corner with the three axes at one scale, so a metre along a wall is as long in either. Switching between them moves
+// the camera, nothing else; the view turns a quarter at a time. A press goes through ichno's `press` core and comes
+// out as the editor's taps, drags and strokes, with plan points read off the floor under the pointer. A marquee is a
+// box on the screen — on the floor it would show as a diamond — and picks what it touches as it stands. What the
+// editor draws over the plan — outlines, handles, smart guides, a tool's stroke — is ichno's own
+// <SeatMap.EditorOverlay>, laid on the floor by the projection's own matrix. Drawn as ./drawing-3d.tsx draws.
 
 type Editor = SeatPlanEditor<string>
 
-// What a press means to the editor — <SeatMapViewport>'s handlers, with plan points read off the floor.
+// What a press means to whoever holds the canvas — <SeatMapViewport>'s handlers, with plan points read off the floor.
 type Handlers = Pick<Editor['viewportProps'], 'canDrag' | 'onTargetDrag' | 'onDraw'> & {
   onTap(target: PlanTarget<string> | null, info: { point: PlanPoint | null; additive: boolean }): void
   onHover(point: PlanPoint | null, target: PlanTarget<string> | null, info?: { pixel: number }): void
@@ -81,8 +100,11 @@ type Handlers = Pick<Editor['viewportProps'], 'canDrag' | 'onTargetDrag' | 'onDr
   onMarquee(ids: readonly string[], info: { additive: boolean }): void
 }
 
+// Which way the room is seen: straight down, or from a corner.
+export type CanvasLook = 'plan' | 'isometric'
+
 // What the site's zoom menu, its keys and the turn buttons ask of the view.
-export type BuildControls = {
+export type CanvasControls = {
   zoomIn(): void
   zoomOut(): void
   fit(): void
@@ -91,34 +113,34 @@ export type BuildControls = {
   setLevel(level: number): void
   // A quarter turn, 1 to the right.
   turn(by: 1 | -1): void
-  // Back toward the 2D view: straight down over `to.center` at `to.zoom`, north up — then `done`, where the 2D view
-  // takes over.
-  leave(to: { center: PlanPoint; zoom: number }, done: () => void): void
-  // Back into the corner view from part way up (a switch to 2D taken back).
-  rest(): void
 }
 
-// The 2D view this one takes over from: the plan point in the middle, how many screen pixels a plan unit takes (the
-// 2D view's scale, this camera's zoom), and how far in that is, 1 being the whole plan. The camera starts at the
-// scale and ends at the level — the whole plan in 2D is the whole plan here, though a corner view needs more room.
-export type Handoff = { center: PlanPoint; zoom: number; level: number }
+// The plan drawn on the server that the canvas takes over from when it first shows: the plan point in its middle and
+// how many screen pixels a plan unit takes there.
+export type Handoff = { center: PlanPoint; zoom: number }
 
-export type BuildView = { level: number; canZoomIn: boolean; canZoomOut: boolean }
+export type CanvasView = { level: number; canZoomIn: boolean; canZoomOut: boolean }
 
-export type Build3DProps = {
+export type PlanCanvasProps = {
+  // To edit the plan, or to pick places on it the way a customer would.
+  mode: 'edit' | 'preview'
+  look: CanvasLook
   // The plan as drawn (the drag in progress applied), what the tool would make, and what it would have dropped
   // where it can make nothing (drawn in the colour of what cannot be had).
   plan: SeatPlan<string>
-  // The plan as history holds it — it changes when an edit lands, and what the edit changed settles (./settling.ts).
+  // The plan as history holds it — it changes when an edit landed, and what the edit changed settles (./settling.ts).
   committed: SeatPlan<string>
   draft: SeatPlan<string> | null
   refused: SeatPlan<string> | null
-  // Every selected object — grouped ones through their group.
+  // What stands in the selection's colour, a little off the floor: every selected object — grouped ones through
+  // their group — or, previewing, the places picked.
   selected: readonly string[]
   conflicts: readonly string[]
   status: Record<string, string>
+  // Places that cannot be picked — an empty dashed outline.
+  disabled: readonly string[]
   overlay: Editor['overlayProps']
-  // What there is to measure — the lengths are written beside it, as the 2D view writes them.
+  // What there is to measure — the lengths are written beside it.
   measured: Measured
   // The grid cell while snapping.
   grid: number | null
@@ -126,30 +148,25 @@ export type Build3DProps = {
   tool: 'select' | 'draw' | 'hand'
   handlers: Handlers
   onMenu(at: ScreenPoint, target: PlanTarget<string> | null): void
-  controlsRef: RefObject<BuildControls | null>
-  // Where the camera was when the view last closed — previewing and coming back keeps it, as the 2D view does —
-  // and where it is now, for that.
-  cameraRef: RefObject<BuildCamera | null>
-  onCamera(camera: BuildCamera): void
-  // The 2D view being switched from — the camera starts straight above it and tilts into the corner.
+  controlsRef: RefObject<CanvasControls | null>
+  // The plan drawn on the server, lying under the canvas until it shows — the camera starts straight above it.
   handoffRef: RefObject<Handoff | null>
-  // The first frame with the scene in it is drawn (or WebGL failed) — a 2D view left underneath can go.
+  // The first frame with the scene in it is drawn — the plan left underneath can go.
   onShown(): void
-  onViewChange(view: BuildView): void
+  onViewChange(view: CanvasView): void
   fixtureName(fixture: Fixture): string | null
+  // Previewing: what is written over the place under the pointer, told where its top shows.
+  tip?(id: string, at: TipAt): ReactNode
 }
 
-// The camera: over (x, z) on the floor, from the corner `quarter` turns round from the south-east, `zoom` screen
-// pixels per plan unit. `angle` is where the turn has got to.
-export type BuildCamera = { x: number; z: number; quarter: number; angle: number; zoom: number }
+// Where the camera is: over (x, z) on the floor, seen through a projection, `zoom` screen pixels to a drawing unit —
+// to a plan unit along an axis, in both views.
+type Pose = Projection & { x: number; z: number; zoom: number }
 
-// Where the camera is: over (x, z), turned to `angle`, looking down at `tilt`, `zoom` pixels per plan unit.
-type Pose = { x: number; z: number; angle: number; tilt: number; zoom: number }
-
-// A camera move under way — a quarter turn, or the tilt between this view and the 2D one: from `from` toward `to`
-// over `ms`, `elapsed` so far, counted frame by frame (`last` the previous one) — a frame counts for MAX_FRAME_MS at
-// most, so a slow one pauses the move instead of skipping part of it. `fade` brings the canvas in over the 2D view,
-// or takes it away; `done` runs when it gets there.
+// A camera move under way — a quarter turn, or the way between the two views: from `from` toward `to` over `ms`,
+// `elapsed` so far, counted frame by frame (`last` the previous one) — a frame counts for MAX_FRAME_MS at most, so a
+// slow one pauses the move instead of skipping part of it. `fade` brings the canvas in over the plan drawn on the
+// server; `done` runs when it gets there.
 type Motion = {
   from: Pose
   to: Partial<Pose>
@@ -157,13 +174,13 @@ type Motion = {
   elapsed: number
   last: number | null
   ease(t: number): number
-  fade?: 'in' | 'out'
+  fade?: 'in'
   done?: () => void
 }
 
 type MoveOptions = Partial<Pick<Motion, 'ease' | 'fade' | 'done'>>
 
-export default function Build3D(props: Build3DProps) {
+export default function PlanCanvas(props: PlanCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const palette = usePalette(hostRef)
   const [failed, setFailed] = useState(false)
@@ -171,19 +188,23 @@ export default function Build3D(props: Build3DProps) {
   const stageRef = useRef<(() => RootState) | null>(null)
   const [picks] = useState<Picks>(() => new Map())
 
-  const aimRef = useRef<BuildCamera & { tilt: number }>({
-    ...(props.cameraRef.current ?? { x: 0, z: 0, quarter: 0, angle: azimuthOf(0), zoom: 1 }),
-    tilt: TILT,
+  // Where the camera is heading: the view it rests in, how many quarters it has turned, and where it is on the way.
+  const aimRef = useRef<Pose & { look: CanvasLook; quarter: number }>({
+    ...restOf(props.look, 0),
+    x: 0,
+    z: 0,
+    zoom: 1,
+    look: props.look,
+    quarter: 0,
   })
 
   const motionRef = useRef<Motion | null>(null)
-  // On its way back to the 2D view — it no longer turns.
-  const leavingRef = useRef(false)
-  // Whether the camera has been put where it starts — the whole plan, or where it was before the preview.
+  // Whether the camera has been put where it starts, and whether it is still coming in over the server's plan.
   const readyRef = useRef(false)
-  const reportedRef = useRef<BuildView | null>(null)
+  const enteringRef = useRef(false)
+  const reportedRef = useRef<CanvasView | null>(null)
   // Shown in the turn control — the camera itself turns in the frame loop.
-  const [quarter, setQuarter] = useState(() => props.cameraRef.current?.quarter ?? 0)
+  const [quarter, setQuarter] = useState(0)
   // Screen pixels per plan unit once the camera rests — what is written over the plan keeps its distance by it.
   const [zoom, setZoom] = useState(1)
   // The press under way — what it started on and what it does (ichno's `press`).
@@ -200,10 +221,13 @@ export default function Build3D(props: Build3DProps) {
   const [sweep, setSweep] = useState<{ from: ScreenPoint; to: ScreenPoint } | null>(null)
   // The place or object under the pointer — a place traces its dashes, anything shows the pointer cursor.
   const [over, setOver] = useState<PlanTarget<string> | null>(null)
+  // Previewing: the place under the pointer and where its top shows — what the tip points at.
+  const [tipped, setTipped] = useState<{ id: string; at: TipAt } | null>(null)
   // What the editor draws over the plan, in SVG over the canvas.
   const overlayRef = useRef<SVGSVGElement>(null)
 
   const { plan, handlers } = props
+  const previewing = props.mode === 'preview'
   const home = seatPlan.drawingBoundsOf(plan)
   // What an edit added, removed or moved settles (./settling.ts) — the scene is drawn from the plan part-way there,
   // and what goes round the selection waits for it.
@@ -215,26 +239,19 @@ export default function Build3D(props: Build3DProps) {
     return stageRef.current?.() ?? null
   }
 
-  // Aims the ray through a point of the view; false before the canvas is there.
-  function aimRay(at: ScreenPoint): boolean {
-    const state = stage()
-
-    if (!state) return false
-    RAY.setFromCamera(NDC.set((at.x / state.size.width) * 2 - 1, -(at.y / state.size.height) * 2 + 1), state.camera)
-
-    return true
-  }
-
   // The plan point on the floor under a point of the view.
   function floorAt(at: ScreenPoint): PlanPoint | null {
-    const hit = aimRay(at) ? RAY.ray.intersectPlane(FLOOR, HIT) : null
+    const size = stage()?.size
 
-    return hit ? { x: hit.x, y: hit.z } : null
+    return size ? floorUnder(aimRef.current, size, at) : null
   }
 
   // What is drawn nearest under a point of the view — a place, a fixture or a wall.
   function targetAt(at: ScreenPoint): PlanTarget<string> | null {
-    if (!aimRay(at)) return null
+    const state = stage()
+
+    if (!state) return null
+    RAY.setFromCamera(NDC.set((at.x / state.size.width) * 2 - 1, -(at.y / state.size.height) * 2 + 1), state.camera)
 
     for (const hit of RAY.intersectObjects([...picks.keys()], false)) {
       const target = picks.get(hit.object)?.(hit.instanceId)
@@ -246,12 +263,12 @@ export default function Build3D(props: Build3DProps) {
   }
 
   // The objects and walls a box on the screen touches as they stand — each footprint raised to its height and seen
-  // from the camera, a group's label where its sign stands, a wall cut down — the way the 2D marquee takes what its
-  // rubber band touches.
+  // through the projection, a group's label where its sign stands, a wall cut down.
   function touchedBy(box: PlanRect): string[] {
-    const state = stage()
+    const size = stage()?.size
 
-    if (!state) return []
+    if (!size) return []
+    const aim = aimRef.current
     const heights = new Map(piecesOf(plan).map((piece) => [piece.id, HEIGHT[piece.model]]))
 
     const objects = plan.objects.flatMap((object) => {
@@ -260,14 +277,14 @@ export default function Build3D(props: Build3DProps) {
           ? [SIGN_HEIGHT]
           : [0, object.kind === 'fixture' && object.role === 'wall' ? WALL_CUT : (heights.get(object.id) ?? 0)]
 
-      const seen = seatPlan.outlineOf(object).flatMap((point) => levels.map((y) => screenOf(point, y, state)))
+      const seen = seatPlan.outlineOf(object).flatMap((point) => levels.map((y) => seenAt(aim, size, point, y)))
 
       return overlapsBox(hullOf(seen), box) ? [object.id] : []
     })
 
     const walls = plan.walls.flatMap((wall) => {
       const touched = wallsOf({ ...plan, walls: [wall] }).some((stretch) => {
-        const seen = cornersOfStretch(stretch).flatMap((point) => [0, WALL_CUT].map((y) => screenOf(point, y, state)))
+        const seen = cornersOfStretch(stretch).flatMap((point) => [0, WALL_CUT].map((y) => seenAt(aim, size, point, y)))
 
         return overlapsBox(hullOf(seen), box)
       })
@@ -278,11 +295,29 @@ export default function Build3D(props: Build3DProps) {
     return [...objects, ...walls]
   }
 
-  // The zoom that shows the whole drawing from the corner the view is turning to.
+  // Where a tip for a place goes: over the highest point its top shows at — or under the lowest its foot does, when
+  // there is no room above.
+  function tipAtOf(id: string): TipAt | null {
+    const size = stage()?.size
+    const place = seatPlan.objectById(plan, id)
+
+    if (!size || !place || place.kind !== 'place') return null
+    const aim = aimRef.current
+    const outline = seatPlan.outlineOf(place)
+    const middle = seenAt(aim, size, seatPlan.centerOf(place), heightOf(place))
+    const top = Math.min(...outline.map((point) => seenAt(aim, size, point, heightOf(place)).y))
+
+    if (top >= TIP_ROOM_PX) return { x: middle.x, y: top }
+
+    return { x: middle.x, y: Math.max(...outline.map((point) => seenAt(aim, size, point, 0).y)), below: true }
+  }
+
+  // The zoom that shows the whole drawing in the view the camera is heading for.
   function homeZoom(): number {
     const size = stage()?.size
+    const aim = aimRef.current
 
-    return size ? zoomToFit(home, aimRef.current.quarter, size) : 1
+    return size ? zoomToFit(home, restOf(aim.look, aim.quarter), size) : 1
   }
 
   function clampZoom(zoom: number): number {
@@ -291,7 +326,7 @@ export default function Build3D(props: Build3DProps) {
     return Math.min(least * MAX_LEVEL, Math.max(least, zoom))
   }
 
-  // Puts the camera where the aim says, at once — so a gesture's next reading of the floor sees the view it made.
+  // Puts the camera where the aim says, at once — the overlay with it, and the tip.
   function place() {
     const state = stage()
 
@@ -301,18 +336,24 @@ export default function Build3D(props: Build3DProps) {
     // Kept over the drawing.
     aim.x = Math.min(home.x + home.w, Math.max(home.x, aim.x))
     aim.z = Math.min(home.y + home.h, Math.max(home.y, aim.z))
-    camera.position.set(
-      aim.x + Math.sin(aim.angle) * Math.cos(aim.tilt) * DISTANCE,
-      Math.sin(aim.tilt) * DISTANCE,
-      aim.z + Math.cos(aim.angle) * Math.cos(aim.tilt) * DISTANCE,
-    )
+    // The projection's own directions: the room's y is the camera's z, its height the camera's y. Given its `up`,
+    // the camera needs no hint of which way is up — straight down included.
+    const { up, toward } = projection.basis(aim)
+    camera.position.set(aim.x + toward.x * DISTANCE, toward.z * DISTANCE, aim.z + toward.y * DISTANCE)
+    camera.up.set(up.x, up.z, up.y)
     camera.lookAt(aim.x, 0, aim.z)
-    camera.zoom = aim.zoom
+    camera.zoom = aim.zoom * aim.scale
     camera.updateProjectionMatrix()
     camera.updateMatrixWorld()
-    layOverlay(overlayRef.current, state)
+    layOverlay(overlayRef.current, aim, state.size)
     state.invalidate()
-    props.onCamera({ x: aim.x, z: aim.z, quarter: aim.quarter, angle: azimuthOf(aim.quarter), zoom: aim.zoom })
+    setTipped((current) => {
+      const at = current === null ? null : tipAtOf(current.id)
+
+      if (current === null || at === null) return null
+
+      return sameSpot(current.at, at) ? current : { id: current.id, at }
+    })
   }
 
   // Frames a rectangle of the plan with `around` plan units of room.
@@ -324,7 +365,7 @@ export default function Build3D(props: Build3DProps) {
     const aim = aimRef.current
     aim.x = rect.x + rect.w / 2
     aim.z = rect.y + rect.h / 2
-    aim.zoom = clampZoom(zoomToFit(padded, aim.quarter, size))
+    aim.zoom = clampZoom(zoomToFit(padded, restOf(aim.look, aim.quarter), size))
     place()
   }
 
@@ -339,14 +380,14 @@ export default function Build3D(props: Build3DProps) {
     const before = floorAt(about)
     const aim = aimRef.current
     aim.zoom = clampZoom(aim.zoom * factor)
-    place()
     const after = floorAt(about)
 
     if (before && after) {
       aim.x += before.x - after.x
       aim.z += before.y - after.y
-      place()
     }
+
+    place()
   }
 
   // Moves the view with the pointer — the floor under it stays under it.
@@ -363,7 +404,7 @@ export default function Build3D(props: Build3DProps) {
   }
 
   // Moves the camera toward `to` over `ms` — at once when motion is reduced — carrying on with the move under way, so
-  // a turn during the tilt from 2D still ends in the corner view.
+  // a turn during the way between the views still ends where both lead.
   function move(to: Partial<Pose>, ms: number, { ease = easeOut, fade, done }: MoveOptions = {}) {
     const aim = aimRef.current
     const under = motionRef.current
@@ -388,56 +429,59 @@ export default function Build3D(props: Build3DProps) {
   }
 
   function turn(by: 1 | -1) {
-    if (leavingRef.current) return
     const aim = aimRef.current
     aim.quarter += by
     setQuarter(aim.quarter)
-    move({ angle: azimuthOf(aim.quarter) }, TURN_MS)
+    move({ azimuth: restOf(aim.look, aim.quarter).azimuth }, TURN_MS)
   }
 
-  // Takes over from the 2D view. Straight down over the same spot at the same scale, north up, this view draws what
-  // the 2D view draws in the same places — text included (drawing-3d.tsx `Text`) — so the canvas first comes in over
-  // the 2D view with the camera still, then, the 2D view gone, tilts and turns into the corner view at the same level.
+  // Goes over to the other view. Both draw a plan unit along an axis `zoom` pixels long, so the zoom holds and what
+  // was a metre stays a metre — unless the whole plan was showing, which then still does.
+  function lookAs(look: CanvasLook) {
+    const aim = aimRef.current
+    const whole = aim.zoom <= homeZoom() * 1.001
+    aim.look = look
+    move({ ...restOf(look, aim.quarter), zoom: whole ? homeZoom() : clampZoom(aim.zoom) }, SWITCH_MS, {
+      ease: easeInOut,
+    })
+  }
+
+  // Takes over from the plan drawn on the server: straight down over the same spot at the same scale, this view
+  // draws what that one drew in the same places, so the canvas first comes in over it with the camera still, then,
+  // that plan gone, moves into the view it opens in with the whole plan showing.
   function enter(from: Handoff) {
     const aim = aimRef.current
-    const north = northUpNear(azimuthOf(aim.quarter))
-    Object.assign(aim, { x: from.center.x, z: from.center.y, zoom: from.zoom, tilt: TOP, angle: north })
+    enteringRef.current = true
+    Object.assign(aim, projection.plan(aim.quarter), { x: from.center.x, z: from.center.y, zoom: from.zoom })
     place()
     move({}, FADE_MS, {
       fade: 'in',
       done: () => {
+        enteringRef.current = false
         props.onShown()
-
-        const corner = {
-          angle: azimuthOf(aimRef.current.quarter),
-          tilt: TILT,
-          zoom: clampZoom(homeZoom() * from.level),
-        }
-
-        move(corner, SWITCH_MS, { ease: easeInOut })
+        const now = aimRef.current
+        move({ ...restOf(now.look, now.quarter), zoom: homeZoom() }, SWITCH_MS, { ease: easeInOut })
       },
     })
   }
 
-  // The way in, backwards: down to straight above the 2D view's spot at its scale, then still while the canvas fades
-  // away over the 2D view laid underneath.
-  function leave(to: { center: PlanPoint; zoom: number }, done: () => void) {
-    leavingRef.current = true
-    const angle = northUpNear(aimRef.current.angle)
-    const pose = { x: to.center.x, z: to.center.y, zoom: to.zoom, tilt: TOP, angle }
-    move(pose, SWITCH_MS, { ease: easeInOut, done: () => move({}, FADE_MS, { fade: 'out', done }) })
-  }
+  // The view asked for changed — the camera goes there, once it is in.
+  const onLook = useEffectEvent((look: CanvasLook) => {
+    const aim = aimRef.current
 
-  function rest() {
-    leavingRef.current = false
-    // The way back to 2D is dropped, not finished.
-    motionRef.current = null
-    move({ angle: azimuthOf(aimRef.current.quarter), tilt: TILT }, SWITCH_MS, { ease: easeInOut })
-  }
+    if (aim.look === look) return
 
-  // Every frame: where the camera starts once the canvas has a size — over the 2D view it takes over from, the whole
-  // plan, or where it was before the preview — the move under way, and, once nothing moves, the zoom as the site
-  // shows it (reported every frame of a move, it would redraw the whole workspace every frame).
+    if (readyRef.current && !enteringRef.current) lookAs(look)
+    else aim.look = look
+  })
+
+  useEffect(() => {
+    onLook(props.look)
+  }, [props.look])
+
+  // Every frame: where the camera starts once the canvas has a size — over the server's plan, or the whole plan —
+  // the move under way, and, once nothing moves, the zoom as the site shows it (reported every frame of a move, it
+  // would redraw the whole workspace every frame).
   function onFrame() {
     const state = stage()
 
@@ -453,9 +497,7 @@ export default function Build3D(props: Build3DProps) {
       if (handoff) enter(handoff)
       else {
         props.onShown()
-
-        if (props.cameraRef.current === null) show(home, 0)
-        else place()
+        show(home, 0)
       }
     }
 
@@ -477,7 +519,7 @@ export default function Build3D(props: Build3DProps) {
         aim[key] = key === 'zoom' ? from * (to / from) ** eased : from + (to - from) * eased
       }
 
-      state.gl.domElement.style.opacity = String(opacityOf(motion.fade, t))
+      state.gl.domElement.style.opacity = String(motion.fade === 'in' ? t : 1)
 
       if (t === 1) {
         motionRef.current = null
@@ -524,26 +566,12 @@ export default function Build3D(props: Build3DProps) {
       },
       setLevel: (level) => zoomAbout(middle(), (homeZoom() * level) / aimRef.current.zoom),
       turn,
-      leave,
-      rest,
     }
 
     return () => {
       ref.current = null
     }
   })
-
-  // Closed part way through a switch (to the preview): every step left runs at once, so the 2D view still takes over
-  // (or is let go).
-  useEffect(
-    () => () => {
-      for (let motion = motionRef.current; motion; motion = motionRef.current) {
-        motionRef.current = null
-        motion.done?.()
-      }
-    },
-    [],
-  )
 
   // ---------- Pressing ----------
 
@@ -573,7 +601,8 @@ export default function Build3D(props: Build3DProps) {
       toPlan: floorAt,
       pixel: 1 / aimRef.current.zoom,
       draws: handlers.onDraw !== undefined,
-      marquees: true,
+      // Previewing, a drag selects nothing — it moves the view.
+      marquees: !previewing,
       pans: true,
       grabs: spaceRef.current || props.tool === 'hand',
       canDrag: handlers.canDrag,
@@ -658,8 +687,16 @@ export default function Build3D(props: Build3DProps) {
     const at = pointerOf(e, true)
     const target = targetOn(e.target, at)
     handlers.onHover(floorAt(at), target, { pixel: 1 / aimRef.current.zoom })
-    const next = target?.kind === 'place' || target?.kind === 'object' ? target : null
+    // Previewing, only a place that can be picked answers the pointer.
+    const pickable = target?.kind === 'place' && !props.disabled.includes(target.id) ? target : null
+    const next = previewing ? pickable : target?.kind === 'place' || target?.kind === 'object' ? target : null
     setOver((current) => (sameTarget(current, next) ? current : next))
+    const tipAt = previewing && pickable ? tipAtOf(pickable.id) : null
+    setTipped((current) => {
+      if (pickable === null || tipAt === null) return null
+
+      return current?.id === pickable.id && sameSpot(current.at, tipAt) ? current : { id: pickable.id, at: tipAt }
+    })
   }
 
   function handlePointerUp(e: PointerEvent<HTMLDivElement>) {
@@ -676,6 +713,7 @@ export default function Build3D(props: Build3DProps) {
     if (pressRef.current.gesture.kind !== 'idle') return
     handlers.onHover(null, null)
     setOver(null)
+    setTipped(null)
   }
 
   // Scrolling pans and pinching (or ⌘/Ctrl with the wheel) zooms, as on the 2D canvas. React's wheel handler is
@@ -820,25 +858,31 @@ export default function Build3D(props: Build3DProps) {
   }, [edging])
 
   const hoveredPlace = props.tool === 'select' && over?.kind === 'place' ? over.id : null
-  // From this corner: how a direction on the plan turns on the screen, and the way the bottom of the screen lies on
-  // the plan — lengths are written level, a box's size beyond its nearest corner.
-  const azimuth = azimuthOf(quarter)
-  const handles = props.overlay.handles.map((handle) => turnedHandle(handle, azimuth))
+  // The view at rest: how a direction on the plan turns on the screen, and the way the bottom of the screen lies on
+  // the plan — lengths are written level, a box's size beyond its nearest corner (under it, seen straight down with
+  // the plan's top up).
+  const rest = restOf(props.look, quarter)
+  const floor = projection.floorMatrix(rest)
+  const handles = props.overlay.handles.map((handle) => turnedHandle(handle, floor))
+  const toward = unit(projection.toFloor(rest, { x: 0, y: 1 }))
+  const level = props.look === 'plan' && quarter % 4 === 0
 
-  const lengths = dimensionLabelsOf(props.measured, OFF_PX / (zoom * Math.sin(TILT)), {
-    x: Math.sin(azimuth),
-    y: Math.cos(azimuth),
-  })
+  const lengths = dimensionLabelsOf(
+    props.measured,
+    OFF_PX / (zoom * stretchOf(floor, toward)),
+    level ? undefined : toward,
+  )
 
   return (
     <div
       ref={hostRef}
-      className={styles.build}
+      className={styles.canvas}
+      data-mode={props.mode}
       data-tool={props.tool}
       data-pan={panning ? 'active' : spaceHeld ? 'ready' : undefined}
       data-over={(props.tool === 'select' && over !== null) || undefined}
       role="application"
-      aria-label="Seat plan editor in 3D — the 2D view has the same plan for keyboard and screen readers"
+      aria-label={previewing ? 'Seat plan preview' : 'Seat plan editor'}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -859,14 +903,9 @@ export default function Build3D(props: Build3DProps) {
       }}
     >
       {failed ? (
-        <p className={styles.message}>This browser could not start WebGL. The 2D view shows the same plan.</p>
+        <p className={styles.message}>This browser could not start WebGL, which draws the plan here.</p>
       ) : (
-        <Fallback
-          onError={() => {
-            setFailed(true)
-            props.onShown()
-          }}
-        >
+        <Fallback onError={() => setFailed(true)}>
           <Canvas orthographic frameloop="demand" flat dpr={[1, 2]} camera={{ near: 1, far: DISTANCE * 4 }}>
             <Stage stageRef={stageRef} onFrame={onFrame} />
             {palette && (
@@ -876,7 +915,7 @@ export default function Build3D(props: Build3DProps) {
         </Fallback>
       )}
 
-      {/* What the editor draws over the plan — ichno's own overlay, laid on the floor by the camera's matrix
+      {/* What the editor draws over the plan — ichno's own overlay, laid on the floor by the projection's matrix
           (`layOverlay`), with the lengths written level beside what they measure. It waits for what it goes round to
           get where an edit put it. The marquee is a box on the screen. */}
       <svg ref={overlayRef} className={styles.overlay} aria-hidden>
@@ -897,6 +936,8 @@ export default function Build3D(props: Build3DProps) {
         {sweep && <rect className={styles.sweep} {...rectAttributes(boxBetween(sweep.from, sweep.to))} />}
       </svg>
 
+      {tipped && props.tip?.(tipped.id, tipped.at)}
+
       <div className={styles.turn} role="group" aria-label="Turn the view">
         <button
           type="button"
@@ -910,7 +951,7 @@ export default function Build3D(props: Build3DProps) {
         <span className={styles.compass} title="Which way north is">
           <svg viewBox="0 0 24 24" width={22} height={22} aria-hidden>
             <circle cx={12} cy={12} r={9.5} />
-            <g style={{ transform: `rotate(${northOf(quarter)}deg)`, transformOrigin: '12px 12px' }}>
+            <g style={{ transform: `rotate(${northOf(floor, quarter)}deg)`, transformOrigin: '12px 12px' }}>
               <path d="M12 12V4.5" />
               <path d="M12 12v7.5" data-south="" />
               <circle cx={12} cy={4.5} r={1.6} data-tip="" />
@@ -948,7 +989,7 @@ function Stage({ stageRef, onFrame }: { stageRef: RefObject<(() => RootState) | 
 
 // ---------- Scene ----------
 
-type SceneProps = Build3DProps & {
+type SceneProps = PlanCanvasProps & {
   // The plan part-way to where an edit put it (./settling.ts).
   settled: Settled<string>
   palette: Palette
@@ -964,18 +1005,20 @@ function Scene({ plan, draft, refused, settled, palette, picks, hoveredPlace, ..
   const opened = new Map((draft?.walls ?? []).map((wall) => [wall.id, wall]))
   const walls = wallsOf(opened.size === 0 ? plan : { ...plan, walls: plan.walls.map((w) => opened.get(w.id) ?? w) })
   const selected = new Set(props.selected)
-  // What is selected stands a little off the floor (./lifting.ts).
+  // What is selected — or picked — stands a little off the floor (./lifting.ts).
   const lifted = useLifted(selected)
   const conflicts = new Set(props.conflicts)
+  const disabled = new Set(props.disabled)
   const reach = Math.hypot(plan.width, plan.height)
 
-  // The 2D editor paints everything on the plan as this view does (workspace.module.css), so nothing changes its
-  // paint as the camera looks straight down.
   const lookOf = (id: string, place: Piece['place']): Look => {
     // An overlap shows on a selected place too — it is what a drag is about to settle.
     if (selected.has(id)) return { fill: palette.accent, line: conflicts.has(id) ? 'warning' : 'edge' }
 
     if (conflicts.has(id)) return { fill: palette.warningFill, line: 'warning' }
+
+    // What cannot be picked is an empty dashed outline; what is booked, while editing, keeps its face.
+    if (place && disabled.has(id)) return { fill: null, line: 'label', dash: true }
 
     if (place && props.status[id] !== undefined) return { fill: palette.solid, line: 'edge', dash: true }
 
@@ -1030,6 +1073,18 @@ function Scene({ plan, draft, refused, settled, palette, picks, hoveredPlace, ..
         ]),
   ]
 
+  // Each place's number on its seat, in the ink of what it is written on.
+  const numbers = numbersOf(pieces).map((number) => {
+    const lift = (lifted.get(number.id) ?? 0) * LIFT
+
+    return {
+      ...number,
+      y: number.y + lift,
+      grow: settled.grow.get(number.id) ?? 1,
+      color: selected.has(number.id) ? palette.onAccent : disabled.has(number.id) ? palette.text : palette.onSolid,
+    }
+  })
+
   return (
     <>
       <color attach="background" args={[palette.ground]} />
@@ -1046,6 +1101,7 @@ function Scene({ plan, draft, refused, settled, palette, picks, hoveredPlace, ..
       <Shade solids={standing} />
       <Solids solids={solids} palette={palette} picks={picks} />
       <Solids solids={ghosts} palette={palette} ghost />
+      <Numbers numbers={numbers} font={palette.numberFont} />
       {[...writingOf(settled.plan, pieces, props.fixtureName), ...categoryWritingOf(props.committed)].map(
         (writing, i) => (
           <Text
@@ -1093,7 +1149,7 @@ function wallOf(wall: Wall, index: number, look: Look, target?: PlanTarget<strin
   }
 }
 
-// The editor's grid on the floor, dashed like the 2D one.
+// The editor's grid on the floor, dashed.
 function Grid({ plan, cell, palette }: { plan: SeatPlan<string>; cell: number; palette: Palette }) {
   const [geometry] = useState(() => new BufferGeometry())
   const invalidate = useThree((state) => state.invalidate)
@@ -1121,7 +1177,7 @@ function Grid({ plan, cell, palette }: { plan: SeatPlan<string>; cell: number; p
 
 // ---------- Helpers ----------
 
-// A quarter turn answers a key at once and settles; the tilt between 2D and 3D starts and ends at rest.
+// A quarter turn answers a key at once and settles; the way between the two views starts and ends at rest.
 function easeOut(t: number): number {
   return 1 - (1 - t) ** 3
 }
@@ -1130,58 +1186,52 @@ function easeInOut(t: number): number {
   return t < 0.5 ? 4 * t ** 3 : 1 - (2 - 2 * t) ** 3 / 2
 }
 
-// How much of the canvas shows, `t` through a move that fades it.
-function opacityOf(fade: Motion['fade'], t: number): number {
-  if (fade === 'in') return t
-
-  if (fade === 'out') return 1 - t
-
-  return 1
-}
-
 function poseOf(aim: Pose): Pose {
-  return { x: aim.x, z: aim.z, angle: aim.angle, tilt: aim.tilt, zoom: aim.zoom }
+  return {
+    x: aim.x,
+    z: aim.z,
+    zoom: aim.zoom,
+    azimuth: aim.azimuth,
+    elevation: aim.elevation,
+    scale: aim.scale,
+  }
 }
 
-// The direction nearest `angle` from which north is up on the screen, as in the 2D view.
-function northUpNear(angle: number): number {
-  return Math.round(angle / (2 * Math.PI)) * 2 * Math.PI
+// A view at rest after `quarter` quarter turns — ichno's definition of each (`projection`).
+function restOf(look: CanvasLook, quarter: number): Projection {
+  return look === 'plan' ? projection.plan(quarter) : projection.isometric(quarter)
 }
 
-// The camera's direction for a quarter: 45° round from the south (+z) for the first, the south-east corner.
-function azimuthOf(quarter: number): number {
-  return Math.PI / 4 + (quarter * Math.PI) / 2
+// Where a point of the room shows in the view, in its pixels: the camera looks at (x, z) in the middle of the view.
+function seenAt(aim: Pose, size: ViewportSize, point: PlanPoint, height: number): ScreenPoint {
+  const seen = projection.toScreen(aim, { x: point.x - aim.x, y: point.y - aim.z, z: height })
+
+  return { x: size.width / 2 + seen.x * aim.zoom, y: size.height / 2 + seen.y * aim.zoom }
 }
 
-// Where north points on screen for a quarter, in degrees clockwise from up — counted on round, so a turn swings the
-// compass the short way.
-function northOf(quarter: number): number {
-  const angle = azimuthOf(quarter)
-  const degrees = (Math.atan2(Math.sin(angle), Math.cos(angle) * Math.sin(TILT)) * 180) / Math.PI
+// The floor point under a point of the view — `seenAt` the other way.
+function floorUnder(aim: Pose, size: ViewportSize, at: ScreenPoint): PlanPoint {
+  const on = projection.toFloor(aim, {
+    x: (at.x - size.width / 2) / aim.zoom,
+    y: (at.y - size.height / 2) / aim.zoom,
+  })
+
+  return { x: aim.x + on.x, y: aim.z + on.y }
+}
+
+// Where north points on screen, in degrees clockwise from up — counted on round with the quarters turned, so a turn
+// swings the compass the short way.
+function northOf([, , c, d]: FloorMatrix, quarter: number): number {
+  const degrees = (Math.atan2(-c, -d) * 180) / Math.PI
 
   return (((degrees % 360) + 360) % 360) + 360 * Math.floor(quarter / 4)
 }
 
-// The zoom (screen pixels per plan unit) at which `rect`, walls and all, fills the view seen from a quarter.
-function zoomToFit(rect: PlanRect, quarter: number, size: { width: number; height: number }): number {
-  const angle = azimuthOf(quarter)
-  // The view's right and up directions on the floor and upward.
-  const right = { x: Math.cos(angle), z: -Math.sin(angle) }
-  const up = { x: -Math.sin(angle) * Math.sin(TILT), y: Math.cos(TILT), z: -Math.cos(angle) * Math.sin(TILT) }
-  const xs: number[] = []
-  const ys: number[] = []
+// The zoom (screen pixels per drawing unit) at which `rect`, walls and all, fills the view.
+function zoomToFit(rect: PlanRect, view: Projection, size: ViewportSize): number {
+  const seen = projection.extent(view, rect, WALL_CUT)
 
-  for (const x of [rect.x, rect.x + rect.w])
-    for (const z of [rect.y, rect.y + rect.h])
-      for (const y of [0, WALL_CUT]) {
-        xs.push(x * right.x + z * right.z)
-        ys.push(x * up.x + y * up.y + z * up.z)
-      }
-
-  const w = Math.max(...xs) - Math.min(...xs)
-  const h = Math.max(...ys) - Math.min(...ys)
-
-  return Math.min(size.width / Math.max(w, 1), size.height / Math.max(h, 1)) * FIT_MARGIN
+  return Math.min(size.width / Math.max(seen.w, 1), size.height / Math.max(seen.h, 1)) * FIT_MARGIN
 }
 
 function unionOf(rects: readonly PlanRect[]): PlanRect {
@@ -1202,41 +1252,42 @@ function rectAttributes(box: PlanRect) {
   return { x: box.x, y: box.y, width: box.w, height: box.h }
 }
 
-// Lays the overlay on the floor. An orthographic camera maps the floor to the screen with one matrix — where the
-// plan's origin shows, and where a step along x and along y lead from it — so `--floor` puts plan units on the screen
-// whatever way the camera turns or tilts, and `--level` undoes its turn and its scale for text written level at a
-// point of the plan (build-3d.module.css reads both).
-function layOverlay(overlay: SVGSVGElement | null, state: RootState) {
+// Lays the overlay on the floor. A parallel projection maps the floor to the screen with one matrix — ichno's
+// `projection.floorMatrix`, at the camera's zoom, about the point the camera looks at — so `--floor` puts plan units
+// on the screen exactly where the canvas draws them, and `--level` undoes its turn and its scale for text written
+// level at a point of the plan (plan-canvas.module.css reads both).
+function layOverlay(overlay: SVGSVGElement | null, aim: Pose, size: ViewportSize) {
   if (!overlay) return
-  const origin = screenOf(ORIGIN, 0, state)
-  const alongX = screenOf(STEP_X, 0, state)
-  const alongY = screenOf(STEP_Y, 0, state)
-  const a = (alongX.x - origin.x) / STEP
-  const b = (alongX.y - origin.y) / STEP
-  const c = (alongY.x - origin.x) / STEP
-  const d = (alongY.y - origin.y) / STEP
-  const area = a * d - b * c
-  overlay.style.setProperty('--floor', `matrix(${a}, ${b}, ${c}, ${d}, ${origin.x}, ${origin.y})`)
+  const [a, b, c, d] = projection.floorMatrix(aim).map((value) => value * aim.zoom)
+  const e = size.width / 2 - (a! * aim.x + c! * aim.z)
+  const f = size.height / 2 - (b! * aim.x + d! * aim.z)
+  const area = a! * d! - b! * c!
+  overlay.style.setProperty('--floor', `matrix(${a}, ${b}, ${c}, ${d}, ${e}, ${f})`)
 
   if (Math.abs(area) > 1e-12) {
-    overlay.style.setProperty('--level', `matrix(${d / area}, ${-b / area}, ${-c / area}, ${a / area}, 0, 0)`)
+    overlay.style.setProperty('--level', `matrix(${d! / area}, ${-b! / area}, ${-c! / area}, ${a! / area}, 0, 0)`)
   }
 }
 
-// A handle whose cursor points the way it does on the screen: seen from the corner at `azimuth`, a direction on the
-// plan turns with the view and flattens with its tilt.
-function turnedHandle(handle: PlanHandle<string>, azimuth: number): PlanHandle<string> {
+// A handle whose cursor points the way it does on the screen: a direction on the plan, through the floor's matrix.
+function turnedHandle(handle: PlanHandle<string>, [a, b, c, d]: FloorMatrix): PlanHandle<string> {
   if (handle.angle === undefined) return handle
-  const turned = azimuth + (handle.angle * Math.PI) / 180
+  const turn = (handle.angle * Math.PI) / 180
+  const x = Math.cos(turn)
+  const y = Math.sin(turn)
 
-  return { ...handle, angle: (Math.atan2(Math.sin(TILT) * Math.sin(turned), Math.cos(turned)) * 180) / Math.PI }
+  return { ...handle, angle: (Math.atan2(b * x + d * y, a * x + c * y) * 180) / Math.PI }
 }
 
-// Where a point of the room shows in the view, in its pixels.
-function screenOf(point: PlanPoint, y: number, state: RootState): ScreenPoint {
-  const seen = SEEN.set(point.x, y, point.y).project(state.camera)
+// How long a unit step along `direction` on the plan is on the drawing.
+function stretchOf([a, b, c, d]: FloorMatrix, direction: PlanPoint): number {
+  return Math.hypot(a * direction.x + c * direction.y, b * direction.x + d * direction.y)
+}
 
-  return { x: ((seen.x + 1) / 2) * state.size.width, y: ((1 - seen.y) / 2) * state.size.height }
+function unit(point: PlanPoint): PlanPoint {
+  const length = Math.hypot(point.x, point.y) || 1
+
+  return { x: point.x / length, y: point.y / length }
 }
 
 // The convex outline round points of the view (Andrew's monotone chain).
@@ -1329,6 +1380,11 @@ function sameTarget(a: PlanTarget<string> | null, b: PlanTarget<string> | null):
   return a.kind === b.kind && 'id' in a && 'id' in b && a.id === b.id
 }
 
+// Whether a tip stays where it was, to within half a pixel.
+function sameSpot(a: TipAt, b: TipAt): boolean {
+  return a.below === b.below && Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5
+}
+
 function isTyping(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('input, textarea, select, [contenteditable], dialog') !== null
 }
@@ -1337,18 +1393,13 @@ function wheelPixels(delta: number, mode: number): number {
   return mode === 1 ? delta * 40 : mode === 2 ? delta * 800 : delta
 }
 
-// How steep the view looks down — a tycoon game's tilt — and how far back the camera stands (an orthographic
-// camera draws the same at any distance; it only has to clear the drawing).
-const TILT = (35 * Math.PI) / 180
-
-// Straight down, as the 2D view looks — a hair off it, so the camera still knows which way is up.
-const TOP = (89.9 * Math.PI) / 180
-
+// How far back the camera stands — an orthographic camera draws the same at any distance; it only has to clear the
+// drawing.
 const DISTANCE = 100_000
 
 const TURN_MS = 200
 
-// The tilt between the 2D view and this one, and the crossfade between them, the camera still straight above.
+// The way between the plan view and the isometric one, and the canvas coming in over the plan drawn on the server.
 const SWITCH_MS = 300
 
 const FADE_MS = 160
@@ -1356,9 +1407,9 @@ const FADE_MS = 160
 // The most a frame counts for in a move — 30 frames a second.
 const MAX_FRAME_MS = 1000 / 30
 
-const POSE_KEYS = ['x', 'z', 'angle', 'tilt', 'zoom'] as const
+const POSE_KEYS = ['x', 'z', 'zoom', 'azimuth', 'elevation', 'scale'] as const
 
-// As far in as the 2D canvas goes, the zoom buttons' step, and the room left round what zoomTo frames.
+// How far in the zoom goes, the zoom buttons' step, and the room left round what zoomTo frames.
 const MAX_LEVEL = 6
 
 const BUTTON_STEP = 1.5
@@ -1373,6 +1424,9 @@ const PINCH_ZOOM_RATE = 0.01
 
 const FLOOR_GRID = 0.25
 
+// The room a tip needs above a place, in screen pixels.
+const TIP_ROOM_PX = 64
+
 const GESTURE_EVENTS = ['gesturestart', 'gesturechange', 'gestureend'] as const
 
 // Safari's trackpad pinch: the scale since it began, about a point. The DOM types leave these events out.
@@ -1386,21 +1440,6 @@ declare global {
   }
 }
 
-// The plan's origin and a long step along each of its axes — long, so the matrix read off them is exact.
-const STEP = 1000
-
-const ORIGIN: PlanPoint = { x: 0, y: 0 }
-
-const STEP_X: PlanPoint = { x: STEP, y: 0 }
-
-const STEP_Y: PlanPoint = { x: 0, y: STEP }
-
-const FLOOR = new Plane(new Vector3(0, 1, 0), 0)
-
 const RAY = new Raycaster()
 
 const NDC = new Vector2()
-
-const HIT = new Vector3()
-
-const SEEN = new Vector3()

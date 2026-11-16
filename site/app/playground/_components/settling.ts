@@ -1,7 +1,7 @@
 'use client'
 
 import type { PlanObject, SeatPlan } from 'ichno'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { everyFrame } from './frames'
 
 // What stands on the plan settles when an edit lands: what the edit added pops in, what it removed shrinks away and
@@ -257,29 +257,6 @@ function share(elapsed: number, duration: number): number {
 // Fast out, a little past the end, and back — the further past the larger `back` is.
 function backOut(t: number, back: number): number {
   return 1 + (back + 1) * (t - 1) ** 3 + back * (t - 1) ** 2
-}
-
-// The 2D plan while an edit settles. Its parts are drawn at one size, so what an edit adds or removes appears and goes
-// at once — only what it moved glides. `children` draws the plan it is given, and is told while something glides.
-export function Gliding<S extends string>({
-  plan,
-  committed,
-  children,
-}: {
-  plan: SeatPlan<S>
-  committed: SeatPlan<S>
-  children(plan: SeatPlan<S>, gliding: boolean): ReactNode
-}) {
-  const settled = useSettledPlan(plan, committed)
-
-  if (!settled.settling) return children(plan, false)
-
-  const staying =
-    settled.leaving.size === 0
-      ? settled.plan
-      : { ...settled.plan, objects: settled.plan.objects.filter((object) => !settled.leaving.has(object.id)) }
-
-  return children(staying, settled.gliding)
 }
 
 // A turn the short way round, in degrees.

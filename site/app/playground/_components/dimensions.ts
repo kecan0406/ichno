@@ -1,6 +1,5 @@
 import { seatPlan, type PlanPoint, type PlanStroke, type Wall } from 'ichno'
 import { metres } from '../_lib/units'
-import styles from './marks.module.css'
 
 // What there is to measure on the plan.
 export type Measured = {
@@ -16,40 +15,8 @@ export type Measured = {
   wall: Wall | null
 }
 
-// A length where it is written: the point its middle sits on, the angle it is turned to (degrees, for a view that
-// writes along what it measures), and whether it measures what is being drawn.
-export type DimensionLabel = { at: PlanPoint; text: string; angle?: number; live?: boolean }
-
-type Props = Measured & {
-  // Screen pixels a plan unit spans — the lengths are written the same size at any zoom.
-  scale: number
-}
-
-// Lengths written where they are measured, the way a drawing's dimensions are: what a tool is drawing (a box's width
-// and height, a line's length, a wall's edges — the next as it is typed), the size of what is selected, and a
-// selected wall's edges, outside a room. What is being drawn is written in the guides' colour; what stands, in the
-// labels'.
-export function Dimensions({ scale, ...measured }: Props) {
-  const labels = dimensionLabelsOf(measured, OFF_PX / scale)
-
-  if (labels.length === 0) return null
-
-  return (
-    <g className={styles.dimensions} fontSize={TEXT_PX / scale} strokeWidth={3 / scale} aria-hidden>
-      {labels.map(({ at, text, angle = 0, live }, i) => (
-        <text
-          key={i}
-          x={at.x}
-          y={at.y}
-          transform={angle === 0 ? undefined : `rotate(${angle} ${at.x} ${at.y})`}
-          data-live={live || undefined}
-        >
-          {text}
-        </text>
-      ))}
-    </g>
-  )
-}
+// A length where it is written: the point its middle sits on, and whether it measures what is being drawn.
+export type DimensionLabel = { at: PlanPoint; text: string; live?: boolean }
 
 // Where each length is written, in plan units: `off` away from what it measures. Seen from straight above a box's
 // size is written under it, width by height; seen from a corner — `toward` the way the bottom of the screen lies on
@@ -140,17 +107,14 @@ function midpoint(a: PlanPoint, b: PlanPoint): PlanPoint {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
 }
 
-// A length written along it, `off` to one side — `side` 1 the left of a → b (y down), -1 the right — and turned so it
-// reads from below or from the right, as a drawing's dimensions do.
-function along(a: PlanPoint, b: PlanPoint, off: number, side: number) {
+// A length written beside it, `off` to one side — `side` 1 the left of a → b (y down), -1 the right.
+function along(a: PlanPoint, b: PlanPoint, off: number, side: number): DimensionLabel {
   const length = distance(a, b)
   const normal = length === 0 ? { x: 0, y: -1 } : { x: (b.y - a.y) / length, y: -(b.x - a.x) / length }
-  const angle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI
 
   return {
     at: { x: (a.x + b.x) / 2 + normal.x * off * side, y: (a.y + b.y) / 2 + normal.y * off * side },
     text: metres(length),
-    angle: angle >= 90 ? angle - 180 : angle < -90 ? angle + 180 : angle,
   }
 }
 

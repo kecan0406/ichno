@@ -1,10 +1,10 @@
 import { seatPlan, type Fixture, type Place, type PlanPoint, type Room, type SeatPlan, type Shape } from 'ichno'
 import { METRE } from './units'
 
-// The playground's 3D reading of a document, for its 3D preview (../_components/preview-3d.tsx). ichno stores
+// The playground's reading of a document as a room, for its canvas (../_components/plan-canvas.tsx). ichno stores
 // footprints — a box on the floor, a turn, a role word — and nothing upward: how tall a stage is, which way a chair
-// faces and where a guest's eyes are are this site's reading of its own roles (./build.ts, ../../_demo/plans.ts).
-// An app with a 3D view writes its own. The plan's x and y lie on the floor (y becomes z); heights are plan units.
+// faces and where its number is written are this site's reading of its own roles (./build.ts, ../../_demo/plans.ts).
+// An app that stands its plans up writes its own. The plan's x and y lie on the floor (y becomes z); heights are plan units.
 
 type Plan = SeatPlan<string>
 
@@ -66,17 +66,14 @@ export const HEIGHT: Record<Model, number> = {
 // Where a screen's picture starts.
 export const SCREEN_BOTTOM = 1 * METRE
 
-// Walls in full, and cut down while the camera is up high, so it sees into the rooms.
-export const WALL_HEIGHT = 2.8 * METRE
-
+// Walls are drawn cut down, so the view sees into the rooms.
 export const WALL_CUT = 0.5 * METRE
 
 // How high a group's label stands as a sign.
 export const SIGN_HEIGHT = 0.95 * METRE
 
-const SEATED_EYE = 1.2 * METRE
-
-const STANDING_EYE = 1.6 * METRE
+// Where a place's number is written when that is not its top: on what is sat on, or on the floor inside.
+const SEAT: Partial<Record<Model, number>> = { chair: 0.48 * METRE, sofa: 0.42 * METRE, booth: 0.03 * METRE }
 
 // What people sit on, what they gather round, and what a room looks at.
 const SEATING = new Set<Model>(['chair', 'sofa'])
@@ -105,8 +102,7 @@ export type Piece = {
 export type Wall = { x: number; z: number; w: number; d: number; yaw: number; id: string }
 
 // Text in the room: `flat` lies on a surface (a fixture's name on its top), `face` stands on a screen, `sign` always
-// turns to the camera (a group's label). `size` is the height of a line; `tone` the theme colour
-// the 2D view writes it in. `overhead` text stands on the cut-down walls, so it shows only while they are cut.
+// turns to the camera (a group's label). `size` is the height of a line; `tone` the theme colour it is written in.
 export type Writing = {
   text: string
   lie: 'flat' | 'face' | 'sign'
@@ -117,24 +113,16 @@ export type Writing = {
   size: number
   yaw: number
   anchor: 'start' | 'middle'
-  overhead: boolean
   // The piece it is written on, when it is — it rises with that piece (a fixture's name on its top).
   on?: string
-  // Where and how the 2D view writes it, seen from straight above: the middle of its line (its start, for `anchor:
-  // 'start'`) at `y` — upright text lies down there — its size and turn. The 3D views bring each text toward this as
-  // the camera looks down; straight down they write what the 2D view writes, so switching views changes no text.
+  // Where and how the plan view writes it, seen from straight above: the middle of its line (its start, for `anchor:
+  // 'start'`) at `y` — upright text lies down there — its size and turn, as ichno's own parts would write it. The
+  // canvas brings each text toward this as the camera looks down, so the way between the views changes no text.
   plan: { x: number; y: number; z: number; size: number; yaw: number }
 }
 
-export type Point3 = { x: number; y: number; z: number }
-
-// Where a guest's eyes are at a place, and what they look at.
-export type Sight = { eye: Point3; look: Point3 }
-
-// Where the camera first looks from: over the middle of the drawing (`w` × `h`, `radius` its reach), from `azimuth`
-// (radians, 0 from the bottom of the plan) — the audience's side of the biggest stage or screen, or the bottom of
-// the plan.
-export type Overview = { x: number; z: number; w: number; h: number; radius: number; azimuth: number }
+// A place's number where it is written: on its seat, `size` the height of its letters.
+export type SeatNumber = { id: string; text: string; x: number; y: number; z: number; size: number }
 
 // Everything but walls and group labels, in drawing order.
 export function piecesOf(plan: Plan): Piece[] {
@@ -218,10 +206,10 @@ function stretchesOf(start: number, end: number, gaps: readonly [number, number]
   return pieces.filter(([a, b]) => b - a > 0.5)
 }
 
-// What the 2D view writes, placed in the room: fixture names on the fixture (the names `fixtureName` gives, turned like
-// the 2D view's, and larger — the room is seen from further off), group labels as signs at their label boxes. Each
-// carries where the 2D view writes it (`plan`). The playground's section is the whole plan, and it writes no name for
-// it.
+// What a plan writes, placed in the room: fixture names on the fixture (the names `fixtureName` gives, turned as
+// ichno's parts turn them, and larger — the room is seen from further off), group labels as signs at their label
+// boxes. Each carries where the plan view writes it (`plan`). The playground's section is the whole plan, and it
+// writes no name for it.
 export function writingOf(
   plan: Plan,
   pieces: readonly Piece[],
@@ -256,7 +244,6 @@ export function writingOf(
           size: fitted(layout.text, long, (HEIGHT.screen - SCREEN_BOTTOM) * 0.3),
           yaw: piece.yaw,
           anchor: 'middle',
-          overhead: false,
           on: piece.id,
           plan: written,
         },
@@ -275,7 +262,6 @@ export function writingOf(
         size: Math.max(layout.fontSize, fitted(layout.text, long, Math.min(object.w, object.h) * 0.4)),
         yaw,
         anchor: 'middle',
-        overhead: false,
         on: piece.id,
         plan: written,
       },
@@ -301,7 +287,6 @@ export function writingOf(
         size: Math.max(12, Math.min(object.w, object.h) * 0.6),
         yaw: 0,
         anchor: 'middle',
-        overhead: false,
         plan: { x: center.x, y: SIGN_HEIGHT, z: center.y, size: layout.fontSize, yaw: 0 },
       },
     ]
@@ -310,64 +295,29 @@ export function writingOf(
   return [...fixtures, ...groups]
 }
 
-// The view from a place. A guest at a desk or a table booked whole sits on its chair; seats, sofas and those chairs
-// are sat on, everything else is stood at. Guests look at the stage or screen of their room (the nearest), or else
-// ahead of them when seated, or into the middle of their room — the plan's, outside every room. Null when the plan
-// has no such place.
-export function sightFrom(plan: Plan, pieces: readonly Piece[], id: string): Sight | null {
-  const own = pieces.find((piece) => piece.id === id)
+// Every place's number — its label, or its id — lying on its seat, sized as ichno's parts size it.
+export function numbersOf(pieces: readonly Piece[]): SeatNumber[] {
+  return pieces.flatMap((piece) => {
+    const place = piece.place
 
-  if (!own?.place) return null
+    if (place === null) return []
 
-  const chair =
-    own.model === 'desk' || own.model === 'table'
-      ? pieces.find((piece) => piece.group !== undefined && piece.group === own.group && piece.model === 'chair')
-      : undefined
-
-  const spot = chair ?? own
-  const seated = SEATING.has(spot.model)
-  const eye = { x: spot.x, y: seated ? SEATED_EYE : STANDING_EYE, z: spot.z }
-  const rooms = seatPlan.roomsOf(plan)
-  const room = seatPlan.roomAt(rooms, { x: own.x, y: own.z })
-
-  const focus = pieces
-    .filter((piece) => FOCI.has(piece.model) && seatPlan.roomAt(rooms, { x: piece.x, y: piece.z }) === room)
-    .sort((a, b) => distance(eye, a) - distance(eye, b))[0]
-
-  if (focus) {
-    const y = focus.model === 'screen' ? (SCREEN_BOTTOM + HEIGHT.screen) / 2 : HEIGHT.stage + 0.8 * METRE
-
-    return { eye, look: { x: focus.x, y, z: focus.z } }
-  }
-
-  const middle = middleOf(plan, room)
-
-  if (!seated && distance(eye, { x: middle.x, z: middle.y }) > METRE) {
-    return { eye, look: { x: middle.x, y: METRE, z: middle.y } }
-  }
-
-  // Ahead, and a little down.
-  const reach = 3 * METRE
-
-  return {
-    eye,
-    look: { x: eye.x - Math.sin(spot.yaw) * reach, y: 0.8 * METRE, z: eye.z - Math.cos(spot.yaw) * reach },
-  }
+    return [
+      {
+        id: place.id,
+        text: place.label ?? place.id,
+        x: piece.x,
+        y: (SEAT[piece.model] ?? HEIGHT[piece.model]) + 1,
+        z: piece.z,
+        size: Math.min(20, Math.max(8, Math.min(place.w, place.h) * 0.42)),
+      },
+    ]
+  })
 }
 
-export function overviewOf(plan: Plan, pieces: readonly Piece[]): Overview {
-  const bounds = seatPlan.drawingBoundsOf(plan)
-  const focus = pieces.filter((piece) => FOCI.has(piece.model)).sort((a, b) => b.w * b.d - a.w * a.d)[0]
-
-  return {
-    x: bounds.x + bounds.w / 2,
-    z: bounds.y + bounds.h / 2,
-    w: bounds.w,
-    h: bounds.h,
-    radius: Math.hypot(bounds.w, bounds.h) / 2,
-    // From the side the focus faces — its audience.
-    azimuth: focus ? focus.yaw + Math.PI : 0,
-  }
+// How tall what stands on a place or a fixture is.
+export function heightOf(thing: Thing): number {
+  return HEIGHT[modelOf(thing)]
 }
 
 function modelOf(thing: Thing): Model {
@@ -428,8 +378,4 @@ function angleBetween(a: number, b: number): number {
 
 function radians(degrees: number): number {
   return (degrees * Math.PI) / 180
-}
-
-function distance(a: { x: number; z: number }, b: { x: number; z: number }): number {
-  return Math.hypot(a.x - b.x, a.z - b.z)
 }

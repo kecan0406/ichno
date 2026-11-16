@@ -73,7 +73,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['Drag to the edge', 'Scroll the plan while moving, selecting or drawing'],
       ['+  −', 'Zoom in, out'],
       ['⇧1  ⇧2', 'Fit the plan, zoom to the selection'],
-      [',  .', 'Turn the 3D view a quarter left, right'],
+      [',  .', 'Turn the view a quarter left, right'],
       ['⌘\\', 'Hide or show the panels'],
       ['?', 'This list'],
     ],

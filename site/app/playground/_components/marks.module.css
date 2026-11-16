@@ -1,4 +1,4 @@
-/* What the playground marks on the 2D plan besides ichno's own overlay — never in the way of the pointer. */
+/* What the playground marks over the plan besides ichno's own overlay — never in the way of the pointer. */
 
 /* Lengths, written the way a drawing writes its dimensions — small, in the numbers' font, kept clear of the lines
    they cross by a halo in the page colour. */
@@ -19,21 +19,10 @@
   font-weight: 600;
 }
 
-/* A category's name, written on the floor above the places that share it. */
+/* A category's name, written on the floor above the places that share it — on a plan ichno's parts draw. */
 .categories {
   font-family: var(--ichno-font);
   font-weight: 700;
   fill: var(--plan-text);
   pointer-events: none;
-}
-
-/* What the tool in use cannot make where the pointer is — its sample, dashed in the colour of what cannot be had. */
-.refused {
-  pointer-events: none;
-}
-
-.refused [data-part='shape'] {
-  fill: color-mix(in srgb, var(--ichno-warning) 14%, var(--ichno-surface));
-  stroke: var(--ichno-warning);
-  stroke-dasharray: 3 3;
 }

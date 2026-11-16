@@ -81,8 +81,8 @@ export function categoryLabelsOf(plan: SeatPlan<string>): CategoryLabel[] {
     .sort((a, b) => a.y - b.y || a.x - b.x)
 }
 
-// The labels as the 3D views write them: signs standing where the 2D view writes them, as a group's labels do —
-// flat on the floor they would hide behind whatever stands in front.
+// The labels as the canvas writes them: signs standing over where each name starts, as a group's labels do — flat
+// on the floor they would hide behind whatever stands in front.
 export function categoryWritingOf(plan: SeatPlan<string>): Writing[] {
   return categoryLabelsOf(plan).map((label) => {
     const at = {
@@ -99,7 +99,6 @@ export function categoryWritingOf(plan: SeatPlan<string>): Writing[] {
       tone: 'label',
       ...at,
       anchor: 'start',
-      overhead: false,
       plan: at,
     }
   })

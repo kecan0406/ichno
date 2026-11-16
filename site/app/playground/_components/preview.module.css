@@ -8,17 +8,6 @@
   inset: 88px 0 0;
 }
 
-.plan {
-  position: absolute;
-  inset: 0;
-}
-
-.viewport {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
 /* The plan's name, how much of it is free and the legend — written on the canvas, top left. */
 .title {
   position: absolute;

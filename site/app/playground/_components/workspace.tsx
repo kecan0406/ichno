@@ -21,10 +21,8 @@ import {
   useSeatPlanEditorShortcuts,
   type EditorSelection,
 } from 'ichno/editor'
-import { planTargetOf } from 'ichno/react'
-import { useSeatMapView } from 'ichno/react/client'
 import dynamic from 'next/dynamic'
-import { useEffect, useEffectEvent, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
+import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react'
 import { describe } from '../../_demo/messages'
 import { DEFAULT_LINT, PRESETS, checksOf, type Workbench } from '../_lib/documents'
 import { rowHandles } from '../_lib/build'
@@ -45,33 +43,26 @@ import { CanvasMenu, type CanvasMenuAt } from './context-menu'
 import controls from './controls.module.css'
 import { openDialog } from './dialogs'
 import type { Measured } from './dimensions'
-import { EditCanvas2D } from './edit-canvas-2d'
 import { EditSide } from './edit-side'
+import { FirstPlan } from './first-plan'
 import { Resizer, usePanels } from './frame'
 import { Icon } from './icons'
 import { LeftSide, type LeftTab } from './left-side'
 import { ImportDialog } from './panels'
-import { VIEW_MARGIN, useEditViews } from './use-edit-views'
-import { Preview2D } from './preview-2d'
-import { PreviewTitle } from './preview-chrome'
+import { PlaceTip, PreviewTitle, ZoomButtons, type TipAt } from './preview-chrome'
 import preview from './preview.module.css'
 import { ShortcutsDialog } from './shortcuts'
 import { Toolbar } from './toolbar'
+import { useCanvasView } from './use-canvas-view'
 import styles from './workspace.module.css'
 
 // The playground's editor, laid out the way a design tool (Figma) is: the document's layers and the assets on the
 // left, the plan in the middle with the tools floating over it, the properties of the selection on the right. Every
 // area is its own component; this file holds the state they share and wires them to ichno's editor.
 
-// The 3D preview is this site's own (three.js) — fetched only when someone switches to it.
-const Preview3D = dynamic(() => import('./preview-3d'), {
-  ssr: false,
-  loading: () => <p className={styles.loading}>Loading the 3D view…</p>,
-})
-
-// Editing in 3D is the site's as well — the same ichno editor, drawn by three.js. It is what opens first, so while
-// it loads the 2D plan (drawn on the server) lies under it and hands over when it is ready.
-const Build3D = dynamic(() => import('./build-3d'), { ssr: false })
+// The canvas is this site's own — the plan drawn by three.js, to edit and to preview, straight down or from a corner.
+// While it loads, the plan as ichno's parts draw it on the server lies under it and hands over when it is ready.
+const PlanCanvas = dynamic(() => import('./plan-canvas'), { ssr: false })
 
 const UNPASTABLE = 'What was copied holds places — paste it on the plan.'
 
@@ -113,16 +104,15 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     guides: guiding,
   })
 
-  // One view for both modes — switching keeps where you were looking.
-  const map = useSeatMapView(editor.plan, { margin: VIEW_MARGIN })
   const { onTap, onHover, ...viewportProps } = editor.viewportProps
   const panels = usePanels()
 
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   const canvasRef = useRef<HTMLElement>(null)
-  // 2D or 3D, to edit or to preview — and the hand-over between them (./use-edit-views.ts).
-  const views = useEditViews({ mode, plan: editor.plan, map, canvasRef })
-  const { dimension, building, view, zoom } = views
+  // One canvas for both modes — switching keeps where you were looking — seen straight down (2D) or from a corner
+  // (3D) (./use-canvas-view.ts).
+  const views = useCanvasView({ plan: editor.plan, canvasRef })
+  const { look, view, zoom } = views
 
   useSeatPlanEditorShortcuts(editor, { view })
   const [leftTab, setLeftTab] = useState<LeftTab>('layers')
@@ -395,7 +385,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
 
   function switchMode(next: 'edit' | 'preview') {
     setMode(next)
-    views.settle()
     setNotice(null)
     setMenu(null)
     setLayerHover(null)
@@ -438,8 +427,8 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     onReplace(preset.workbench)
   }
 
-  // What a marquee in 3D touched, picked the way the 2D marquee picks: grouped objects as their group, walls, nothing
-  // frozen or hidden, Shift adding to the selection.
+  // What a marquee touched, picked as a selection: grouped objects as their group, walls, nothing frozen or hidden,
+  // Shift adding to the selection.
   function pickSwept(ids: readonly string[], info: { additive: boolean }) {
     const off = (id: string | undefined) => id !== undefined && (frozen.has(id) || hidden.has(id))
 
@@ -479,15 +468,25 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     setMenu({ screen, plan: pointRef.current })
   }
 
-  // A right-click on the 2D canvas — on whatever its parts say is there.
-  function openMenu(e: MouseEvent<SVGSVGElement>) {
-    e.preventDefault()
-    const target = planTargetOf<string>(e.target)
-    const on = target?.kind === 'handle' || target?.kind === 'section' ? null : target
-    openMenuOn({ x: e.clientX, y: e.clientY }, on ?? null)
+  // A tap while previewing picks the place under it, unless it cannot be had.
+  function previewTapOn(target: PlanTarget<string> | null) {
+    if (target?.kind !== 'place' || unpickable.includes(target.id)) return
+    const place = places.find((candidate) => candidate.id === target.id)
+
+    if (place) previewTap(place)
   }
 
-  // The pointer over the plan, 2D or 3D — where Paste lands, and what the tool previews (the Hand previews nothing).
+  // What is written over the place under the pointer while previewing.
+  function previewTip(id: string, at: TipAt) {
+    const place = places.find((candidate) => candidate.id === id)
+
+    if (!place) return null
+    const state = booked.includes(id) ? 'taken' : picked.includes(id) ? 'picked' : 'available'
+
+    return <PlaceTip plan={plan} place={place} state={state} at={at} />
+  }
+
+  // The pointer over the plan — where Paste lands, and what the tool previews (the Hand previews nothing).
   function hover(point: PlanPoint | null, target: PlanTarget<string> | null, info?: { pixel: number }) {
     pointRef.current = point
 
@@ -516,9 +515,8 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
   const movingStrays =
     strayOff || editor.movingPlan === null ? NO_ID_LIST : straysOf(editor.movingPlan.objects, editor.stillPlan)
 
-  const stillInvalid = strays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...strays]
-  const movingInvalid = movingStrays.length === 0 ? editor.conflictIds : [...editor.conflictIds, ...movingStrays]
   const strayCount = strays.length + movingStrays.length
+  const invalid = strayCount === 0 ? editor.conflictIds : [...editor.conflictIds, ...strays, ...movingStrays]
   // The wall whose edges are measured — the one a wall tool would make or carry on, or else the one selected wall.
   const [only] = editor.selection.length === 1 ? editor.selection : []
 
@@ -529,7 +527,7 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         ? (seatPlan.wallOf(editor.displayPlan, only.id) ?? null)
         : null
 
-  // What there is to measure — the lengths are written beside it, in 2D and in 3D.
+  // What there is to measure — the lengths are written beside it.
   const measured: Measured = {
     stroke: editor.stroke,
     draw: editor.tool?.draw,
@@ -539,14 +537,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
     frame: measuredWall === null ? editor.overlayProps.frame : null,
     wall: measuredWall,
   }
-
-  // What is selected, for the parts to mark — places and walls.
-  const selectedMarks =
-    editor.selectedWallIds.length === 0
-      ? editor.selectedPlaceIds
-      : [...editor.selectedPlaceIds, ...editor.selectedWallIds]
-
-  const threeD = mode === 'preview' && dimension === '3d'
 
   const hint =
     mode !== 'edit'
@@ -604,72 +594,55 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         data-tool={canvasTool}
         data-refused={(refused && editor.stroke !== null) || undefined}
       >
-        {building && (
-          <Build3D
+        {/* The plan, under a band of the canvas kept for its name and the legend while previewing. */}
+        <div className={mode === 'preview' ? preview.stage : styles.stage}>
+          {!views.shown && <FirstPlan plan={plan} status={bookedStatus} />}
+          <PlanCanvas
+            mode={mode}
+            look={look}
             plan={editor.displayPlan}
             committed={editor.plan}
             draft={editor.draft}
             refused={refusedSample}
-            selected={[...editor.selectedObjects.map((object) => object.id), ...editor.selectedWallIds]}
-            conflicts={movingStrays.length === 0 ? stillInvalid : [...stillInvalid, ...movingStrays]}
+            selected={
+              mode === 'edit'
+                ? [...editor.selectedObjects.map((object) => object.id), ...editor.selectedWallIds]
+                : picked
+            }
+            conflicts={mode === 'edit' ? invalid : NO_ID_LIST}
             status={bookedStatus}
+            disabled={mode === 'edit' ? NO_ID_LIST : unpickable}
             overlay={{ ...editor.overlayProps, hoverFrame: layerFrame ?? editor.overlayProps.hoverFrame }}
             measured={measured}
-            grid={snapping ? GRID_CELL : null}
+            grid={mode === 'edit' && snapping ? GRID_CELL : null}
             tool={canvasTool}
-            handlers={{
-              onTap: handleTap,
-              onHover: hover,
-              canDrag: viewportProps.canDrag,
-              onTargetDrag: viewportProps.onTargetDrag,
-              onMarquee: pickSwept,
-              onDraw: viewportProps.onDraw,
-            }}
+            handlers={
+              mode === 'edit'
+                ? {
+                    onTap: handleTap,
+                    onHover: hover,
+                    canDrag: viewportProps.canDrag,
+                    onTargetDrag: viewportProps.onTargetDrag,
+                    onMarquee: pickSwept,
+                    onDraw: viewportProps.onDraw,
+                  }
+                : previewHandlers(previewTapOn)
+            }
             onMenu={openMenuOn}
-            {...views.build3D}
+            {...views.canvas}
             fixtureName={fixtureLabel}
+            tip={mode === 'preview' ? previewTip : undefined}
           />
-        )}
-        {building && !views.underlaid ? null : mode === 'edit' ? (
-          <EditCanvas2D
-            editor={editor}
-            map={map}
-            hand={hand}
-            snapping={snapping}
-            selected={selectedMarks}
-            stillInvalid={stillInvalid}
-            movingInvalid={movingInvalid}
-            status={bookedStatus}
-            refused={refusedSample}
-            measured={measured}
-            hoverFrame={layerFrame ?? editor.overlayProps.hoverFrame}
-            onTap={handleTap}
-            onHover={hover}
-            onContextMenu={openMenu}
-          />
-        ) : (
-          <div className={preview.stage}>
-            {threeD ? (
-              <Preview3D
-                plan={plan}
-                status={bookedStatus}
-                picked={picked}
-                disabled={unpickable}
-                onPlaceTap={previewTap}
-                fromAbove={views.fromAbove}
-              />
-            ) : (
-              <Preview2D
-                plan={plan}
-                map={map}
-                status={bookedStatus}
-                picked={picked}
-                disabled={unpickable}
-                onPlaceTap={previewTap}
-              />
-            )}
-          </div>
-        )}
+          {mode === 'preview' && (
+            <ZoomButtons
+              onIn={view.zoomIn}
+              onOut={view.zoomOut}
+              onFit={view.fit}
+              canIn={zoom.canZoomIn}
+              canOut={zoom.canZoomOut}
+            />
+          )}
+        </div>
 
         {mode === 'preview' && (
           <>
@@ -730,26 +703,18 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
           <button
             type="button"
             role="radio"
-            aria-checked={dimension === '2d'}
-            title={
-              mode === 'edit'
-                ? 'The plan as ichno draws it — with handles for exact edits'
-                : 'The plan as ichno draws it'
-            }
-            onClick={() => views.switchDimension('2d')}
+            aria-checked={look === 'plan'}
+            title="The plan view — seen straight down"
+            onClick={() => views.setLook('plan')}
           >
             2D
           </button>
           <button
             type="button"
             role="radio"
-            aria-checked={dimension === '3d'}
-            title={
-              mode === 'edit'
-                ? 'Build in 3D, seen from a corner — the same ichno editor, drawn by this playground (three.js)'
-                : 'The same document stood up in 3D by this playground (three.js) — not part of ichno'
-            }
-            onClick={() => views.switchDimension('3d')}
+            aria-checked={look === 'isometric'}
+            title="The isometric view — the same room from a corner, a metre as long along every axis as in 2D"
+            onClick={() => views.setLook('isometric')}
           >
             3D
           </button>
@@ -791,7 +756,6 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
         ) : (
           <BookingPanel
             plan={plan}
-            threeD={threeD}
             picked={picked}
             booked={booked}
             issues={picked.length > 0 ? pickIssues : []}
@@ -832,6 +796,18 @@ export function Workspace({ initial, onReplace }: { initial: Workbench; onReplac
       <ShortcutsDialog />
     </div>
   )
+}
+
+// What a press means while previewing: a tap picks, and nothing is dragged, swept up or drawn — a drag moves the
+// view.
+function previewHandlers(onTap: (target: PlanTarget<string> | null) => void) {
+  return { onTap, onHover: nothing, canDrag: never, onTargetDrag: nothing, onMarquee: nothing, onDraw: undefined }
+}
+
+function nothing() {}
+
+function never(): boolean {
+  return false
 }
 
 // A template centred on `at` — what a tool would drop there, to draw: the objects alone (no sections, and none of the

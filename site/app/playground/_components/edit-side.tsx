@@ -4,12 +4,12 @@ import type { LintCode, LintSeverity } from 'ichno'
 import type { SeatPlanEditor, ViewControls } from 'ichno/editor'
 import { useState } from 'react'
 import type { Check } from '../_lib/documents'
-import type { BuildView } from './build-3d'
 import controls from './controls.module.css'
 import { DesignPanel } from './design'
 import { openDialog } from './dialogs'
 import { Icon } from './icons'
 import { MenuButton, MenuItem, MenuSeparator } from './menu'
+import type { CanvasView } from './plan-canvas'
 import { ChecksPanel, JsonPanel } from './panels'
 import styles from './workspace.module.css'
 
@@ -29,8 +29,8 @@ type Props = {
   onLintChange(next: Record<LintCode, LintSeverity>): void
   // Selects what a check points at and brings it into view.
   onFocus(ids: string[]): void
-  // The zoom as shown, and what drives it — the 2D canvas's view or the 3D editor's.
-  zoom: BuildView
+  // The zoom as shown, and what drives it — the canvas's view.
+  zoom: CanvasView
   view: ViewControls
   onZoomToLevel(level: number): void
   onPreview(): void

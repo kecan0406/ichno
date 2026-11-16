@@ -413,22 +413,54 @@ Claude's alone it is named a proposal.
 17. **Release 0.3.** Not started — the changelog's Unreleased section is up to date, the version and the tag wait
     for the maintainer.
 
+## Isometry
+
+Decided with the maintainer on 2026-11-16. The playground's corner view only looked isometric: a camera tilted 35°
+(the floor's axes foreshortened 0.8152 and heights 0.8192 — a dimetric view), a preview through a perspective lens
+made long so it would look flat, an overlay matrix read back off the camera, light fixed to the room so the sides
+changed tone as the view turned, and nothing anywhere that said what the view was. Isometry is what the project is
+to show, so it is now a definition, and everything drawn from a corner follows from it.
+
+| Topic      | Decision                                                                                                                                                                                                                                                                                                                                                                                 | Rejected                                                                                                                                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Angle      | the isometric view of drafting: the eye on a cube's diagonal — 45° round, `atan(1/√2)` = 35.264° up — the three axes 120° apart, the floor's 30° off the level                                                                                                                                                                                                                           | the 2:1 dimetric view games call isometric (26.565°) — a compromise for pixel grids that vectors do not need; 35° rounded                                                                                                |
+| Scale      | an isometric drawing: enlarged by √1.5 so a plan unit along x, along y or upward is one unit long. A length along an axis measures the same in the plan view and the isometric one, so going between them keeps the zoom                                                                                                                                                                 | the isometric projection at 0.8165 of that size                                                                                                                                                                          |
+| Definition | `projection` in `src/core` (`ichno`): a `Projection` is where the eye stands and the drawing's scale; `plan()` and `isometric()` are the two views, `toScreen` / `toFloor` / `floorMatrix` / `basis` / `extent` what a renderer needs of them. Pure, no dependency; ichno's own parts still draw the plan view only                                                                      | the definition left in the site; a projection prop on ichno's parts                                                                                                                                                      |
+| Renderer   | three.js draws both views in the playground — the maintainer's call: one canvas, one orthographic camera set by `projection.basis`, the plan view and the isometric one two poses of it. The 2D / 3D switch moves the camera. What the editor draws over the plan stays ichno's `SeatMap.EditorOverlay`, an SVG layer laid on the floor by `projection.floorMatrix` rather than measured | SVG for the floor under WebGL volumes; all of it in SVG with three.js removed (three faces a solid, a drawing order to sort, untried for turned and round things and for thousands of seats); the SVG plan canvases kept |
+| Preview    | the same canvas, picking instead of editing. Free orbit and the view from a seat are gone — neither is a parallel projection                                                                                                                                                                                                                                                             | the view from a seat kept as the one perspective exception; the perspective preview left as it was                                                                                                                       |
+| Shading    | three tones bound to the screen, as an isometric drawing shades its volumes: a top in its colour, the side on the left 86% of it, the side on the right 72% — the light follows the camera round                                                                                                                                                                                         | light fixed to the room (from one corner both sides showed the same tone)                                                                                                                                                |
+| Lettering  | text lying flat reads from the left from every corner, turned half round where the view would show it upside down; a place's number lies on its seat, level in the plan view and along the floor's axis in the isometric one                                                                                                                                                             | —                                                                                                                                                                                                                        |
+
+This replaces three rows of the Restructure table above: Surfaces (there is one canvas now, not a flat editor beside
+a corner view), Corner view (orbit and the view from a seat are not kept) and First view (the isometric view still
+opens first; the plan view is the same canvas seen straight down).
+
+What went with it, from the site: the two SVG canvases (`edit-canvas-2d`, `preview-2d`), the perspective preview
+(`preview-3d`) and `camera-controls`, the hand-over between two renderers (`use-edit-views`), the 2D glide wrapper,
+the SVG dimension labels, the reading of where a guest's eyes are, and react-three-fiber's pointer events — about
+950 lines less, with the numbers on the seats and the new shading written. The first paint is still ichno's parts drawn on the server with no script (`first-plan.tsx`); the
+canvas comes in straight above that plan and moves into its view.
+
+What it costs: in the playground a place is no longer a DOM element, so moving between places with the arrow keys
+and reading them with a screen reader — `SeatMapViewport`'s — are on the landing page's demo only. The playground no
+longer runs `SeatMapViewport` or `SeatMap.Content` under an editor, so the numbers in phases 5 and 8 are not
+re-measured by it. Not measured yet: the canvas with thousands of seats (each place's number is one more instance in
+one draw call, drawn from a 2,048-pixel sheet that holds a few thousand different texts).
+
 ## Out of scope
 
 Booking flow (holds, sessions, channels, seasons, best available), prices and ticket types, finished UI chrome
 (legend, filters, popovers, loading states), 3D and image scanning. These need a server or a design system, and
 both belong to the consumer.
 
-A 3D view is a renderer the consumer adds over the same document. The playground's 3D preview shows the shape:
-three.js in the site, loaded only when opened, reading places, fixtures, groups, walls and roles as stored and supplying
-what the document does not hold — a scale for plan units, heights, which way seating faces, where a guest's eyes
-are — as its own reading of its roles (`site/app/playground/_lib/scene.ts`). Nothing in ichno changed for it.
+A view that stands the plan up is a renderer the consumer adds over the same document. The playground's canvas shows
+the shape (`site/app/playground/_components/plan-canvas.tsx`): three.js in the site, set by ichno's `projection`,
+reading places, fixtures, groups, walls and roles as stored and supplying what the document does not hold — a scale
+for plan units, heights, which way seating faces — as its own reading of its roles
+(`site/app/playground/_lib/scene.ts`). Besides `projection`, nothing in ichno changed for it.
 
-The editor is renderer-independent the same way. The playground also edits in 3D, in a tycoon game's fixed-tilt
-view turned a quarter at a time (`site/app/playground/_components/build-3d.tsx`): presses go through the `gesture`
-core, and plan points are read off the floor under the pointer. They reach the same `useSeatPlanEditor` as the
-2D canvas — taps, drags, marquees and tool strokes, its draft, overlaps and outlines — so one selection, history and
-tool set serve both views. Handles stay in 2D. Both 3D views are drawn like the 2D plan: hairline edges, one fill,
-dashes for guides and for what cannot be had (`_components/drawing-3d.tsx`). ichno did not change for this either.
-Real heights (raked rows, balconies, floors) would be a document change — an optional field and a decision recorded
-here — not a renderer one.
+The editor is renderer-independent the same way. Presses on that canvas go through the `press` core, with plan
+points read off the floor under the pointer, and reach the same `useSeatPlanEditor` an SVG viewport would feed —
+taps, drags, marquees and tool strokes, its draft, overlaps and outlines. It is drawn as a drawing: hairline edges,
+one fill, dashes for guides and for what cannot be had (`_components/drawing-3d.tsx`). Real heights (raked rows,
+balconies, floors) would be a document change — an optional field and a decision recorded here — not a renderer one.

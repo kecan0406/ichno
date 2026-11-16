@@ -1,7 +1,7 @@
 'use client'
 
-import { useFrame, useThree, type RootState, type ThreeEvent } from '@react-three/fiber'
-import type { PlanPoint, PlanTarget } from 'ichno'
+import { useFrame, useThree, type RootState } from '@react-three/fiber'
+import { ISOMETRIC_ELEVATION, type PlanPoint, type PlanTarget } from 'ichno'
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
   BufferAttribute,
@@ -11,7 +11,6 @@ import {
   InstancedBufferAttribute,
   Matrix4,
   MeshLambertMaterial,
-  OrthographicCamera,
   PlaneGeometry,
   Quaternion,
   ShapeGeometry,
@@ -22,18 +21,18 @@ import {
   Vector2,
   Vector3,
   type Camera,
+  type DirectionalLight,
   type InstancedMesh,
   type Mesh,
   type MeshBasicMaterial,
   type Object3D,
-  type PerspectiveCamera,
 } from 'three'
 import { creasesOf, facesOf, polesOf, type Solid3D } from '../_lib/models'
 import type { Writing } from '../_lib/scene'
 
-// The playground's 3D views drawn the way its 2D plan is: faces in one colour, lit only enough to tell a top from a
-// side, every edge a hairline in the ink — dashed for guides and for what cannot be had — and the selection filled
-// with the ink. Shared by the 3D preview and the 3D editor; colours come from the page's theme variables.
+// How the playground's canvas draws (./plan-canvas.tsx): faces in one colour, lit only enough to tell a top from
+// the two sides that show, every edge a hairline in the ink — dashed for guides and for what cannot be had — and the
+// selection filled with its one colour. Colours come from the page's theme variables.
 
 // ---------- Look ----------
 
@@ -47,6 +46,8 @@ export type Palette = {
   floor: Color
   text: Color
   accent: Color
+  // What is written on the selection's colour.
+  onAccent: Color
   // What the editor draws over the plan — outlines, strokes, the mark under a place.
   ink: Color
   label: Color
@@ -55,6 +56,8 @@ export type Palette = {
   // Faces of places that overlap.
   warningFill: Color
   font: string
+  // The font of a place's number.
+  numberFont: string
 }
 
 // The theme's colours, read again when the page switches between light and dark — with the system, or with the
@@ -112,12 +115,14 @@ function paletteOf(host: HTMLElement): Palette {
     floor: read('var(--plan-floor)'),
     text: read('var(--plan-text)'),
     accent: read('var(--plan-accent)'),
+    onAccent: read('var(--plan-accent-fg)'),
     ink: read('var(--ichno-ink)'),
     label: read('var(--ichno-label)'),
     grid: read('var(--ichno-grid)'),
     warning: read('var(--ichno-warning)'),
     warningFill: mix('var(--ichno-warning)', 18),
     font: getComputedStyle(host).getPropertyValue('--ichno-font').trim() || 'sans-serif',
+    numberFont: getComputedStyle(host).getPropertyValue('--ichno-number-font').trim() || 'sans-serif',
   }
 
   probe.remove()
@@ -125,21 +130,37 @@ function paletteOf(host: HTMLElement): Palette {
   return palette
 }
 
-// A top in its own colour and the sides a little darker, the way light from above shows a drawing's volumes —
-// whatever way the camera turns. Lambert light is (ambient + direct · cos) / π of the colour: a top facing the
-// light is exactly its colour, a side in the shade 72% of it.
+// Three tones for the three faces a corner view shows, the way an isometric drawing shades its volumes: a top in its
+// own colour, the side on the left a little darker, the side on the right darker again — on the screen, so they hold
+// whichever way the view is turned. The light stands over the left of the two sides that face the eye and follows
+// the camera round. Lambert light is (ambient + direct · cos) / π of the colour: a top is exactly its colour, the
+// left side LEFT_SHADE of it, the right side — square to the light — RIGHT_SHADE.
 export function Daylight() {
+  const light = useRef<DirectionalLight>(null)
+  useFrame(({ camera }) => {
+    const [rx = 1, , rz = 0, , ux = 0, , uz = 0, , tx = 0, , tz = 0] = camera.matrixWorld.elements
+    // The way toward the eye along the floor — straight down, the bottom of the view stands in for it.
+    const [x, z] = Math.hypot(tx, tz) > 1e-3 ? [tx, tz] : [-ux, -uz]
+    const length = Math.hypot(x, z) || 1
+    light.current?.position.set((x / length - rx) * LIGHT_ASIDE, 1, (z / length - rz) * LIGHT_ASIDE)
+  })
+
   return (
     <>
-      <ambientLight intensity={Math.PI * SHADE} />
-      <directionalLight position={LIGHT_FROM} intensity={(Math.PI * (1 - SHADE)) / LIGHT_FROM.clone().normalize().y} />
+      <ambientLight intensity={Math.PI * RIGHT_SHADE} />
+      <directionalLight ref={light} intensity={Math.PI * (1 - RIGHT_SHADE) * Math.hypot(1, LIGHT_ASIDE * Math.SQRT2)} />
     </>
   )
 }
 
-const SHADE = 0.72
+const RIGHT_SHADE = 0.72
 
-const LIGHT_FROM = new Vector3(0.25, 1, 0.45)
+const LEFT_SHADE = 0.86
+
+// How far aside the light stands for each unit it stands up. Of the two sides that show, the left one faces
+// (toward − right) / √2 and the right one (toward + right) / √2: a light this far along (toward − right) is square
+// to the right side and lights the left one to LEFT_SHADE.
+const LIGHT_ASIDE = (LEFT_SHADE - RIGHT_SHADE) / (1 - RIGHT_SHADE) / Math.SQRT2
 
 // ---------- Solids ----------
 
@@ -175,22 +196,17 @@ export type Solid = {
 export type Picks = Map<Object3D, (instance: number | undefined) => PlanTarget<string> | null>
 
 // Solids in their looks: one draw call per model for the faces, one per look for the edges. `ghost` draws the
-// faces see-through — what a tool would make. Pass `picks` to hit-test the faces yourself, or `onHover` and `onTap`
-// for react-three-fiber's events.
+// faces see-through — what a tool would make. Faces registered in `picks` are what the canvas hit-tests.
 export function Solids({
   solids,
   palette,
   ghost = false,
   picks,
-  onHover,
-  onTap,
 }: {
   solids: readonly Solid[]
   palette: Palette
   ghost?: boolean
   picks?: Picks
-  onHover?(solid: Solid | null): void
-  onTap?(solid: Solid, e: ThreeEvent<MouseEvent>): void
 }) {
   const faces = groupBy(
     solids.filter((solid) => solid.look.fill !== null),
@@ -208,8 +224,6 @@ export function Solids({
           solids={batch}
           ghost={ghost}
           picks={picks}
-          onHover={onHover}
-          onTap={onTap}
         />
       ))}
       {[...lines].map(([key, group]) => (
@@ -219,19 +233,7 @@ export function Solids({
   )
 }
 
-function Faces({
-  solids,
-  ghost,
-  picks,
-  onHover,
-  onTap,
-}: {
-  solids: readonly Solid[]
-  ghost: boolean
-  picks?: Picks
-  onHover?(solid: Solid | null): void
-  onTap?(solid: Solid, e: ThreeEvent<MouseEvent>): void
-}) {
+function Faces({ solids, ghost, picks }: { solids: readonly Solid[]; ghost: boolean; picks?: Picks }) {
   const ref = useRef<InstancedMesh>(null)
   // The solids as last drawn — what a hit on an instance means.
   const drawn = useRef(solids)
@@ -263,34 +265,8 @@ function Faces({
     }
   }, [picks])
 
-  const solidAt = (e: ThreeEvent<PointerEvent | MouseEvent>) =>
-    e.instanceId === undefined ? null : (drawn.current[e.instanceId] ?? null)
-
   return (
-    <instancedMesh
-      ref={ref}
-      args={[facesOf(first.model, first.round), ghost ? GHOST_FACES : FACES, solids.length]}
-      onPointerMove={
-        onHover &&
-        ((e) => {
-          e.stopPropagation()
-          onHover(solidAt(e))
-        })
-      }
-      onPointerOut={onHover && (() => onHover(null))}
-      onClick={
-        onTap &&
-        ((e) => {
-          e.stopPropagation()
-
-          // A drag turned the camera; it picked nothing.
-          if (e.delta > CLICK_SLOP_PX) return
-          const solid = solidAt(e)
-
-          if (solid) onTap(solid, e)
-        })
-      }
-    />
+    <instancedMesh ref={ref} args={[facesOf(first.model, first.round), ghost ? GHOST_FACES : FACES, solids.length]} />
   )
 }
 
@@ -360,7 +336,6 @@ function creaseSegments(solids: readonly Solid[]): Float32Array {
 // — an ellipse with half-axes a and b — and the view grazes it where the ellipse's normal is square to the
 // direction the camera looks at it from.
 function outlineSegments(solids: readonly Solid[], camera: Camera): Float32Array {
-  const ortho = camera instanceof OrthographicCamera
   camera.getWorldDirection(AHEAD)
   const lines: number[] = []
 
@@ -368,8 +343,9 @@ function outlineSegments(solids: readonly Solid[], camera: Camera): Float32Array
     const poles = polesOf(solid.model, solid.round)
 
     if (poles.length === 0) continue
-    const vx = ortho ? AHEAD.x : solid.x - camera.position.x
-    const vz = ortho ? AHEAD.z : solid.z - camera.position.z
+    // A parallel view looks at every solid from the same side.
+    const vx = AHEAD.x
+    const vz = AHEAD.z
 
     if (Math.hypot(vx, vz) < 1e-6) continue
     const cos = Math.cos(solid.yaw)
@@ -560,7 +536,7 @@ function setInk(uniforms: InkUniforms, color: Color, dash: number, gap: number) 
 
 // A frame of the ink: dashes measured in screen pixels, and marching — true while they march.
 function stepInk(uniforms: InkUniforms, state: RootState, delta: number, march: boolean): boolean {
-  uniforms.scale.value = pixelsPerUnit(state.camera, state.size.height)
+  uniforms.scale.value = state.camera.zoom
 
   if (!march || reducedMotion()) return false
   // Six pixels in 0.6 s, the 2D view's march.
@@ -658,19 +634,6 @@ function inkMaterial(): InkShader {
   return { material, uniforms }
 }
 
-// Screen pixels per plan unit where the view is aimed — exact for the editor's orthographic camera, at the floor
-// ahead for the preview's perspective one.
-function pixelsPerUnit(camera: OrthographicCamera | PerspectiveCamera, height: number): number {
-  if (camera instanceof OrthographicCamera) return camera.zoom
-  camera.getWorldDirection(AHEAD)
-  const distance = AHEAD.y < -0.05 ? camera.position.y / -AHEAD.y : FAR_AHEAD
-
-  return height / (2 * Math.max(distance, 1) * Math.tan((camera.fov * Math.PI) / 360))
-}
-
-// 25 m.
-const FAR_AHEAD = 2500
-
 let motionQuery: MediaQueryList | null = null
 
 export function reducedMotion(): boolean {
@@ -705,10 +668,11 @@ export function Floor({ points, color }: { points: readonly PlanPoint[]; color: 
 // A mesh with one plain material — a text.
 type PaintedMesh = Mesh<BufferGeometry, MeshBasicMaterial>
 
-// Text drawn once into a canvas and shown on a plane (flat or upright) or a sprite (a sign facing the camera). The
-// steeper the camera looks down, the nearer each text comes to where and how large the 2D view writes it
-// (`writing.plan`) — straight down it is the 2D view's — so text never jumps between the views. Upright text cannot
-// lie down: a flat copy takes over from it instead.
+// Text drawn once into a canvas and shown on a plane (flat or upright) or a sprite (a sign facing the camera). Each
+// text has two places: where the isometric view writes it and where the plan view does (`writing.plan`). The steeper
+// the camera looks down, the nearer it comes to the plan view's, so text never jumps on the way between the views.
+// Upright text cannot lie down: a flat copy takes over from it instead. Text lying flat reads from the left
+// whichever corner it is seen from — turned half round when the view would show it upside down.
 export function Text({ writing, color, font }: { writing: Writing; color: Color; font: string }) {
   const [label, setLabel] = useState<TextLabel | null>(null)
   const hex = color.getHexString()
@@ -723,7 +687,7 @@ export function Text({ writing, color, font }: { writing: Writing; color: Color;
     return () => made.texture.dispose()
   }, [writing.text, hex, font])
   useFrame((state) => {
-    if (label) placeText(writing, label.aspect, downOf(state.camera), sign.current ?? plane.current, lying.current)
+    if (label) placeText(writing, label.aspect, state.camera, sign.current ?? plane.current, lying.current)
   })
 
   if (!label) return null
@@ -759,8 +723,8 @@ export function Text({ writing, color, font }: { writing: Writing; color: Color;
   )
 }
 
-// How far a camera looks straight down, 0 to 1: nothing from the corner view's tilt (or flatter) up, all of it from
-// a degree off straight down, smoothly between.
+// How far a camera looks straight down, 0 to 1: nothing from the isometric view's elevation (or flatter) up, all of
+// it from a degree off straight down, smoothly between.
 function downOf(camera: Camera): number {
   camera.getWorldDirection(AHEAD)
   const steep = (Math.asin(Math.min(1, Math.max(-1, -AHEAD.y))) * 180) / Math.PI
@@ -769,16 +733,18 @@ function downOf(camera: Camera): number {
   return t * t * (3 - 2 * t)
 }
 
-// Puts a text `down` of the way from its 3D place and size to the 2D view's. `shown` is the text as the 3D view
-// writes it; `lying`, for upright text, its flat copy, coming in as the upright one goes.
+// Puts a text where the camera's steepness says, between the isometric view's place and size and the plan view's.
+// `shown` is the text as the isometric view writes it; `lying`, for upright text, its flat copy, coming in as the
+// upright one goes.
 function placeText(
   writing: Writing,
   aspect: number,
-  down: number,
+  camera: Camera,
   shown: PaintedMesh | Sprite | null,
   lying: PaintedMesh | null,
 ) {
   if (!shown) return
+  const down = downOf(camera)
   const mix = (a: number, b: number) => a + (b - a) * down
   const upright = writing.lie === 'face'
   const size = upright ? writing.size : mix(writing.size, writing.plan.size)
@@ -799,7 +765,8 @@ function placeText(
     return
   }
 
-  const yaw = upright ? writing.yaw : mix(writing.yaw, writing.plan.yaw)
+  const written = upright ? writing.yaw : mix(writing.yaw, writing.plan.yaw)
+  const yaw = upright || readsFromLeft(written, camera) ? written : written + Math.PI
   const along = { x: Math.cos(yaw), z: -Math.sin(yaw) }
   // A plane is centred on its position — a left-aligned one moves half its width along the line.
   const shift = pad === 0 ? 0 : w / 2 - pad
@@ -816,10 +783,19 @@ function placeText(
   shown.visible = down < 1
 
   if (!lying) return
+  lying.rotation.z = readsFromLeft(writing.plan.yaw, camera) ? writing.plan.yaw : writing.plan.yaw + Math.PI
   lying.position.set(writing.plan.x, writing.plan.y, writing.plan.z)
   lying.scale.setScalar(writing.plan.size / writing.size)
   lying.material.opacity = down
   lying.visible = down > 0
+}
+
+// Whether text lying flat, its line turned by `yaw`, runs toward the right of the view — or straight up it, as a
+// drawing's upright lettering does.
+function readsFromLeft(yaw: number, camera: Camera): boolean {
+  const [rx = 1, , rz = 0] = camera.matrixWorld.elements
+
+  return Math.cos(yaw) * rx - Math.sin(yaw) * rz > -1e-6
 }
 
 // A text drawn into a canvas, and how wide it is for its height.
@@ -845,6 +821,232 @@ function textTexture(text: string, color: string, font: string): TextLabel {
 
   return { texture, aspect: canvas.width / canvas.height }
 }
+
+// ---------- Numbers ----------
+
+// A place's number where it is written: lying on its seat at (x, y, z), `size` the height of its letters, in `color`.
+export type PlaceNumber = {
+  id: string
+  text: string
+  x: number
+  y: number
+  z: number
+  size: number
+  // Its size while its place settles in or away (./settling.ts) — 1 when left out.
+  grow?: number
+  color: Color
+}
+
+// Every place's number in one draw call: the texts are drawn once into a sheet, and each number is a patch of it
+// lying on its seat. They read level in the plan view and along the floor's axis in the isometric one, turning with
+// the view a quarter at a time, and are left out while too small to read — as a drawing leaves out its small print.
+export function Numbers({ numbers, font }: { numbers: readonly PlaceNumber[]; font: string }) {
+  const ref = useRef<InstancedMesh>(null)
+  const invalidate = useThree((state) => state.invalidate)
+  const [{ material, uniforms }] = useState(numberMaterial)
+  // Its own geometry — which patch of the sheet each number is, and its ink, are written on it.
+  const [plane] = useState(() => new PlaneGeometry(1, 1).rotateX(-Math.PI / 2))
+  const [sheet, setSheet] = useState<NumberSheet | null>(null)
+  // The texts there are to write — the sheet is drawn again only when one of them is new.
+  const texts = [...new Set(numbers.map((number) => number.text))].sort().join('\u0000')
+
+  useEffect(() => {
+    const made = numberSheet(texts === '' ? [] : texts.split('\u0000'), font)
+    setSheet(made)
+
+    return () => made.texture.dispose()
+  }, [texts, font])
+
+  useEffect(
+    () => () => {
+      material.dispose()
+      plane.dispose()
+    },
+    [material, plane],
+  )
+
+  useLayoutEffect(() => {
+    const mesh = ref.current
+
+    if (!mesh || !sheet) return
+    writeSheet(uniforms, sheet.texture)
+    const cells = new Float32Array(numbers.length * 4)
+    const inks = new Float32Array(numbers.length * 3)
+    numbers.forEach((number, i) => {
+      const cell = sheet.cells.get(number.text)
+      // A text the sheet had no room for is not written.
+      const h = cell ? number.size * TEXT_LINE * (number.grow ?? 1) : 0
+      mesh.setMatrixAt(
+        i,
+        MATRIX.compose(
+          POSITION.set(number.x, number.y, number.z),
+          TURN.identity(),
+          SCALE.set(h * (cell?.aspect ?? 0), 1, h),
+        ),
+      )
+
+      if (cell) cells.set([cell.u, cell.v, cell.w, cell.h], i * 4)
+      inks.set([number.color.r, number.color.g, number.color.b], i * 3)
+    })
+    plane.setAttribute('cell', new InstancedBufferAttribute(cells, 4))
+    plane.setAttribute('ink', new InstancedBufferAttribute(inks, 3))
+    mesh.instanceMatrix.needsUpdate = true
+    mesh.computeBoundingSphere()
+    invalidate()
+  })
+
+  useFrame(({ camera }) => stepNumbers(uniforms, camera))
+
+  if (numbers.length === 0 || !sheet) return null
+
+  // A new count is a new mesh.
+  return <instancedMesh key={numbers.length} ref={ref} args={[plane, material, numbers.length]} />
+}
+
+// The texts drawn into one canvas, and where each lies in it: its patch in the texture's own coordinates (from the
+// bottom left) and how wide it is for its height.
+type NumberSheet = {
+  texture: CanvasTexture
+  cells: Map<string, { u: number; v: number; w: number; h: number; aspect: number }>
+}
+
+function numberSheet(texts: readonly string[], font: string): NumberSheet {
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d', { willReadFrequently: true })!
+  const style = `600 ${NUMBER_PX}px ${font}`
+  const line = Math.ceil(NUMBER_PX * TEXT_LINE)
+  context.font = style
+  // Laid out in rows, left to right; what does not fit the sheet is left out.
+  const placed: { text: string; x: number; y: number; w: number }[] = []
+  let x = 0
+  let y = 0
+
+  for (const text of texts) {
+    const w = Math.ceil(context.measureText(text).width + NUMBER_PX * TEXT_PAD * 2)
+
+    if (x + w > SHEET_PX) {
+      x = 0
+      y += line
+    }
+
+    if (y + line > SHEET_PX || w > SHEET_PX) break
+    placed.push({ text, x, y, w })
+    x += w
+  }
+
+  canvas.width = SHEET_PX
+  canvas.height = Math.max(line, y + line)
+  // Resizing a canvas resets its state.
+  context.font = style
+  context.fillStyle = '#fff'
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+
+  for (const cell of placed) context.fillText(cell.text, cell.x + cell.w / 2, cell.y + line / 2)
+  const texture = new CanvasTexture(canvas)
+  texture.anisotropy = 8
+
+  return {
+    texture,
+    cells: new Map(
+      placed.map((cell) => [
+        cell.text,
+        {
+          u: cell.x / canvas.width,
+          v: 1 - (cell.y + line) / canvas.height,
+          w: cell.w / canvas.width,
+          h: line / canvas.height,
+          aspect: cell.w / line,
+        },
+      ]),
+    ),
+  }
+}
+
+type NumberUniforms = {
+  sheet: { value: CanvasTexture | null }
+  turn: { value: number }
+  zoom: { value: number }
+  least: { value: number }
+}
+
+// The material is three.js's, changed outside render: its sheet once drawn, its turn and zoom every frame.
+function writeSheet(uniforms: NumberUniforms, texture: CanvasTexture) {
+  uniforms.sheet.value = texture
+}
+
+function stepNumbers(uniforms: NumberUniforms, camera: RootState['camera']) {
+  const [, , , , ux = 0, , uz = 0, , tx = 0, , tz = 0] = camera.matrixWorld.elements
+  // Where the eye stands round the plan — straight down, the bottom of the view stands in for it.
+  const [x, z] = Math.hypot(tx, tz) > 1e-3 ? [tx, tz] : [-ux, -uz]
+  // The quarter the view is turned to: the plan view rests on a quarter, the isometric one half way to the next.
+  uniforms.turn.value = Math.floor(Math.atan2(x, z) / (Math.PI / 2) + 0.25) * (Math.PI / 2)
+  uniforms.zoom.value = camera.zoom
+}
+
+// The material, and its uniforms kept typed — the same objects the material reads.
+type NumberShader = { material: ShaderMaterial; uniforms: NumberUniforms }
+
+function numberMaterial(): NumberShader {
+  const uniforms: NumberUniforms = {
+    sheet: { value: null },
+    turn: { value: 0 },
+    zoom: { value: 1 },
+    least: { value: NUMBER_MIN_PX },
+  }
+
+  const material = new ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    vertexShader: /* glsl */ `
+      attribute vec4 cell;
+      attribute vec3 ink;
+      uniform float turn;
+      uniform float zoom;
+      uniform float least;
+      varying vec2 vUv;
+      varying vec3 vInk;
+      void main() {
+        vUv = cell.xy + uv * cell.zw;
+        vInk = ink;
+        // Too small on the screen to read.
+        if (length(instanceMatrix[2].xyz) * zoom < least) {
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+          return;
+        }
+        // Turned about its own middle, on the floor's plane, to the quarter the view is turned to.
+        vec3 middle = instanceMatrix[3].xyz;
+        vec3 off = (instanceMatrix * vec4(position, 1.0)).xyz - middle;
+        float c = cos(turn);
+        float s = sin(turn);
+        vec3 turned = vec3(off.x * c + off.z * s, off.y, off.z * c - off.x * s);
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(middle + turned, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D sheet;
+      varying vec2 vUv;
+      varying vec3 vInk;
+      void main() {
+        float cover = texture2D(sheet, vUv).a;
+        if (cover < 0.02) discard;
+        gl_FragColor = vec4(vInk, cover);
+        #include <colorspace_fragment>
+      }
+    `,
+  })
+
+  return { material, uniforms }
+}
+
+// Numbers are drawn this many pixels tall into a sheet this wide (and at most as tall), and left out below this
+// height on the screen — unreadable anyway.
+const NUMBER_PX = 40
+
+const SHEET_PX = 2048
+
+const NUMBER_MIN_PX = 6
 
 // ---------- Errors ----------
 
@@ -881,9 +1083,6 @@ function groupBy<T>(items: readonly T[], keyOf: (item: T) => string): Map<string
   return groups
 }
 
-// How far a press may travel and still be a tap.
-const CLICK_SLOP_PX = 6
-
 // Text is drawn this many pixels tall, on a line this many times its size.
 const TEXT_PX = 96
 
@@ -892,8 +1091,8 @@ const TEXT_LINE = 1.3
 // The room the canvas leaves either side of the letters, in the text's size.
 const TEXT_PAD = 0.2
 
-// Text is the 3D view's from the corner view's tilt and the 2D view's from a degree off straight down.
-const TEXT_FROM_DEG = 35
+// Text is the isometric view's at its elevation and the plan view's from a degree off straight down.
+const TEXT_FROM_DEG = (ISOMETRIC_ELEVATION * 180) / Math.PI
 
 const TEXT_TO_DEG = 89
 

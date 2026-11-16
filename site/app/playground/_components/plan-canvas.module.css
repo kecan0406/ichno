@@ -1,27 +1,27 @@
-/* The editor in 3D and what floats over it. */
+/* The playground's canvas and what floats over it. */
 
-/* No background of its own: until the first frame the 2D view it takes over from shows through. */
-.build {
+/* No background of its own: until the first frame the plan drawn on the server shows through. */
+.canvas {
   position: absolute;
   inset: 0;
   cursor: default;
   touch-action: none;
 }
 
-.build[data-tool='draw'] {
+.canvas[data-tool='draw'] {
   cursor: crosshair;
 }
 
-.build[data-tool='select'][data-over] {
+.canvas[data-tool='select'][data-over] {
   cursor: pointer;
 }
 
 /* The Hand, Space held, or a pan under way. */
-.build:is([data-tool='hand'], [data-pan='ready']) {
+.canvas:is([data-tool='hand'], [data-pan='ready']) {
   cursor: grab;
 }
 
-.build[data-pan='active'] {
+.canvas[data-pan='active'] {
   cursor: grabbing;
 }
 
@@ -52,8 +52,8 @@
   pointer-events: auto;
 }
 
-/* Laid on the floor: the camera's matrix, written by the view every time it moves (build-3d.tsx `layOverlay`) —
-   nothing shows before the first. */
+/* Laid on the floor: the projection's matrix, written by the view every time it moves (plan-canvas.tsx
+   `layOverlay`) — nothing shows before the first. */
 .floor {
   transform: var(--floor, scale(0));
 }
@@ -63,12 +63,12 @@
   transform: var(--level);
 }
 
-/* The selection's frame traces its dashes, as on the 2D canvas (globals.css). */
+/* The selection's frame traces its dashes. */
 .overlay [data-part='frame'] polygon {
   stroke-dasharray: 3 3;
 }
 
-/* The marquee — a box on the screen, drawn like the 2D one (parts.tsx and globals.css). */
+/* The marquee — a box on the screen, drawn as ichno's own (parts.tsx and globals.css). */
 .sweep {
   fill: var(--ichno-accent);
   fill-opacity: 0.08;
@@ -99,6 +99,11 @@
   background: var(--theme-surface);
   box-shadow: 0 1px 3px color-mix(in srgb, #000 12%, transparent);
   cursor: default;
+}
+
+/* Previewing, the switch sits in the band above the plan. */
+.canvas[data-mode='preview'] .turn {
+  top: 12px;
 }
 
 .compass {

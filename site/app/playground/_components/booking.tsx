@@ -17,7 +17,6 @@ export type PickRules = { max: number; consecutive: boolean; noOrphans: boolean 
 
 type Props = {
   plan: SeatPlan<string>
-  threeD: boolean
   picked: readonly string[]
   booked: readonly string[]
   // What `validateSelection` says of the picks.
@@ -36,7 +35,6 @@ type Props = {
 
 export function BookingPanel({
   plan,
-  threeD,
   picked,
   booked,
   issues,
@@ -142,16 +140,14 @@ export function BookingPanel({
             <summary>Preview settings</summary>
             <div className={styles.settingsBody}>
               <p className={controls.hint}>
-                The plan as your customers would see it, drawn from ichno’s parts by this playground. The rules below
-                are <code>validateSelection</code>’s; booked places become the editor’s <code>lockedIds</code>.
+                The plan as your customers would see it. The rules below are <code>validateSelection</code>’s; booked
+                places become the editor’s <code>lockedIds</code>.
               </p>
-              {threeD && (
-                <p className={controls.hint}>
-                  The 3D view is this playground’s own, built with three.js from the same document. ichno stores
-                  footprints only — heights, which way chairs face and the furniture are the playground’s reading of its
-                  roles.
-                </p>
-              )}
+              <p className={controls.hint}>
+                The drawing is this playground’s own, made with three.js through ichno’s <code>projection</code> from
+                the same document. ichno stores footprints only — heights, which way chairs face and the furniture are
+                the playground’s reading of its roles.
+              </p>
               <div className={controls.row}>
                 <span className={controls.rowLabel}>At most</span>
                 <NumberField

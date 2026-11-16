@@ -210,17 +210,16 @@
   --ichno-grid: color-mix(in srgb, var(--plan-text) 18%, var(--plan-ground));
 }
 
-.viewport {
-  cursor: default;
+/* The plan — the whole canvas while editing (previewing, preview.module.css keeps a band above it). */
+.stage {
+  position: absolute;
+  inset: 0;
 }
 
-.canvas[data-tool='draw'] .viewport {
-  cursor: crosshair;
-}
-
-.canvas[data-tool='hand'] .viewport,
-.canvas[data-tool='hand'] .viewport * {
-  cursor: grab;
+/* The plan as ichno's parts draw it on the server, under the canvas until its first frame. */
+.first {
+  position: absolute;
+  inset: 0;
 }
 
 /* The playground's section is the whole plan — there before anything is drawn, and never shown. */
@@ -234,7 +233,7 @@
   fill: color-mix(in srgb, var(--plan-floor) 70%, transparent);
 }
 
-/* What stands on the plan, painted the way the 3D views stand it up: matte charcoal with a light edge, what is
+/* What stands on the plan drawn on the server, painted the way the canvas stands it up: matte charcoal with a light edge, what is
    written on it in white, the selection the one colour. A place that cannot be picked stays an empty dashed outline
    (globals.css), and what a tool cannot make keeps its own marking (marks.module.css). */
 .canvas [data-ichno-id]:not([data-selected], [data-disabled], [data-refused] *) [data-part='shape'],
@@ -262,32 +261,6 @@
 /* Places that overlap keep their warning edge over the paint above. */
 .canvas [data-ichno-id][data-invalid]:not([data-disabled]) [data-part='shape'] {
   stroke: var(--ichno-warning);
-}
-
-.canvas :is([data-ichno-id]:not([data-disabled]), [data-ichno-wall]) {
-  cursor: pointer;
-}
-
-/* A tool draws wherever it is pressed — over places and walls too. */
-.canvas:not([data-tool='select']) :is([data-ichno-id], [data-ichno-wall]) {
-  cursor: inherit;
-}
-
-/* Space held, or a pan under way. */
-.canvas .viewport[data-pan='ready'],
-.canvas .viewport[data-pan='ready'] * {
-  cursor: grab;
-}
-
-.canvas .viewport[data-pan='active'],
-.canvas .viewport[data-pan='active'] * {
-  cursor: grabbing;
-}
-
-/* What the tool would make — drawn through, and never in the way of the pointer. */
-.draft {
-  opacity: 0.55;
-  pointer-events: none;
 }
 
 /* What a tap would select, or the layers row under the pointer — a little heavier than ichno draws it. */
@@ -361,16 +334,6 @@
   left: 12px;
   z-index: 2;
   box-shadow: 0 2px 8px -2px color-mix(in srgb, #000 20%, transparent);
-}
-
-.loading {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  color: var(--plan-text);
-  font-size: 13px;
 }
 
 /* ---------- Narrow screens: the plan, then its properties, then its layers ---------- */

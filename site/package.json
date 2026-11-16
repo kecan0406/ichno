@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@react-three/fiber": "^9.8.2",
-    "camera-controls": "^3.1.2",
     "ichno": "workspace:*",
     "motion": "^13.4.3",
     "next": "^16.3.6",
