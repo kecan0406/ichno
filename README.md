@@ -186,6 +186,35 @@ Pure building blocks any renderer can share:
   it the same way and gets the same presses
 - `edgeScroll.step(state, pointer, size, now)` — how far a view scrolls this frame while a press is held at its edge
 - `placeNavigation.next(items, fromId, 'left')` — arrow-key movement between places
+- `projection` — the plan seen through a parallel projection, for a renderer that stands it up (below)
+
+### Projections
+
+A renderer of your own that shows the plan from a corner needs one thing to be exact: where a point of the room is
+drawn. `projection` is that definition — a linear map from a plan point and a height above it to the drawing — so a
+WebGL camera, an SVG transform and a hit-test given the same projection agree to the pixel.
+
+```ts
+import { projection } from 'ichno'
+
+const plan = projection.plan() // straight down, at the plan's own scale
+const iso = projection.isometric() // from the bottom-right corner; isometric(1) is the next corner round
+
+projection.toScreen(iso, { x: 100, y: 0 }) // { x: 86.6, y: 50 } — the floor's axes run 30° off the level
+projection.toScreen(iso, { x: 0, y: 0, z: 100 }) // { x: 0, y: -100 } — heights run straight up
+projection.toFloor(iso, { x: 86.6, y: 50 }) // { x: 100, y: 0 } — the floor point under a point of the drawing
+projection.floorMatrix(iso) // [a, b, c, d] for an SVG or CSS matrix(a, b, c, d, 0, 0) that lays the plan on the floor
+projection.basis(iso) // the view's right, up and the way toward the eye — what a camera is set by
+projection.extent(iso, rect, height) // the room a box takes on the drawing, to fit a view to
+```
+
+The isometric view is the drafting one: the eye on a cube's diagonal (`ISOMETRIC_ELEVATION`, 35.264°), the three axes
+120° apart, and the drawing enlarged by `ISOMETRIC_SCALE` (√1.5) so a plan unit along x, along y or upward is one
+unit long — an isometric drawing, not the projection 0.8165 of its size. A length along an axis therefore measures
+the same in the plan view and in the isometric one; a line across the axes does not, as in any isometric drawing.
+A `Projection` is plain data (`azimuth`, `elevation`, `scale`), so a view between the two — a camera on its way from
+one to the other — is one too. ichno's own parts draw the plan view only; heights are not in the document, so what
+stands on a footprint and how tall is your renderer's reading of its roles.
 
 ## Draw
 

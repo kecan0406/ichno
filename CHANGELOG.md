@@ -4,6 +4,14 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+- `ichno`: `projection` — the plan seen through a parallel projection, for renderers that stand it up.
+  `projection.plan(quarter)` is the plan view and `projection.isometric(quarter)` the isometric one from a corner
+  (the eye on a cube's diagonal, drawn at `ISOMETRIC_SCALE` so a plan unit along any of the three axes is one unit
+  long); `toScreen` and `toFloor` map between the room and the drawing, `floorMatrix` is the same map for an SVG or
+  CSS `matrix()`, `basis` gives the directions a camera is set by and `extent` the room a box takes on the drawing.
+  New types `Projection`, `ProjectionBasis`, `SpacePoint`, `SpaceVector` and `FloorMatrix`; new constants
+  `ISOMETRIC_ELEVATION` and `ISOMETRIC_SCALE`. Nothing ichno draws changes.
+
 ## 0.3.1 — 2026-11-15
 
 - `ichno`: the home view takes room at single sides on top of its margin — `planView.home(plan, margin, room)` and

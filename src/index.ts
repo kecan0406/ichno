@@ -64,6 +64,17 @@ export { validateSelection, type SelectionIssue, type SelectionRules } from './c
 
 export { ZOOM_STEP, planView, type PlanView, type Sides, type ViewportSize } from './core/view'
 
+export {
+  ISOMETRIC_ELEVATION,
+  ISOMETRIC_SCALE,
+  projection,
+  type FloorMatrix,
+  type Projection,
+  type ProjectionBasis,
+  type SpacePoint,
+  type SpaceVector,
+} from './core/projection'
+
 export { spatialIndex, type SpatialIndex, type SpatialItem } from './core/spatial'
 
 export {

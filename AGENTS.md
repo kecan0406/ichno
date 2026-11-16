@@ -36,7 +36,7 @@ them — a consumer importing the core must never pull in zod or React. No canva
 
 | Source             | Entry                | May import           | Notes                                                                                                                                                                     |
 | ------------------ | -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/core`         | `ichno`              | nothing external     | Types, geometry, layouts, rules, view math, interaction core. Pure functions only.                                                                                        |
+| `src/core`         | `ichno`              | nothing external     | Types, geometry, layouts, rules, view math, projections, interaction core. Pure functions only.                                                                           |
 | `src/theme`        | `ichno`              | nothing external     | The CSS variable contract (`vars.ts`).                                                                                                                                    |
 | `src/schema`       | `ichno/schema`       | `zod`, core          | The only place zod is allowed.                                                                                                                                            |
 | `src/react`        | `ichno/react`        | `react`, core, theme | Server-safe parts: no hooks, no state, no handlers, no `'use client'`. Not compiled. Never import `src/react/client` — a page that only draws a plan must send no script. |
