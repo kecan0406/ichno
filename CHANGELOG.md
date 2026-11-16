@@ -4,6 +4,8 @@ All notable changes to this package. Versions follow semver; before 1.0 a breaki
 
 ## Unreleased
 
+## 0.3.2 — 2026-11-16
+
 - `ichno`: `projection` — the plan seen through a parallel projection, for renderers that stand it up.
   `projection.plan(quarter)` is the plan view and `projection.isometric(quarter)` the isometric one from a corner
   (the eye on a cube's diagonal, drawn at `ISOMETRIC_SCALE` so a plan unit along any of the three axes is one unit
